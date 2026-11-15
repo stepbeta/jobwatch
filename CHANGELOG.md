@@ -36,3 +36,6 @@
   missing offer-state transitions are spelled out. Revisions are listed
   in SPEC §11.
 - MILESTONES now separates permanent deviations from open known gaps.
+- AGENTS.md layout lists `internal/scan` and the migrations embed file;
+  its documentation duty now also covers README, SPEC revisions and the
+  AGENTS.md layout itself.

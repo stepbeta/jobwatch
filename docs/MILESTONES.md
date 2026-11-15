@@ -32,7 +32,7 @@ Done criteria (all met):
 | Fingerprint fields joined with a 0x1F separator; location bucket defined as in DATA-MODEL.md | avoids ambiguous concatenation; deterministic collision rule |
 | Rate limit applied per host, using the source's configured interval (or robots `Crawl-delay` if larger) | several sources on one ATS host must not burst it |
 | State rules clarified: `disappeared` → `active` when seen again; `changed` stays `changed` on later unchanged sightings; an offer listed on several sources disappears only when no source still lists it | SPEC did not define these cases |
-| New package `internal/scan` (not in the AGENTS.md layout) | the pipeline needs both `db` and `sources` and will be shared by CLI and API. AGENTS.md is not updated yet |
+| New package `internal/scan` (added to the AGENTS.md layout afterwards) | the pipeline needs both `db` and `sources` and will be shared by CLI and API |
 
 ### Known gaps (open; SPEC unchanged, to be closed in later milestones)
 

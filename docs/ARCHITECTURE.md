@@ -12,7 +12,7 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 | `internal/db` | `Open` (DSN pragmas: WAL, foreign_keys, busy_timeout 5s, `_txlock=immediate`), migration runner, `Backup` (`VACUUM INTO`), queries over a `Querier` (`*sql.DB` or `*sql.Tx`) |
 | `internal/model` | Table structs, enum constants, `normalize.go` (company/title normalization, location bucket, fingerprint, text hash), time helpers |
 | `internal/sources` | `Fetcher` interface, `RawOffer`, `Config` (config_json), `Registry`, polite HTTP `Client`, robots.txt parser, URL type detection, adapters |
-| `internal/scan` | Scan pipeline and manual import (added; not in the original AGENTS.md layout — it depends on both `db` and `sources`, and will be shared by CLI and API) |
+| `internal/scan` | Scan pipeline and manual import; depends on both `db` and `sources`, shared by CLI and (later) API |
 | `internal/api` | REST handlers under `/api` (only `GET /api/health` so far) |
 | `internal/classify` | Placeholder for the scoring engine |
 | `web/` | Placeholder for the SPA |

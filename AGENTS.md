@@ -54,11 +54,12 @@ notes, states) per offer and per company.
 cmd/jobwatch/        main + subcommands
 internal/db/         sqlite setup, migrations runner, queries
 internal/sources/    Fetcher interface + per-type adapters
+internal/scan/       scan pipeline + manual import (uses db + sources)
 internal/classify/   scoring engine + keyword tables
 internal/api/        REST handlers
 internal/model/      types shared across packages
 web/                 React SPA source
-migrations/          numbered .sql files
+migrations/          numbered .sql files + embed.FS (migrations.go)
 docs/                living documentation (see below)
 ```
 
@@ -78,7 +79,13 @@ same session MUST update:
 4. `CHANGELOG.md` — one entry per session under a "Unreleased" heading:
    Added / Changed / Fixed bullets, written for a human reader.
 5. `docs/MILESTONES.md` — mark completed milestones and their done
-   criteria; add deviations from the original plan with a short reason.
+   criteria; add deviations from the original plan with a short reason,
+   and keep the known-gaps table current.
+6. `README.md` — build/run instructions and command reference. Update
+   when commands, flags, or source configuration change.
+7. `docs/SPEC.md` — only for permanent decisions that change the
+   specification; record each revision in its "Spec revisions" section.
+8. `AGENTS.md` — repository layout, when packages are added or moved.
 
 Rules:
 - Documentation changes belong in the SAME commit/code batch as the
