@@ -24,7 +24,9 @@ application lifecycle (timeline, notes, states) per offer and per company.
   command that copies the DB file safely.
 - The HTTP server serves both the REST API and the embedded SPA.
 - Respectful crawling only: honor `robots.txt`, rate-limit requests per
-  source (default ~1 req/2s, configurable per source), set a realistic
+  source (default ~1 req/2s, configurable per source; enforced per host,
+  so sources sharing an ATS host share the limit, and a larger robots
+  `Crawl-delay` wins), set a realistic
   User-Agent, never attempt to bypass anti-bot systems. If a source
   blocks or fails repeatedly, mark it `error` and move on.
 - Everything (CRUD on sources, offers, states, notes, scanning, import)
@@ -61,8 +63,8 @@ sources (
   name TEXT NOT NULL,
   url TEXT NOT NULL,
   source_type TEXT NOT NULL,      -- greenhouse | lever | ashby | personio | workable | wttj | rss | html | manual
-  config_json TEXT DEFAULT '{}',  -- per-type config: board token, tenant, selectors, etc.
-  enabled BOOLEAN DEFAULT true,
+  config_json TEXT NOT NULL DEFAULT '{}',  -- per-type config: board token, tenant, selectors, etc.
+  enabled INTEGER NOT NULL DEFAULT 1,      -- boolean (SQLite has no BOOLEAN type)
   last_scan_at TEXT,
   last_scan_status TEXT,          -- ok | error | blocked
   created_at TEXT
@@ -74,7 +76,7 @@ job_offers (
   title TEXT NOT NULL,
   title_normalized TEXT NOT NULL,
   location TEXT,                  -- free text as parsed
-  remote_policy TEXT,             -- remote | hybrid | onsite | unknown
+  remote_policy TEXT NOT NULL DEFAULT 'unknown',  -- remote | hybrid | onsite | unknown
   url TEXT,                       -- canonical (first-seen) link
   fingerprint TEXT UNIQUE NOT NULL,  -- hash(company_normalized + title_normalized [+ location bucket])
   first_seen_at TEXT NOT NULL,
@@ -133,6 +135,11 @@ snapshots (                       -- historical description snapshots
 Enable SQLite FTS5 over `job_offers.title` and `job_offers.raw_text`,
 plus over `notes.body`, for full-text search.
 
+Enum-like TEXT columns are validated in application code, not with
+CHECK constraints, so that adding a value never requires a table
+rebuild (migrations stay additive). `docs/DATA-MODEL.md` is the
+column-level reference for the implemented schema.
+
 ## 5. Deduplication & company matching
 
 - Company resolution: normalize name (lowercase, strip punctuation and
@@ -141,16 +148,26 @@ plus over `notes.body`, for full-text search.
   fuzzy match (normalized edit distance threshold) proposes a merge
   candidate but **never merges silently** — the UI shows "possible
   duplicate company" with a user-confirmable merge action.
-- Offer identity: `fingerprint = hash(company_normalized + title_normalized)`.
+- Offer identity: `fingerprint = hash(company_normalized + title_normalized)`
+  (SHA-256 hex, fields joined with a 0x1F separator).
   On collision (two genuinely different roles with identical titles at the
-  same company), disambiguate with a location bucket; the UI must let the
+  same company), disambiguate with a location bucket: a sighting whose
+  location bucket differs from the stored offer's (both known) uses
+  `hash(company + title + bucket)` instead. The bucket rule is defined in
+  `docs/DATA-MODEL.md`. The UI must let the
   user manually merge two offers and manually split a wrongly merged one.
 - Offer state transitions during scan:
   - seen again → update `last_seen_at`, provenance `last_seen_at`
   - `text_hash` changed → `offer_state = changed`, add a snapshot, and
     record what changed (diff summary) in the UI
   - not seen in a full scan of its source → `offer_state = disappeared`
-    (do not delete; the user tracks the application anyway)
+    (do not delete; the user tracks the application anyway). An offer
+    listed on several sources disappears only when no other source saw
+    it in that source's latest successful scan. Failed scans change no
+    offer.
+  - `disappeared` offer seen again → `offer_state = active`
+  - a `changed` offer stays `changed` on later unchanged sightings until
+    the user acknowledges it
 
 ## 6. Classification engine (deterministic, hardcoded)
 
@@ -194,7 +211,7 @@ Priority of implementations for v1:
 
 1. `greenhouse`  — GET `https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true`
 2. `lever`       — GET `https://api.lever.co/v0/postings/{company}?mode=json`
-3. `ashby`       — POST `https://api.ashbyhq.com/posting-api/job-board/{org}`
+3. `ashby`       — GET `https://api.ashbyhq.com/posting-api/job-board/{org}`
 4. `personio`    — XML feed at `{tenant}.jobs.personio.de/xml`
 5. `workable`    — public widget API
 6. `rss`         — generic RSS/Atom
@@ -267,3 +284,15 @@ plain React + a lightweight table component is fine.
 - Anti-bot evasion, proxy rotation, headless browsers
 - Multi-user, auth, deployment anywhere but localhost
 - Auto-merging companies or offers without explicit user confirmation
+
+## 11. Spec revisions
+
+- 2026-11-15 (after Milestone 1): Ashby endpoint corrected from POST to
+  GET (per Ashby's public posting API docs); `sources.config_json`,
+  `sources.enabled` and `job_offers.remote_policy` made NOT NULL with
+  defaults; enum validation moved to application code; fingerprint
+  separator, location-bucket collision rule and missing offer-state
+  transitions (reappearance, sticky `changed`, multi-source
+  disappearance) specified; per-source rate limit clarified as enforced
+  per host. Open gaps against this spec are tracked in
+  `docs/MILESTONES.md`.

@@ -35,7 +35,7 @@ Adapters (`sources.NewRegistry`):
 |---|---|---|
 | greenhouse | `GET https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true` | `content` is entity-escaped HTML → unescaped → plain text; `company_name` fills `RawOffer.Company` |
 | lever | `GET https://api.lever.co/v0/postings/{site}?mode=json` (`api.eu.lever.co` when `region=eu`) | description = `descriptionPlain` + lists + `additionalPlain`; multiple `allLocations` joined with `; ` |
-| ashby | `GET https://api.ashbyhq.com/posting-api/job-board/{org}` | GET per Ashby's public docs (SPEC says POST). `isListed=false` skipped; secondary locations joined with `; ` |
+| ashby | `GET https://api.ashbyhq.com/posting-api/job-board/{org}` | `isListed=false` skipped; secondary locations joined with `; ` |
 
 Other types return `ErrNotImplemented`; the scan skips them.
 

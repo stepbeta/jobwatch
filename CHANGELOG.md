@@ -27,3 +27,12 @@
 - CLI commands: `serve` (local server with `GET /api/health`), `scan`,
   `add-source`, `list`, `import`, `backup`.
 - Documentation: ARCHITECTURE, DATA-MODEL, API, MILESTONES.
+- README with build, quick-start and command reference.
+
+### Changed
+- SPEC updated to match decisions made in Milestone 1: Ashby is fetched
+  with GET, a few schema columns are NOT NULL with defaults, enum values
+  are checked by the application, and the fingerprint collision rule and
+  missing offer-state transitions are spelled out. Revisions are listed
+  in SPEC §11.
+- MILESTONES now separates permanent deviations from open known gaps.
