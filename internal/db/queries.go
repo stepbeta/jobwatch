@@ -1,0 +1,525 @@
+package db
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/stepbeta/jobwatch/internal/model"
+)
+
+// Querier is satisfied by both *sql.DB and *sql.Tx so queries can run
+// inside or outside a transaction.
+type Querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// ErrNotFound is returned when a looked-up row does not exist.
+var ErrNotFound = errors.New("not found")
+
+func nullStr(p *string) sql.NullString {
+	if p == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: *p, Valid: true}
+}
+
+func strPtr(n sql.NullString) *string {
+	if !n.Valid {
+		return nil
+	}
+	s := n.String
+	return &s
+}
+
+func nullInt(p *int64) sql.NullInt64 {
+	if p == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: *p, Valid: true}
+}
+
+func intPtr(n sql.NullInt64) *int {
+	if !n.Valid {
+		return nil
+	}
+	i := int(n.Int64)
+	return &i
+}
+
+func int64Ptr(n sql.NullInt64) *int64 {
+	if !n.Valid {
+		return nil
+	}
+	i := n.Int64
+	return &i
+}
+
+func parseTime(s string) time.Time {
+	t, err := model.ParseTime(s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+func parseNullTime(n sql.NullString) time.Time {
+	if !n.Valid {
+		return time.Time{}
+	}
+	return parseTime(n.String)
+}
+
+// ---------- companies ----------
+
+// ResolveCompany returns the company whose normalized name equals the
+// normalized form of name, creating it if missing. created reports
+// whether a new row was inserted. Only exact normalized matches are
+// used; fuzzy matching never merges.
+func ResolveCompany(ctx context.Context, q Querier, name string, now time.Time) (c model.Company, created bool, err error) {
+	name = strings.TrimSpace(name)
+	norm := model.NormalizeCompanyName(name)
+	if norm == "" {
+		return model.Company{}, false, fmt.Errorf("resolve company: empty name")
+	}
+	c, err = GetCompanyByNormalized(ctx, q, norm)
+	if err == nil {
+		return c, false, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return model.Company{}, false, err
+	}
+	res, err := q.ExecContext(ctx,
+		`INSERT INTO companies(name, name_normalized, created_at) VALUES (?, ?, ?)`,
+		name, norm, model.FormatTime(now))
+	if err != nil {
+		return model.Company{}, false, fmt.Errorf("insert company %q: %w", name, err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return model.Company{}, false, fmt.Errorf("insert company %q: %w", name, err)
+	}
+	return model.Company{ID: id, Name: name, NameNormalized: norm, CreatedAt: now.UTC().Truncate(time.Second)}, true, nil
+}
+
+// GetCompanyByNormalized looks a company up by its normalized name.
+func GetCompanyByNormalized(ctx context.Context, q Querier, norm string) (model.Company, error) {
+	var c model.Company
+	var website, created sql.NullString
+	err := q.QueryRowContext(ctx,
+		`SELECT id, name, name_normalized, website, created_at FROM companies WHERE name_normalized = ?`, norm).
+		Scan(&c.ID, &c.Name, &c.NameNormalized, &website, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Company{}, ErrNotFound
+	}
+	if err != nil {
+		return model.Company{}, fmt.Errorf("get company %q: %w", norm, err)
+	}
+	c.Website = strPtr(website)
+	c.CreatedAt = parseNullTime(created)
+	return c, nil
+}
+
+// ---------- sources ----------
+
+const sourceColumns = `id, name, url, source_type, config_json, enabled, last_scan_at, last_scan_status, created_at`
+
+func scanSource(row interface{ Scan(...any) error }) (model.Source, error) {
+	var s model.Source
+	var typ string
+	var lastAt, lastStatus, created sql.NullString
+	if err := row.Scan(&s.ID, &s.Name, &s.URL, &typ, &s.ConfigJSON, &s.Enabled, &lastAt, &lastStatus, &created); err != nil {
+		return model.Source{}, err
+	}
+	s.Type = model.SourceType(typ)
+	if lastAt.Valid {
+		t := parseTime(lastAt.String)
+		s.LastScanAt = &t
+	}
+	if lastStatus.Valid {
+		st := model.ScanStatus(lastStatus.String)
+		s.LastScanStatus = &st
+	}
+	s.CreatedAt = parseNullTime(created)
+	return s, nil
+}
+
+// InsertSource stores a new source and returns it with its ID.
+func InsertSource(ctx context.Context, q Querier, s model.Source, now time.Time) (model.Source, error) {
+	if !s.Type.Valid() {
+		return model.Source{}, fmt.Errorf("insert source: invalid source_type %q", s.Type)
+	}
+	if s.ConfigJSON == "" {
+		s.ConfigJSON = "{}"
+	}
+	res, err := q.ExecContext(ctx,
+		`INSERT INTO sources(name, url, source_type, config_json, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		s.Name, s.URL, string(s.Type), s.ConfigJSON, s.Enabled, model.FormatTime(now))
+	if err != nil {
+		return model.Source{}, fmt.Errorf("insert source %q: %w", s.URL, err)
+	}
+	s.ID, err = res.LastInsertId()
+	if err != nil {
+		return model.Source{}, fmt.Errorf("insert source %q: %w", s.URL, err)
+	}
+	s.CreatedAt = now.UTC().Truncate(time.Second)
+	return s, nil
+}
+
+// GetSource returns the source with the given ID.
+func GetSource(ctx context.Context, q Querier, id int64) (model.Source, error) {
+	s, err := scanSource(q.QueryRowContext(ctx, `SELECT `+sourceColumns+` FROM sources WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Source{}, ErrNotFound
+	}
+	if err != nil {
+		return model.Source{}, fmt.Errorf("get source %d: %w", id, err)
+	}
+	return s, nil
+}
+
+// FindSourceByURL returns the first source registered with url.
+func FindSourceByURL(ctx context.Context, q Querier, url string) (model.Source, error) {
+	s, err := scanSource(q.QueryRowContext(ctx, `SELECT `+sourceColumns+` FROM sources WHERE url = ? ORDER BY id LIMIT 1`, url))
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Source{}, ErrNotFound
+	}
+	if err != nil {
+		return model.Source{}, fmt.Errorf("find source %q: %w", url, err)
+	}
+	return s, nil
+}
+
+// ListSources returns sources ordered by ID, optionally only enabled ones.
+func ListSources(ctx context.Context, q Querier, enabledOnly bool) ([]model.Source, error) {
+	query := `SELECT ` + sourceColumns + ` FROM sources`
+	if enabledOnly {
+		query += ` WHERE enabled = 1`
+	}
+	query += ` ORDER BY id`
+	rows, err := q.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list sources: %w", err)
+	}
+	defer rows.Close()
+	var out []model.Source
+	for rows.Next() {
+		s, err := scanSource(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list sources: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// UpdateSourceScan records the time and outcome of a scan.
+func UpdateSourceScan(ctx context.Context, q Querier, id int64, at time.Time, status model.ScanStatus) error {
+	if _, err := q.ExecContext(ctx,
+		`UPDATE sources SET last_scan_at = ?, last_scan_status = ? WHERE id = ?`,
+		model.FormatTime(at), string(status), id); err != nil {
+		return fmt.Errorf("update source %d scan status: %w", id, err)
+	}
+	return nil
+}
+
+// ---------- offers ----------
+
+// offerColumns returns the job_offers column list in scanOffer order,
+// each column qualified with prefix (e.g. "o.") when non-empty.
+func offerColumns(prefix string) string {
+	cols := []string{"id", "company_id", "title", "title_normalized", "location", "remote_policy", "url", "fingerprint",
+		"first_seen_at", "last_seen_at", "offer_state", "application_state", "raw_text", "text_hash",
+		"title_confidence", "location_confidence", "match_reasons_json", "created_at", "updated_at"}
+	for i, c := range cols {
+		cols[i] = prefix + c
+	}
+	return strings.Join(cols, ", ")
+}
+
+func scanOffer(row interface{ Scan(...any) error }) (model.JobOffer, error) {
+	var o model.JobOffer
+	var location, url, rawText, textHash, reasons, created, updated sql.NullString
+	var remote, firstSeen, lastSeen, offerState, appState string
+	var titleConf, locConf sql.NullInt64
+	if err := row.Scan(&o.ID, &o.CompanyID, &o.Title, &o.TitleNormalized, &location, &remote, &url, &o.Fingerprint,
+		&firstSeen, &lastSeen, &offerState, &appState, &rawText, &textHash,
+		&titleConf, &locConf, &reasons, &created, &updated); err != nil {
+		return model.JobOffer{}, err
+	}
+	o.Location = strPtr(location)
+	o.RemotePolicy = model.RemotePolicy(remote)
+	o.URL = strPtr(url)
+	o.FirstSeenAt = parseTime(firstSeen)
+	o.LastSeenAt = parseTime(lastSeen)
+	o.OfferState = model.OfferState(offerState)
+	o.ApplicationState = model.ApplicationState(appState)
+	o.RawText = strPtr(rawText)
+	o.TextHash = strPtr(textHash)
+	o.TitleConfidence = intPtr(titleConf)
+	o.LocationConfidence = intPtr(locConf)
+	o.MatchReasonsJSON = strPtr(reasons)
+	o.CreatedAt = parseNullTime(created)
+	o.UpdatedAt = parseNullTime(updated)
+	return o, nil
+}
+
+// GetOfferByFingerprint returns the offer with the given fingerprint.
+func GetOfferByFingerprint(ctx context.Context, q Querier, fp string) (model.JobOffer, error) {
+	o, err := scanOffer(q.QueryRowContext(ctx, `SELECT `+offerColumns("")+` FROM job_offers WHERE fingerprint = ?`, fp))
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.JobOffer{}, ErrNotFound
+	}
+	if err != nil {
+		return model.JobOffer{}, fmt.Errorf("get offer by fingerprint: %w", err)
+	}
+	return o, nil
+}
+
+// GetOffer returns the offer with the given ID.
+func GetOffer(ctx context.Context, q Querier, id int64) (model.JobOffer, error) {
+	o, err := scanOffer(q.QueryRowContext(ctx, `SELECT `+offerColumns("")+` FROM job_offers WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.JobOffer{}, ErrNotFound
+	}
+	if err != nil {
+		return model.JobOffer{}, fmt.Errorf("get offer %d: %w", id, err)
+	}
+	return o, nil
+}
+
+// InsertOffer stores a new offer. FirstSeenAt/LastSeenAt/CreatedAt/
+// UpdatedAt are all set to now; states default to active/todo when empty.
+func InsertOffer(ctx context.Context, q Querier, o model.JobOffer, now time.Time) (model.JobOffer, error) {
+	if o.OfferState == "" {
+		o.OfferState = model.OfferActive
+	}
+	if o.ApplicationState == "" {
+		o.ApplicationState = model.AppTodo
+	}
+	if o.RemotePolicy == "" {
+		o.RemotePolicy = model.RemoteUnknown
+	}
+	ts := model.FormatTime(now)
+	res, err := q.ExecContext(ctx, `INSERT INTO job_offers(
+		company_id, title, title_normalized, location, remote_policy, url, fingerprint,
+		first_seen_at, last_seen_at, offer_state, application_state, raw_text, text_hash,
+		created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		o.CompanyID, o.Title, o.TitleNormalized, nullStr(o.Location), string(o.RemotePolicy), nullStr(o.URL), o.Fingerprint,
+		ts, ts, string(o.OfferState), string(o.ApplicationState), nullStr(o.RawText), nullStr(o.TextHash),
+		ts, ts)
+	if err != nil {
+		return model.JobOffer{}, fmt.Errorf("insert offer %q: %w", o.Title, err)
+	}
+	if o.ID, err = res.LastInsertId(); err != nil {
+		return model.JobOffer{}, fmt.Errorf("insert offer %q: %w", o.Title, err)
+	}
+	t := now.UTC().Truncate(time.Second)
+	o.FirstSeenAt, o.LastSeenAt, o.CreatedAt, o.UpdatedAt = t, t, t, t
+	return o, nil
+}
+
+// UpdateOfferSighting records that an existing offer was seen again:
+// sets last_seen_at, offer_state, raw_text and text_hash.
+func UpdateOfferSighting(ctx context.Context, q Querier, id int64, state model.OfferState, rawText, textHash *string, now time.Time) error {
+	ts := model.FormatTime(now)
+	if _, err := q.ExecContext(ctx, `UPDATE job_offers
+		SET last_seen_at = ?, offer_state = ?, raw_text = ?, text_hash = ?, updated_at = ?
+		WHERE id = ?`,
+		ts, string(state), nullStr(rawText), nullStr(textHash), ts, id); err != nil {
+		return fmt.Errorf("update offer %d sighting: %w", id, err)
+	}
+	return nil
+}
+
+// TouchOfferLastSeen only bumps last_seen_at (manual re-import).
+func TouchOfferLastSeen(ctx context.Context, q Querier, id int64, now time.Time) error {
+	ts := model.FormatTime(now)
+	if _, err := q.ExecContext(ctx, `UPDATE job_offers SET last_seen_at = ?, updated_at = ? WHERE id = ?`, ts, ts, id); err != nil {
+		return fmt.Errorf("touch offer %d: %w", id, err)
+	}
+	return nil
+}
+
+// MarkDisappeared sets offer_state = disappeared for every offer that has
+// a provenance row for sourceID not seen since scanAt, unless the offer
+// was seen by another source in that source's latest scan. Returns the
+// IDs of offers transitioned.
+func MarkDisappeared(ctx context.Context, q Querier, sourceID int64, scanAt time.Time) ([]int64, error) {
+	ts := model.FormatTime(scanAt)
+	rows, err := q.QueryContext(ctx, `
+		SELECT DISTINCT o.id FROM job_offers o
+		JOIN job_offer_provenance p ON p.offer_id = o.id
+		WHERE p.source_id = ?
+		  AND o.offer_state != 'disappeared'
+		  AND NOT EXISTS (
+		      SELECT 1 FROM job_offer_provenance p2
+		      WHERE p2.offer_id = o.id AND p2.source_id = ? AND p2.last_seen_at >= ?)
+		  AND NOT EXISTS (
+		      SELECT 1 FROM job_offer_provenance p3
+		      JOIN sources s ON s.id = p3.source_id
+		      WHERE p3.offer_id = o.id AND p3.source_id != ?
+		        AND s.last_scan_status = 'ok'
+		        AND s.last_scan_at IS NOT NULL
+		        AND p3.last_seen_at >= s.last_scan_at)
+		ORDER BY o.id`, sourceID, sourceID, ts, sourceID)
+	if err != nil {
+		return nil, fmt.Errorf("find disappeared offers for source %d: %w", sourceID, err)
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("find disappeared offers: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("find disappeared offers: %w", err)
+	}
+	for _, id := range ids {
+		if _, err := q.ExecContext(ctx,
+			`UPDATE job_offers SET offer_state = 'disappeared', updated_at = ? WHERE id = ?`, ts, id); err != nil {
+			return nil, fmt.Errorf("mark offer %d disappeared: %w", id, err)
+		}
+	}
+	return ids, nil
+}
+
+// OfferListItem is an offer joined with its company name for listings.
+type OfferListItem struct {
+	model.JobOffer
+	CompanyName string
+}
+
+// OfferFilter narrows ListOffers. Zero values mean "no filter".
+type OfferFilter struct {
+	OfferState       model.OfferState
+	ApplicationState model.ApplicationState
+	Limit            int
+}
+
+// ListOffers returns offers ordered by most recently seen first.
+func ListOffers(ctx context.Context, q Querier, f OfferFilter) ([]OfferListItem, error) {
+	var b strings.Builder
+	b.WriteString(`SELECT c.name, ` + offerColumns("o.") + ` FROM job_offers o JOIN companies c ON c.id = o.company_id WHERE 1=1`)
+	var args []any
+	if f.OfferState != "" {
+		b.WriteString(` AND o.offer_state = ?`)
+		args = append(args, string(f.OfferState))
+	}
+	if f.ApplicationState != "" {
+		b.WriteString(` AND o.application_state = ?`)
+		args = append(args, string(f.ApplicationState))
+	}
+	b.WriteString(` ORDER BY o.last_seen_at DESC, o.id DESC`)
+	if f.Limit > 0 {
+		b.WriteString(` LIMIT ?`)
+		args = append(args, f.Limit)
+	}
+	rows, err := q.QueryContext(ctx, b.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("list offers: %w", err)
+	}
+	defer rows.Close()
+	var out []OfferListItem
+	for rows.Next() {
+		var item OfferListItem
+		o, err := scanOffer(prefixScanner{rows, &item.CompanyName})
+		if err != nil {
+			return nil, fmt.Errorf("list offers: %w", err)
+		}
+		item.JobOffer = o
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// prefixScanner scans one leading column into first before the rest.
+type prefixScanner struct {
+	rows  *sql.Rows
+	first any
+}
+
+func (p prefixScanner) Scan(dest ...any) error {
+	return p.rows.Scan(append([]any{p.first}, dest...)...)
+}
+
+// ---------- provenance ----------
+
+// UpsertProvenance records a sighting of offerID at url. An existing
+// (offer_id, url) row has its last_seen_at, source and external UID
+// refreshed; otherwise a new row is inserted. created reports insertion.
+func UpsertProvenance(ctx context.Context, q Querier, offerID int64, sourceID *int64, externalUID *string, url string, now time.Time) (created bool, err error) {
+	ts := model.FormatTime(now)
+	res, err := q.ExecContext(ctx, `UPDATE job_offer_provenance
+		SET last_seen_at = ?, source_id = COALESCE(?, source_id), external_uid = COALESCE(?, external_uid)
+		WHERE offer_id = ? AND url = ?`,
+		ts, nullInt(sourceID), nullStr(externalUID), offerID, url)
+	if err != nil {
+		return false, fmt.Errorf("update provenance for offer %d: %w", offerID, err)
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return false, nil
+	}
+	if _, err := q.ExecContext(ctx, `INSERT INTO job_offer_provenance(
+		offer_id, source_id, external_uid, url, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		offerID, nullInt(sourceID), nullStr(externalUID), url, ts, ts); err != nil {
+		return false, fmt.Errorf("insert provenance for offer %d: %w", offerID, err)
+	}
+	return true, nil
+}
+
+// ListProvenance returns all provenance rows of an offer.
+func ListProvenance(ctx context.Context, q Querier, offerID int64) ([]model.Provenance, error) {
+	rows, err := q.QueryContext(ctx, `SELECT id, offer_id, source_id, external_uid, url, first_seen_at, last_seen_at
+		FROM job_offer_provenance WHERE offer_id = ? ORDER BY id`, offerID)
+	if err != nil {
+		return nil, fmt.Errorf("list provenance for offer %d: %w", offerID, err)
+	}
+	defer rows.Close()
+	var out []model.Provenance
+	for rows.Next() {
+		var p model.Provenance
+		var src sql.NullInt64
+		var uid, first, last sql.NullString
+		if err := rows.Scan(&p.ID, &p.OfferID, &src, &uid, &p.URL, &first, &last); err != nil {
+			return nil, fmt.Errorf("list provenance: %w", err)
+		}
+		p.SourceID = int64Ptr(src)
+		p.ExternalUID = strPtr(uid)
+		p.FirstSeenAt = parseNullTime(first)
+		p.LastSeenAt = parseNullTime(last)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// ---------- snapshots ----------
+
+// InsertSnapshot stores a description snapshot for an offer.
+func InsertSnapshot(ctx context.Context, q Querier, offerID int64, rawText string, now time.Time) error {
+	if _, err := q.ExecContext(ctx,
+		`INSERT INTO snapshots(offer_id, raw_text, captured_at) VALUES (?, ?, ?)`,
+		offerID, rawText, model.FormatTime(now)); err != nil {
+		return fmt.Errorf("insert snapshot for offer %d: %w", offerID, err)
+	}
+	return nil
+}
+
+// CountSnapshots returns the number of snapshots of an offer.
+func CountSnapshots(ctx context.Context, q Querier, offerID int64) (int, error) {
+	var n int
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM snapshots WHERE offer_id = ?`, offerID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count snapshots for offer %d: %w", offerID, err)
+	}
+	return n, nil
+}
