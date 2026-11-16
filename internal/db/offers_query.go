@@ -250,6 +250,32 @@ func LatestSnapshot(ctx context.Context, q Querier, offerID int64) (model.Snapsh
 	return s, nil
 }
 
+// LatestSnapshots returns up to limit snapshots of an offer, newest
+// first. It is used for the changed-offer diff view.
+func LatestSnapshots(ctx context.Context, q Querier, offerID int64, limit int) ([]model.Snapshot, error) {
+	if limit <= 0 {
+		return []model.Snapshot{}, nil
+	}
+	rows, err := q.QueryContext(ctx,
+		`SELECT id, offer_id, raw_text, captured_at FROM snapshots
+		 WHERE offer_id = ? ORDER BY captured_at DESC, id DESC LIMIT ?`, offerID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("latest snapshots of offer %d: %w", offerID, err)
+	}
+	defer rows.Close()
+	out := []model.Snapshot{}
+	for rows.Next() {
+		var s model.Snapshot
+		var captured sql.NullString
+		if err := rows.Scan(&s.ID, &s.OfferID, &s.RawText, &captured); err != nil {
+			return nil, fmt.Errorf("latest snapshots of offer %d: %w", offerID, err)
+		}
+		s.CapturedAt = parseNullTime(captured)
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // ProvenanceItem is a provenance row joined with its source name.
 type ProvenanceItem struct {
 	model.Provenance

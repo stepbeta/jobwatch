@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stepbeta/jobwatch/internal/classify"
 	"github.com/stepbeta/jobwatch/internal/db"
 	"github.com/stepbeta/jobwatch/internal/model"
 )
@@ -56,14 +57,21 @@ func applySighting(ctx context.Context, q db.Querier, in Sighting, now time.Time
 	var outcome Outcome
 	switch {
 	case existing == nil:
+		scores := classify.Classify(title, location, desc).Scores()
+		titleConf, locConf := scores.TitleConfidence, scores.LocationConfidence
+		reasons := scores.MatchReasonsJSON
 		o := model.JobOffer{
-			CompanyID:       company.ID,
-			Title:           title,
-			TitleNormalized: titleNorm,
-			Location:        optStr(location),
-			URL:             optStr(strings.TrimSpace(in.URL)),
-			Fingerprint:     fp,
-			RawText:         optStr(desc),
+			CompanyID:          company.ID,
+			Title:              title,
+			TitleNormalized:    titleNorm,
+			Location:           optStr(location),
+			RemotePolicy:       scores.RemotePolicy,
+			URL:                optStr(strings.TrimSpace(in.URL)),
+			Fingerprint:        fp,
+			RawText:            optStr(desc),
+			TitleConfidence:    &titleConf,
+			LocationConfidence: &locConf,
+			MatchReasonsJSON:   &reasons,
 		}
 		if desc != "" {
 			h := model.TextHash(desc)
@@ -101,6 +109,17 @@ func applySighting(ctx context.Context, q db.Querier, in Sighting, now time.Time
 			state, outcome = model.OfferActive, OutcomeReappeared
 		}
 		if err := db.UpdateOfferSighting(ctx, q, offerID, state, rawText, textHash, now); err != nil {
+			return 0, 0, err
+		}
+		// Recompute the scores from the values that are now current: the
+		// stored location when the sighting has none, and the description
+		// stored on the offer (which may predate this sighting).
+		effectiveLocation := location
+		if existing.Location != nil {
+			effectiveLocation = *existing.Location
+		}
+		scores := classify.Classify(existing.Title, effectiveLocation, strValue(rawText)).Scores()
+		if err := db.SetOfferClassification(ctx, q, offerID, scores); err != nil {
 			return 0, 0, err
 		}
 		if snapshot {
@@ -158,4 +177,11 @@ func optStr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func strValue(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

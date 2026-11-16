@@ -104,6 +104,23 @@ export const api = {
     id: number,
     patch: { application_state?: string; offer_state?: string; location?: string | null },
   ) => request<{ offer: OfferDetail['offer'] }>(`/offers/${id}`, body('PATCH', patch)),
+  mergeOffer: (id: number, intoId: number) =>
+    request<{
+      offer: OfferDetail['offer']
+      merged_offer_id: number
+      moved_provenance: number
+      moved_events: number
+      moved_notes: number
+      moved_snapshots: number
+    }>(`/offers/${id}/merge`, body('POST', { into_id: intoId })),
+  splitOffer: (
+    id: number,
+    input: { provenance_ids: number[]; title?: string; location?: string | null },
+  ) =>
+    request<{ offer: OfferDetail['offer']; moved_provenance: number }>(
+      `/offers/${id}/split`,
+      body('POST', input),
+    ),
   importOffer: (input: {
     company: string
     title: string

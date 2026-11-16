@@ -458,3 +458,29 @@ func TestScanWithLeverFixture(t *testing.T) {
 		t.Errorf("provenance with uid = %d, want 3", n)
 	}
 }
+
+func TestScanClassifiesOffers(t *testing.T) {
+	sqlDB, sc, ff, _ := setup(t)
+	src := addSource(t, sqlDB, "Acme", "")
+	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform}
+	if r := sc.ScanSource(context.Background(), src); r.Status != model.ScanOK {
+		t.Fatal(r.Err)
+	}
+	sre := offerByTitle(t, sqlDB, rawSRE.Title)
+	if sre.TitleConfidence == nil || *sre.TitleConfidence != 85 {
+		t.Errorf("SRE title_confidence = %v, want 85", sre.TitleConfidence)
+	}
+	if sre.LocationConfidence == nil || *sre.LocationConfidence != 60 {
+		t.Errorf("SRE location_confidence = %v, want 60", sre.LocationConfidence)
+	}
+	if sre.MatchReasonsJSON == nil || !strings.Contains(*sre.MatchReasonsJSON, "site reliability") {
+		t.Errorf("SRE reasons = %v", sre.MatchReasonsJSON)
+	}
+	platform := offerByTitle(t, sqlDB, rawPlatform.Title)
+	if platform.RemotePolicy != model.RemoteFull {
+		t.Errorf("platform remote_policy = %q, want remote", platform.RemotePolicy)
+	}
+	if platform.LocationConfidence == nil || *platform.LocationConfidence != 80 {
+		t.Errorf("platform location_confidence = %v, want 80", platform.LocationConfidence)
+	}
+}

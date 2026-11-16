@@ -12,7 +12,7 @@ import {
   fromLocalInput,
   toLocalInput,
 } from '../format'
-import type { ApplicationState, EventType, OfferDetail, OfferState } from '../types'
+import type { ApplicationState, EventType, Offer, OfferDetail, OfferState } from '../types'
 
 function hostname(url: string): string {
   try {
@@ -20,6 +20,12 @@ function hostname(url: string): string {
   } catch {
     return url
   }
+}
+
+function diffPrefix(op: 'equal' | 'added' | 'removed'): string {
+  if (op === 'added') return '+'
+  if (op === 'removed') return '−'
+  return ' '
 }
 
 export function OfferPage({ id }: { id: number }) {
@@ -40,6 +46,19 @@ export function OfferPage({ id }: { id: number }) {
   const [notePin, setNotePin] = useState('')
   const [editingNote, setEditingNote] = useState<{ id: number; body: string } | null>(null)
 
+  const [splitMode, setSplitMode] = useState(false)
+  const [splitIDs, setSplitIDs] = useState<number[]>([])
+  const [splitTitle, setSplitTitle] = useState('')
+  const [splitLocation, setSplitLocation] = useState('')
+  const [splitting, setSplitting] = useState(false)
+
+  const [mergeOpen, setMergeOpen] = useState(false)
+  const [mergeCandidates, setMergeCandidates] = useState<Offer[]>([])
+  const [mergeTargetID, setMergeTargetID] = useState('')
+  const [mergeLoading, setMergeLoading] = useState(false)
+  const [mergeBusy, setMergeBusy] = useState(false)
+  const [mergeError, setMergeError] = useState('')
+
   const load = useCallback(async () => {
     try {
       const d = await api.getOffer(id)
@@ -57,6 +76,9 @@ export function OfferPage({ id }: { id: number }) {
 
   useEffect(() => {
     setLoading(true)
+    setSplitMode(false)
+    setSplitIDs([])
+    setMergeOpen(false)
     void load()
   }, [load])
 
@@ -142,6 +164,77 @@ export function OfferPage({ id }: { id: number }) {
     }
   }
 
+  function startSplit() {
+    if (!detail) return
+    setSplitMode(true)
+    setSplitIDs([])
+    setSplitTitle(detail.offer.title)
+    setSplitLocation(detail.offer.location ?? '')
+  }
+
+  function cancelSplit() {
+    setSplitMode(false)
+    setSplitIDs([])
+  }
+
+  function toggleSplitID(provID: number) {
+    setSplitIDs((ids) =>
+      ids.includes(provID) ? ids.filter((v) => v !== provID) : [...ids, provID],
+    )
+  }
+
+  async function splitSelected() {
+    if (splitIDs.length === 0) return
+    setSplitting(true)
+    setError('')
+    try {
+      const res = await api.splitOffer(id, {
+        provenance_ids: splitIDs,
+        title: splitTitle.trim() || undefined,
+        location: splitLocation.trim() === '' ? null : splitLocation.trim(),
+      })
+      window.location.hash = `#/offers/${res.offer.id}`
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSplitting(false)
+    }
+  }
+
+  async function openMerge() {
+    if (!detail) return
+    setMergeOpen(true)
+    setMergeLoading(true)
+    setMergeError('')
+    setMergeCandidates([])
+    setMergeTargetID('')
+    try {
+      const res = await api.listOffers({ company_id: detail.company.id, limit: 200 })
+      const candidates = res.offers.filter((o) => o.id !== id)
+      setMergeCandidates(candidates)
+      setMergeTargetID(candidates.length > 0 ? String(candidates[0].id) : '')
+    } catch (err) {
+      setMergeError(errorMessage(err))
+    } finally {
+      setMergeLoading(false)
+    }
+  }
+
+  async function confirmMerge() {
+    const target = Number(mergeTargetID)
+    if (!target) return
+    setMergeBusy(true)
+    setMergeError('')
+    try {
+      const res = await api.mergeOffer(id, target)
+      window.location.hash = `#/offers/${res.offer.id}`
+    } catch (err) {
+      setMergeError(errorMessage(err))
+    } finally {
+      setMergeBusy(false)
+    }
+  }
+
   if (loading && !detail) {
     return <p className="muted page">Loading offer…</p>
   }
@@ -168,6 +261,12 @@ export function OfferPage({ id }: { id: number }) {
       </div>
 
       {error && <div className="error-box">{error}</div>}
+      {detail.offer.offer_state === 'changed' && (
+        <div className="changed-banner">
+          <strong>Description changed.</strong> Review the added and removed lines in the description diff
+          below. Set the offer state back to <em>active</em> to acknowledge it.
+        </div>
+      )}
 
       <section className="panel offer-header">
         <div className="offer-title">
@@ -178,11 +277,17 @@ export function OfferPage({ id }: { id: number }) {
           </div>
         </div>
         <div className="badges">
-          <ScoreBadge label="Title" value={detail.offer.title_confidence} reasons={detail.offer.match_reasons} />
+          <ScoreBadge
+            label="Title"
+            value={detail.offer.title_confidence}
+            reasons={detail.offer.match_reasons}
+            kind="title"
+          />
           <ScoreBadge
             label="Location"
             value={detail.offer.location_confidence}
             reasons={detail.offer.match_reasons}
+            kind="location"
           />
         </div>
         <form className="state-controls" onSubmit={(e) => void saveStates(e)}>
@@ -223,21 +328,46 @@ export function OfferPage({ id }: { id: number }) {
       <section className="panel">
         <div className="section-head">
           <h2>Provenance</h2>
-          <span className="muted">Every link where this offer was seen</span>
+          <div className="actions">
+            <button type="button" onClick={() => void openMerge()} disabled={mergeLoading}>
+              Merge into another offer…
+            </button>
+            {detail.provenance.length > 1 &&
+              (splitMode ? (
+                <button type="button" onClick={cancelSplit}>
+                  Cancel split
+                </button>
+              ) : (
+                <button type="button" onClick={startSplit}>
+                  Split offer…
+                </button>
+              ))}
+          </div>
         </div>
+        <p className="muted small">
+          Every link where this offer was seen. Open them side by side to decide whether they are really the
+          same offer; otherwise split them into two offers.
+        </p>
         {detail.provenance.length === 0 ? (
           <p className="empty">No provenance rows.</p>
         ) : (
           <div className="provenance">
             {detail.provenance.map((p) => (
-              <div className="prov-card" key={p.id}>
+              <div className={`prov-card${splitIDs.includes(p.id) ? ' prov-selected' : ''}`} key={p.id}>
+                {splitMode && (
+                  <label className="prov-select">
+                    <input
+                      type="checkbox"
+                      checked={splitIDs.includes(p.id)}
+                      onChange={() => toggleSplitID(p.id)}
+                    />
+                    Move to a new offer
+                  </label>
+                )}
                 <div className="prov-head">
                   <a href={p.url} target="_blank" rel="noreferrer">
                     {hostname(p.url)}
                   </a>
-                  <button type="button" disabled title="Splitting an offer is not implemented yet">
-                    Split offer
-                  </button>
                 </div>
                 <div className="muted small">
                   {p.source_name ?? 'Manual import'}
@@ -250,6 +380,42 @@ export function OfferPage({ id }: { id: number }) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+        {splitMode && (
+          <div className="split-bar">
+            <div className="section-head">
+              <h3>Split selected links</h3>
+              <span className="muted small">
+                {splitIDs.length} selected · at least one link must stay on this offer
+              </span>
+            </div>
+            <div className="form-grid">
+              <label>
+                New offer title
+                <input value={splitTitle} onChange={(e) => setSplitTitle(e.target.value)} />
+              </label>
+              <label>
+                New offer location
+                <input
+                  value={splitLocation}
+                  onChange={(e) => setSplitLocation(e.target.value)}
+                  placeholder="e.g. Lyon, France"
+                />
+              </label>
+            </div>
+            <p className="muted small">
+              Events, notes and snapshots stay with this offer. Change the title or location if the new
+              offer would otherwise have the same company, title and location.
+            </p>
+            <button
+              type="button"
+              className="primary"
+              disabled={splitting || splitIDs.length === 0}
+              onClick={() => void splitSelected()}
+            >
+              {splitting ? 'Splitting…' : 'Create offer from selected links'}
+            </button>
           </div>
         )}
       </section>
@@ -388,19 +554,89 @@ export function OfferPage({ id }: { id: number }) {
         </section>
       </div>
 
-      <details className="panel snapshot">
+      <details className="panel snapshot" open={detail.offer.offer_state === 'changed'}>
         <summary>
           Description ({detail.snapshot_count} snapshot{detail.snapshot_count === 1 ? '' : 's'})
         </summary>
+        {detail.snapshot_diff && (
+          <div className="diff-wrap">
+            <div className="muted small">
+              Changes from snapshot #{detail.snapshot_diff.from.id} (
+              {fmtDateTime(detail.snapshot_diff.from.captured_at)}) to snapshot #
+              {detail.snapshot_diff.to.id} ({fmtDateTime(detail.snapshot_diff.to.captured_at)})
+            </div>
+            <div className="diff">
+              {detail.snapshot_diff.lines.map((line, i) => (
+                <div key={i} className={`diff-line diff-${line.op}`}>
+                  <span className="diff-mark">{diffPrefix(line.op)}</span>
+                  {line.text || ' '}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {detail.latest_snapshot ? (
-          <pre>{detail.latest_snapshot.raw_text || '(empty description)'}</pre>
+          <>
+            {detail.snapshot_diff && <h3 className="diff-heading">Latest description</h3>}
+            <pre>{detail.latest_snapshot.raw_text || '(empty description)'}</pre>
+          </>
         ) : (
           <p className="muted">No snapshot captured.</p>
         )}
-        {detail.snapshot_count > 1 && (
-          <p className="muted small">Older versions are stored as snapshots; the diff view is not implemented yet.</p>
+        {detail.snapshot_count > 1 && !detail.snapshot_diff && (
+          <p className="muted small">Older versions are stored as snapshots.</p>
         )}
       </details>
+
+      {mergeOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="merge-offer-title">
+            <div className="modal-head">
+              <h2 id="merge-offer-title">Merge this offer</h2>
+              <button type="button" className="link-button" onClick={() => setMergeOpen(false)}>
+                Close
+              </button>
+            </div>
+            <p>
+              The selected offer keeps its identity and application state. All links, timeline events, notes
+              and description snapshots of <strong>{detail.offer.title}</strong> move to it, and the
+              redundant offer row is removed.
+            </p>
+            {mergeError && <div className="error-box">{mergeError}</div>}
+            {mergeLoading ? (
+              <p className="muted">Loading offers…</p>
+            ) : mergeCandidates.length === 0 ? (
+              <p className="muted">This company has no other offer to merge into.</p>
+            ) : (
+              <>
+                <label>
+                  Merge into
+                  <select value={mergeTargetID} onChange={(e) => setMergeTargetID(e.target.value)}>
+                    {mergeCandidates.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.title} — {o.location ?? 'no location'} (#{o.id})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="modal-actions">
+                  <button type="button" onClick={() => setMergeOpen(false)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={mergeBusy || !mergeTargetID}
+                    onClick={() => void confirmMerge()}
+                  >
+                    {mergeBusy ? 'Merging…' : 'Merge offers'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

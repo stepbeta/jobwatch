@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stepbeta/jobwatch/internal/db"
 	"github.com/stepbeta/jobwatch/internal/model"
@@ -16,14 +19,20 @@ type offerListResp struct {
 	Offset int         `json:"offset"`
 }
 
+type MatchReasons struct {
+	Title    []string `json:"title"`
+	Location []string `json:"location"`
+}
+
 type offerDetailResp struct {
-	Offer          offerJSON        `json:"offer"`
-	Company        companyJSON      `json:"company"`
-	Provenance     []provenanceJSON `json:"provenance"`
-	Events         []eventJSON      `json:"events"`
-	Notes          []noteJSON       `json:"notes"`
-	LatestSnapshot *snapshotJSON    `json:"latest_snapshot"`
-	SnapshotCount  int              `json:"snapshot_count"`
+	Offer          offerJSON         `json:"offer"`
+	Company        companyJSON       `json:"company"`
+	Provenance     []provenanceJSON  `json:"provenance"`
+	Events         []eventJSON       `json:"events"`
+	Notes          []noteJSON        `json:"notes"`
+	LatestSnapshot *snapshotJSON     `json:"latest_snapshot"`
+	SnapshotDiff   *snapshotDiffJSON `json:"snapshot_diff"`
+	SnapshotCount  int               `json:"snapshot_count"`
 }
 
 func seedOfferSet(t *testing.T, ts *testServer) (model.JobOffer, model.Company) {
@@ -232,4 +241,183 @@ func TestImportOffer(t *testing.T) {
 	wantErrorCode(t, ts.do(t, "POST", "/api/offers/import", map[string]any{
 		"company": "Qonto", "title": "SRE", "unknown": true,
 	}), 400, "invalid_json")
+}
+
+func TestOfferDetailSnapshotDiff(t *testing.T) {
+	ts := newTestServer(t)
+	acme := ts.seedCompany(t, "Acme")
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
+	ctx := context.Background()
+	if err := db.InsertSnapshot(ctx, ts.db, o.ID, "one\ntwo\nthree", ts.clock.now()); err != nil {
+		t.Fatal(err)
+	}
+	ts.clock.advance(10 * time.Minute)
+	if err := db.InsertSnapshot(ctx, ts.db, o.ID, "one\nTWO\nthree\nfour", ts.clock.now()); err != nil {
+		t.Fatal(err)
+	}
+	rec := ts.do(t, "GET", "/api/offers/1", nil)
+	wantCode(t, rec, 200)
+	got := decodeBody[offerDetailResp](t, rec)
+	if got.SnapshotCount != 2 || got.SnapshotDiff == nil {
+		t.Fatalf("snapshot_count = %d, diff = %+v", got.SnapshotCount, got.SnapshotDiff)
+	}
+	if got.SnapshotDiff.From.ID == 0 || got.SnapshotDiff.To.ID == 0 {
+		t.Errorf("diff refs = %+v", got.SnapshotDiff)
+	}
+	var added, removed []string
+	for _, line := range got.SnapshotDiff.Lines {
+		switch line.Op {
+		case "added":
+			added = append(added, line.Text)
+		case "removed":
+			removed = append(removed, line.Text)
+		}
+	}
+	if strings.Join(removed, "|") != "two" || strings.Join(added, "|") != "TWO|four" {
+		t.Errorf("diff = %+v", got.SnapshotDiff.Lines)
+	}
+}
+
+func TestMergeOffersAPI(t *testing.T) {
+	ts := newTestServer(t)
+	acme := ts.seedCompany(t, "Acme")
+	target := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
+	source := ts.seedOffer(t, acme, "SRE - Platform", "Lyon", model.AppApplied, model.RemoteUnknown, 0, 0)
+	ctx := context.Background()
+	for _, p := range []struct {
+		id  int64
+		url string
+	}{{target.ID, "https://ex.com/target"}, {source.ID, "https://ex.com/source"}} {
+		if _, err := db.UpsertProvenance(ctx, ts.db, p.id, nil, nil, p.url, ts.clock.now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts.seedEvent(t, source.ID, model.EventCVSent, ts.clock.now(), "sent")
+	if _, err := db.InsertNote(ctx, ts.db, model.Note{
+		EntityType: model.EntityOffer, EntityID: source.ID, Body: "note",
+	}, ts.clock.now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.InsertSnapshot(ctx, ts.db, source.ID, "source text", ts.clock.now()); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := ts.do(t, "POST", "/api/offers/"+strconv.FormatInt(source.ID, 10)+"/merge", map[string]any{
+		"into_id": target.ID,
+	})
+	wantCode(t, rec, 200)
+	res := decodeBody[struct {
+		Offer           offerJSON `json:"offer"`
+		MergedOfferID   int64     `json:"merged_offer_id"`
+		MovedProvenance int       `json:"moved_provenance"`
+		MovedEvents     int       `json:"moved_events"`
+		MovedNotes      int       `json:"moved_notes"`
+		MovedSnapshots  int       `json:"moved_snapshots"`
+	}](t, rec)
+	if res.MergedOfferID != source.ID || res.Offer.ID != target.ID {
+		t.Errorf("merge = %+v", res)
+	}
+	if res.MovedProvenance != 1 || res.MovedEvents != 1 || res.MovedNotes != 1 || res.MovedSnapshots != 1 {
+		t.Errorf("moved counts = %+v", res)
+	}
+	detail := decodeBody[offerDetailResp](t, ts.do(t, "GET", "/api/offers/"+strconv.FormatInt(target.ID, 10), nil))
+	if len(detail.Provenance) != 2 || len(detail.Events) != 1 || len(detail.Notes) != 1 {
+		t.Errorf("detail after merge = %+v", detail)
+	}
+	wantErrorCode(t, ts.do(t, "GET", "/api/offers/"+strconv.FormatInt(source.ID, 10), nil), 404, "not_found")
+	wantErrorCode(t, ts.do(t, "POST", "/api/offers/1/merge", map[string]any{"into_id": 1}),
+		400, "validation_failed")
+	wantErrorCode(t, ts.do(t, "POST", "/api/offers/1/merge", map[string]any{"into_id": 99}),
+		404, "not_found")
+	wantErrorCode(t, ts.do(t, "POST", "/api/offers/1/merge", map[string]any{}),
+		400, "validation_failed")
+}
+
+func TestSplitOfferAPI(t *testing.T) {
+	ts := newTestServer(t)
+	acme := ts.seedCompany(t, "Acme")
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
+	ctx := context.Background()
+	var provIDs []int64
+	for _, url := range []string{"https://ex.com/a", "https://ex.com/b", "https://ex.com/c"} {
+		if _, err := db.UpsertProvenance(ctx, ts.db, o.ID, nil, nil, url, ts.clock.now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prov, err := db.ListProvenance(ctx, ts.db, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range prov {
+		provIDs = append(provIDs, p.ID)
+	}
+
+	rec := ts.do(t, "POST", "/api/offers/1/split", map[string]any{
+		"provenance_ids": []int64{provIDs[1]},
+		"location":       "Lyon, France",
+	})
+	wantCode(t, rec, 201)
+	res := decodeBody[struct {
+		Offer           offerJSON `json:"offer"`
+		MovedProvenance int       `json:"moved_provenance"`
+	}](t, rec)
+	if res.Offer.ID == o.ID || res.Offer.Location == nil || *res.Offer.Location != "Lyon, France" || res.MovedProvenance != 1 {
+		t.Errorf("split = %+v", res)
+	}
+	if res.Offer.Title != o.Title {
+		t.Errorf("split title = %q, want original", res.Offer.Title)
+	}
+
+	// The original still has two links; moving both away is refused.
+	wantErrorCode(t, ts.do(t, "POST", "/api/offers/1/split", map[string]any{
+		"provenance_ids": []int64{provIDs[0], provIDs[2]},
+		"title":          "SRE - Payments",
+	}), 400, "validation_failed")
+
+	// Same title and location collide with the original fingerprint.
+	wantErrorCode(t, ts.do(t, "POST", "/api/offers/1/split", map[string]any{
+		"provenance_ids": []int64{provIDs[2]},
+	}), 409, "offer_conflict")
+
+	wantErrorCode(t, ts.do(t, "POST", "/api/offers/1/split", map[string]any{}),
+		400, "validation_failed")
+	wantErrorCode(t, ts.do(t, "POST", "/api/offers/99/split", map[string]any{
+		"provenance_ids": []int64{1},
+	}), 404, "not_found")
+}
+
+func TestImportClassifiesAndFilters(t *testing.T) {
+	ts := newTestServer(t)
+	rec := ts.do(t, "POST", "/api/offers/import", map[string]any{
+		"company": "Acme", "title": "Platform Engineer", "location": "Remote - France",
+	})
+	wantCode(t, rec, 201)
+	rec = ts.do(t, "POST", "/api/offers/import", map[string]any{
+		"company": "Acme", "title": "Marketing Platform Lead", "location": "Paris, France",
+	})
+	wantCode(t, rec, 201)
+
+	rec = ts.do(t, "GET", "/api/offers?min_title_confidence=80&min_location_confidence=80", nil)
+	wantCode(t, rec, 200)
+	got := decodeBody[offerListResp](t, rec)
+	if got.Total != 1 || len(got.Offers) != 1 {
+		t.Fatalf("filtered offers = %+v", got)
+	}
+	o := got.Offers[0]
+	if o.Title != "Platform Engineer" || o.TitleConfidence == nil || *o.TitleConfidence != 85 {
+		t.Errorf("offer = %+v", o)
+	}
+	if o.LocationConfidence == nil || *o.LocationConfidence != 80 {
+		t.Errorf("location_confidence = %v, want 80", o.LocationConfidence)
+	}
+	if o.RemotePolicy != "remote" {
+		t.Errorf("remote_policy = %q, want remote", o.RemotePolicy)
+	}
+	var reasons MatchReasons
+	if err := json.Unmarshal(o.MatchReasons, &reasons); err != nil {
+		t.Fatalf("match_reasons %q: %v", o.MatchReasons, err)
+	}
+	if len(reasons.Title) == 0 || len(reasons.Location) == 0 {
+		t.Errorf("match reasons = %+v", reasons)
+	}
 }

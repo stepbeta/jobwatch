@@ -1,6 +1,7 @@
 import type {
   ApplicationState,
   EventType,
+  MatchReasons,
   OfferState,
   RemotePolicy,
   ScanStatus,
@@ -119,14 +120,18 @@ export function fromLocalInput(value: string): string {
   return d.toISOString()
 }
 
-// reasonsText renders the classifier's match_reasons for a tooltip.
-export function reasonsText(reasons: unknown): string {
+// reasonsText renders the classifier's match reasons for one score as a
+// badge tooltip. Legacy array-shaped reasons are still rendered.
+export function reasonsText(reasons: MatchReasons | unknown, kind: 'title' | 'location'): string {
   if (Array.isArray(reasons)) {
     const parts = reasons.filter((r): r is string => typeof r === 'string')
-    if (parts.length > 0) return parts.join('\n')
+    return parts.join('\n')
   }
   if (reasons && typeof reasons === 'object') {
-    return JSON.stringify(reasons)
+    const list = (reasons as MatchReasons)[kind]
+    if (Array.isArray(list)) {
+      return list.filter((r): r is string => typeof r === 'string').join('\n')
+    }
   }
   return ''
 }

@@ -47,6 +47,7 @@ func newRootCmd() *cobra.Command {
 		newListCmd(opts),
 		newImportCmd(opts),
 		newBackupCmd(opts),
+		newReclassifyCmd(opts),
 	)
 	return root
 }

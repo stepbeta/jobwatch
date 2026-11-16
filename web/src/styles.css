@@ -687,3 +687,144 @@ details summary {
   border-radius: var(--radius);
   padding: 10px;
 }
+
+/* changed-offer banner and description diff */
+.changed-banner {
+  border: 1px solid color-mix(in srgb, var(--amber) 55%, var(--border));
+  border-left-width: 4px;
+  background: color-mix(in srgb, var(--amber) 12%, var(--panel));
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  margin-bottom: 12px;
+}
+
+.diff-wrap {
+  margin-bottom: 12px;
+}
+
+.diff {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-alt);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 6px 0;
+}
+
+.diff-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0 10px;
+}
+
+.diff-mark {
+  display: inline-block;
+  width: 1.4em;
+  color: var(--muted);
+}
+
+.diff-added {
+  background: color-mix(in srgb, var(--green) 16%, transparent);
+}
+
+.diff-removed {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+
+.diff-heading {
+  margin: 12px 0 6px;
+  font-size: 13px;
+}
+
+/* offer split and provenance selection */
+.prov-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.prov-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.split-bar {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.split-bar h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* dialogs */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+
+.modal {
+  width: min(560px, 100%);
+  max-height: 85vh;
+  overflow: auto;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  box-shadow: 0 18px 50px rgb(0 0 0 / 35%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.merge-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  background: var(--panel-alt);
+}
+
+.merge-choice label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}

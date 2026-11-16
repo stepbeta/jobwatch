@@ -103,6 +103,13 @@ func NormalizeTitle(title string) string {
 	return alnumWords(s)
 }
 
+// NormalizeKeywords lowercases, folds accents, replaces punctuation with
+// spaces and collapses whitespace. It is the shared normalization for
+// free-text keyword matching (classifier locations and descriptions).
+func NormalizeKeywords(s string) string {
+	return alnumWords(foldLower(s))
+}
+
 // LocationBucket reduces a free-text location to a coarse bucket used to
 // disambiguate fingerprint collisions. It keeps the first segment (split
 // on , ; | / ( and " - "); if that segment only names a workplace type

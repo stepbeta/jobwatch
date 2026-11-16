@@ -180,6 +180,17 @@ type JobOffer struct {
 	UpdatedAt          time.Time
 }
 
+// OfferScores is the deterministic classifier output persisted on an
+// offer. It is kept separate from JobOffer so the scan pipeline and the
+// reclassification command can update it without touching identity or
+// lifecycle fields.
+type OfferScores struct {
+	RemotePolicy       RemotePolicy
+	TitleConfidence    int
+	LocationConfidence int
+	MatchReasonsJSON   string
+}
+
 type Provenance struct {
 	ID          int64
 	OfferID     int64

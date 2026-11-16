@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"strconv"
 	"testing"
 
+	"github.com/stepbeta/jobwatch/internal/db"
 	"github.com/stepbeta/jobwatch/internal/model"
 )
 
@@ -91,6 +93,10 @@ func TestCompanyMerge(t *testing.T) {
 	target := ts.createCompany(t, map[string]any{"name": "ACME SAS France"})
 	offer := ts.seedOffer(t, model.Company{ID: source.ID, Name: source.Name, NameNormalized: source.NameNormalized},
 		"SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
+	if _, err := db.UpsertProvenance(context.Background(), ts.db, offer.ID, nil, nil,
+		"https://source.example/sre", ts.clock.now()); err != nil {
+		t.Fatal(err)
+	}
 	rec := ts.do(t, "POST", "/api/notes", map[string]any{
 		"entity_type": "company", "entity_id": source.ID, "body": "to move",
 	})
@@ -118,6 +124,10 @@ func TestCompanyMerge(t *testing.T) {
 	}
 	if len(detail.Notes) != 1 || detail.Notes[0].Body != "to move" {
 		t.Errorf("notes after merge = %+v", detail.Notes)
+	}
+	prov, err := db.ListProvenance(context.Background(), ts.db, offer.ID)
+	if err != nil || len(prov) != 1 || prov[0].URL != "https://source.example/sre" {
+		t.Errorf("provenance after company merge = %+v, err %v", prov, err)
 	}
 	// The moved offer must keep deduplicating under the target company name.
 	var fp string

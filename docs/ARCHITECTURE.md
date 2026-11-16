@@ -7,14 +7,15 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 
 | Package | Role |
 |---|---|
-| `cmd/jobwatch` | Cobra root + subcommands: `serve`, `scan`, `add-source`, `list`, `import`, `backup` |
+| `cmd/jobwatch` | Cobra root + subcommands: `serve`, `scan`, `add-source`, `list`, `import`, `backup`, `reclassify` |
 | `migrations` | Numbered `NNNN_name.sql` files embedded with `go:embed` |
 | `internal/db` | `Open` (DSN pragmas: WAL, foreign_keys, busy_timeout 5s, `_txlock=immediate`), migration runner, `Backup` (`VACUUM INTO`), queries over a `Querier` (`*sql.DB` or `*sql.Tx`) |
-| `internal/model` | Table structs, enum constants, `normalize.go` (company/title normalization, location bucket, fingerprint, text hash), time helpers |
+| `internal/model` | Table structs, enum constants, `normalize.go` (company/title keyword normalization, location bucket, fingerprint, text hash), time helpers |
 | `internal/sources` | `Fetcher` interface, `RawOffer`, `Config` (config_json), `Registry`, polite HTTP `Client`, robots.txt parser, URL type detection, adapters |
-| `internal/scan` | Scan pipeline and manual import; depends on both `db` and `sources`, shared by CLI and API |
+| `internal/scan` | Scan pipeline, manual import and classifier backfill; depends on `db`, `classify` and `sources`, shared by CLI and API |
+| `internal/classify` | Deterministic title/location scoring, remote-policy derivation and reason lists |
+| `internal/diff` | Small line diff used for the changed-offer snapshot view |
 | `internal/api` | REST handlers under `/api`: sources, offers, events, notes, companies, import, health |
-| `internal/classify` | Placeholder for the scoring engine |
 | `web/` | React + TypeScript SPA source and its Go embedding (`Handler`) |
 
 ## Fetching
@@ -70,20 +71,48 @@ never stops on a failing one:
      `RawOffer.Company` → `config.company` → source name;
      `ResolveCompany` (exact normalized match or insert); `resolveOffer`
      by fingerprint with location-bucket fallback; insert (+ snapshot) or
-     update per the offer_state machine (DATA-MODEL.md); upsert
-     provenance `(offer_id, url)` with `source_id`, `external_uid`,
-     `last_seen_at = now`.
+     update per the offer_state machine (DATA-MODEL.md); classify the
+     title/location/description, persist the scores and remote policy;
+     upsert provenance `(offer_id, url)` with `source_id`,
+     `external_uid`, `last_seen_at = now`.
    - `MarkDisappeared(source, now)`.
    - `last_scan_status = ok`, `last_scan_at = now`; commit.
 4. A failure inside the transaction rolls back and marks the source `error`.
 
-Classification (SPEC step 3) is not wired in yet; score columns stay NULL.
+## Classification (`internal/classify`)
+
+The classifier is deterministic and pure: `Classify(title, location,
+description)`. It runs for every sighting (new, changed or unchanged) and
+during `jobwatch reclassify`, never in a background AI call.
+
+- **Title confidence**: additive keyword table over
+  `model.NormalizeTitle(title)`. Strong role terms ("platform engineer",
+  "site reliability", "sre", "devops", "infrastructure engineer", "cloud
+  engineer") score 60; weak domain terms ("kubernetes", "reliability",
+  "platform", "infrastructure", "terraform"…) score 15–25; strong
+  non-target roles (marketing, sales, recruiter, internship, account
+  executive, French `stage`/`alternance`…) subtract 120; management terms
+  subtract 20. Match is whole-token/phrase based. Result clamped 0–100.
+- **Location confidence**: remote/hybrid/onsite phrases in location and
+  description derive `remote_policy`; location text scores France and
+  French cities, EMEA / EU / Europe, time zones, and penalizes clearly
+  incompatible places; the description adds lower-weight remote/geography
+  evidence. Policy caps apply (onsite 50, hybrid 75, unknown 60), so only
+  remote roles in France can reach 100.
+- **Reasons**: `match_reasons_json` is
+  `{"title":["..."],"location":["..."]}`; each string names the matched
+  term and its weight. The SPA shows the matching list in the score-badge
+  tooltip.
+- **Backfill**: `jobwatch reclassify` classifies offers with missing
+  scores in one transaction; `--all` recomputes every offer after keyword
+  changes. `scan.Reclassify` is the shared implementation.
 
 ## Manual import (`scan.Import`)
 
 Input: `{company, title, location?, url?, description?}`. Runs the same
-sighting logic in one transaction with `source_id = NULL`; a matching
-fingerprint adds a provenance row to the existing offer. Never fetches.
+sighting logic (including classification) in one transaction with
+`source_id = NULL`; a matching fingerprint adds a provenance row to the
+existing offer. Never fetches.
 
 ## REST API (`internal/api`)
 
@@ -98,7 +127,7 @@ Errors always use `{"error":{"code","message"}}`.
 |---|---|
 | health | `GET /api/health` |
 | sources | `GET/POST /api/sources`, `GET/PATCH/DELETE /api/sources/{id}`, `POST /api/sources/{id}/scan` |
-| offers | `GET /api/offers`, `POST /api/offers/import`, `GET/PATCH /api/offers/{id}` |
+| offers | `GET /api/offers`, `POST /api/offers/import`, `GET/PATCH /api/offers/{id}`, `POST /api/offers/{id}/merge`, `POST /api/offers/{id}/split` |
 | events | `GET/POST /api/offers/{id}/events`, `PATCH/DELETE /api/offers/{id}/events/{eventID}` |
 | notes | `GET/POST /api/notes`, `GET/PATCH/DELETE /api/notes/{id}` |
 | companies | `GET/POST /api/companies`, `GET/PATCH/DELETE /api/companies/{id}`, `POST /api/companies/{id}/merge` |
@@ -118,7 +147,27 @@ front so a syntax error is a 400), enum lists, score minima,
 `has_application`, company filter, five sort orders, `limit`/`offset`.
 `recent_event` sorts by `MAX(events.occurred_at)` with `updated_at` as
 fallback. Detail responses join provenance with source names, events,
-offer notes, the latest snapshot and the snapshot count.
+offer notes, the latest snapshot, the snapshot count and a line diff
+between the two latest snapshots (`snapshot_diff`) when two exist.
+
+## Offer merge and split (`internal/db`)
+
+An explicit offer merge (`POST /api/offers/{id}/merge`) moves every
+provenance row, event, offer note and snapshot of the absorbed offer to
+the target, keeps the earliest `first_seen_at` and latest `last_seen_at`,
+adopts the source application state when the target is still `todo`, and
+keeps `changed` if either side was changed. Duplicate provenance URLs are
+collapsed into one row with the earliest first-seen and latest last-seen.
+The absorbed offer row is then deleted after all children have moved;
+nothing is lost. Only the UI's explicit merge action calls this.
+
+A split (`POST /api/offers/{id}/split`) takes the selected provenance
+rows and creates a second offer in the same company, with an optional
+title/location override. Events, notes and snapshots stay on the original
+because they belong to the tracked application. At least one link must
+remain on the original. The new fingerprint follows the same
+location-bucket collision rule as scans and is rejected with
+`409 offer_conflict` when the company+title+location already exists.
 
 ## Company matching, rename and merge (`internal/db`)
 
@@ -153,8 +202,8 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`), filtered/paginated offers table, import form |
 | `pages/SourcesPage.tsx` | source list, enable toggle, scan status, per-source refresh, add/edit form with type-dependent config fields |
-| `pages/OfferPage.tsx` | editable states/location, provenance cards with split placeholder, timeline with backdating, notes with event pin, snapshot block |
-| `pages/CompanyPage.tsx` | offers, company notes, rename/website edit, possible-duplicate merge prompt |
+| `pages/OfferPage.tsx` | editable states/location, score badges with reason tooltips, provenance links with explicit merge and split actions, timeline with backdating, notes with event pin, snapshot diff and full description |
+| `pages/CompanyPage.tsx` | offers, company notes, rename/website edit, dismissible possible-duplicate banner and explicit keep-which-company merge dialog |
 
 `vite.config.ts` proxies `/api` to `127.0.0.1:8080` in development.
 

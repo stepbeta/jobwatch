@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/stepbeta/jobwatch/internal/db"
+	"github.com/stepbeta/jobwatch/internal/diff"
 	"github.com/stepbeta/jobwatch/internal/model"
 )
 
@@ -136,16 +137,17 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	var snapshot any
-	latest, err := db.LatestSnapshot(ctx, s.DB, id)
-	switch {
-	case err == nil:
-		snapshot = snapshotToJSON(latest)
-	case errors.Is(err, db.ErrNotFound):
-		snapshot = nil
-	default:
+	snaps, err := db.LatestSnapshots(ctx, s.DB, id, 2)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
+	}
+	var snapshot, snapshotDiff any
+	if len(snaps) > 0 {
+		snapshot = snapshotToJSON(snaps[0])
+	}
+	if len(snaps) > 1 {
+		snapshotDiff = diffToJSON(snaps[1], snaps[0])
 	}
 
 	provOut := make([]provenanceJSON, 0, len(prov))
@@ -179,6 +181,7 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 		"events":          eventsOut,
 		"notes":           notesOut,
 		"latest_snapshot": snapshot,
+		"snapshot_diff":   snapshotDiff,
 		"snapshot_count":  snapCount,
 	})
 }
@@ -253,4 +256,136 @@ func (s *Server) patchOffer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"offer": offerModelToJSON(o, company.Name)})
+}
+
+func diffToJSON(from, to model.Snapshot) snapshotDiffJSON {
+	lines := diff.Lines(from.RawText, to.RawText)
+	out := snapshotDiffJSON{
+		From:  snapshotRefJSON{ID: from.ID, CapturedAt: model.FormatTime(from.CapturedAt)},
+		To:    snapshotRefJSON{ID: to.ID, CapturedAt: model.FormatTime(to.CapturedAt)},
+		Lines: make([]diffLineJSON, 0, len(lines)),
+	}
+	for _, line := range lines {
+		out.Lines = append(out.Lines, diffLineJSON{Op: string(line.Op), Text: line.Text})
+	}
+	return out
+}
+
+type mergeOfferInput struct {
+	IntoID int64 `json:"into_id"`
+}
+
+// mergeOffer merges :id into into_id after an explicit user confirmation.
+func (s *Server) mergeOffer(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_id", "offer id must be a positive integer")
+		return
+	}
+	var in mergeOfferInput
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if in.IntoID <= 0 {
+		writeError(w, http.StatusBadRequest, "validation_failed", "into_id must be a positive integer")
+		return
+	}
+	ctx := r.Context()
+	res, err := db.MergeOffers(ctx, s.DB, id, in.IntoID, s.now())
+	switch {
+	case errors.Is(err, db.ErrOfferMergeSelf):
+		writeError(w, http.StatusBadRequest, "validation_failed", "an offer cannot be merged into itself")
+		return
+	case errors.Is(err, db.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "one of the offers does not exist")
+		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	company, err := db.GetCompany(ctx, s.DB, res.Offer.CompanyID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"offer":            offerModelToJSON(res.Offer, company.Name),
+		"merged_offer_id":  res.MergedOfferID,
+		"moved_provenance": res.MovedProvenance,
+		"moved_events":     res.MovedEvents,
+		"moved_notes":      res.MovedNotes,
+		"moved_snapshots":  res.MovedSnapshots,
+	})
+}
+
+type splitOfferInput struct {
+	ProvenanceIDs []int64         `json:"provenance_ids"`
+	Title         string          `json:"title"`
+	Location      json.RawMessage `json:"location"`
+}
+
+// splitOffer moves selected provenance rows to a new offer in the same
+// company. location is optional: omitted copies the original location,
+// null clears it.
+func (s *Server) splitOffer(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_id", "offer id must be a positive integer")
+		return
+	}
+	var in splitOfferInput
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if len(in.ProvenanceIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "validation_failed", "provenance_ids must contain at least one row")
+		return
+	}
+	var location *string
+	if len(in.Location) > 0 {
+		if string(in.Location) == "null" {
+			empty := ""
+			location = &empty
+		} else {
+			var value string
+			if err := json.Unmarshal(in.Location, &value); err != nil {
+				writeError(w, http.StatusBadRequest, "validation_failed", "location must be a string or null")
+				return
+			}
+			value = strings.TrimSpace(value)
+			location = &value
+		}
+	}
+	ctx := r.Context()
+	res, err := db.SplitOffer(ctx, s.DB, id, db.OfferSplitInput{
+		ProvenanceIDs: in.ProvenanceIDs,
+		Title:         in.Title,
+		Location:      location,
+	}, s.now())
+	switch {
+	case errors.Is(err, db.ErrOfferSplitNoProvenance),
+		errors.Is(err, db.ErrOfferSplitProvenance),
+		errors.Is(err, db.ErrOfferSplitLastLink):
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
+		return
+	case errors.Is(err, db.ErrOfferFingerprintTaken):
+		writeError(w, http.StatusConflict, "offer_conflict",
+			"another offer already exists with this company, title and location; change the title or location")
+		return
+	case errors.Is(err, db.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", fmt.Sprintf("offer %d not found", id))
+		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	company, err := db.GetCompany(ctx, s.DB, res.Offer.CompanyID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"offer":            offerModelToJSON(res.Offer, company.Name),
+		"moved_provenance": res.MovedProvenance,
+	})
 }

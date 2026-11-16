@@ -76,9 +76,14 @@ export interface Offer {
   updated_at: string
   title_confidence: number | null
   location_confidence: number | null
-  match_reasons: unknown
+  match_reasons: MatchReasons | null
   last_event_at: string | null
   raw_text?: string | null
+}
+
+export interface MatchReasons {
+  title?: string[]
+  location?: string[]
 }
 
 export interface Provenance {
@@ -116,6 +121,22 @@ export interface Snapshot {
   captured_at: string
 }
 
+export interface SnapshotRef {
+  id: number
+  captured_at: string
+}
+
+export interface DiffLine {
+  op: 'equal' | 'added' | 'removed'
+  text: string
+}
+
+export interface SnapshotDiff {
+  from: SnapshotRef
+  to: SnapshotRef
+  lines: DiffLine[]
+}
+
 export interface OfferDetail {
   offer: Offer
   company: Company
@@ -123,6 +144,7 @@ export interface OfferDetail {
   events: Event[]
   notes: Note[]
   latest_snapshot: Snapshot | null
+  snapshot_diff: SnapshotDiff | null
   snapshot_count: number
 }
 

@@ -53,8 +53,13 @@ export function OfferTable({
                 </td>
               )}
               <td className="scores">
-                <ScoreBadge label="T" value={o.title_confidence} reasons={o.match_reasons} />
-                <ScoreBadge label="L" value={o.location_confidence} reasons={o.match_reasons} />
+                <ScoreBadge label="T" value={o.title_confidence} reasons={o.match_reasons} kind="title" />
+                <ScoreBadge
+                  label="L"
+                  value={o.location_confidence}
+                  reasons={o.match_reasons}
+                  kind="location"
+                />
               </td>
               <td title={fmtDateTime(o.last_seen_at)}>{relativeTime(o.last_seen_at)}</td>
             </tr>

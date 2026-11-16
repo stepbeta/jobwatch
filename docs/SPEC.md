@@ -305,3 +305,17 @@ plain React + a lightweight table component is fine.
   its provenance rows but clears their source reference. The SPA is
   embedded only when the binary is built with `-tags ui`; without it a
   placeholder page is served. Milestone 2 needs no schema change.
+- 2026-11-16 (after Milestone 3): `match_reasons_json` is stored as
+  `{"title":[],"location":[]}` so each score has its own tooltip.
+  `remote_policy` is derived by the classifier from location and
+  description; location confidence is capped for hybrid (75) and onsite
+  (50) roles, and remains ≤ 60 when the policy is unknown. The title
+  table also penalizes management titles and French internship words.
+  Explicit offer merge moves every provenance/event/note/snapshot row
+  and then deletes the absorbed offer row (scans still never delete
+  offers). Split requires at least one provenance row to remain and a
+  non-colliding company+title+location; events/notes/snapshots stay on
+  the original. New endpoints `POST /api/offers/:id/merge` and
+  `POST /api/offers/:id/split`; detail responses include `snapshot_diff`
+  for the two latest snapshots. `jobwatch reclassify [--all]` backfills
+  scores. Milestone 3 needs no schema change.

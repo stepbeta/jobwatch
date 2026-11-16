@@ -149,20 +149,28 @@ Applications section).
   "offers": [ {
     "id": 7, "company_id": 2, "company_name": "Acme",
     "title": "Site Reliability Engineer", "location": "Paris, France",
-    "remote_policy": "unknown", "url": "https://boards.greenhouse.io/acme/jobs/7",
+    "remote_policy": "remote", "url": "https://boards.greenhouse.io/acme/jobs/7",
     "offer_state": "active", "application_state": "applied",
     "first_seen_at": "2026-11-10T08:00:00Z",
     "last_seen_at": "2026-11-16T09:00:00Z",
     "updated_at": "2026-11-16T09:00:00Z",
-    "title_confidence": null, "location_confidence": null,
-    "match_reasons": null, "last_event_at": "2026-11-15T17:30:00Z"
+    "title_confidence": 85, "location_confidence": 85,
+    "match_reasons": {
+      "title": ["strong positive \"site reliability\" (+60)", "weak positive \"reliability\" (+25)"],
+      "location": ["description \"remote\" (+25)", "location \"france\" (+35)", "remote policy: remote"]
+    },
+    "last_event_at": "2026-11-15T17:30:00Z"
   } ],
   "total": 1, "limit": 50, "offset": 0
 }
 ```
 
-`match_reasons` is the classifier's stored JSON (array of strings) or
-`null` until classification runs. Scores are `null` until classified.
+`match_reasons` is the classifier's stored JSON: an object with a
+`title` and a `location` array of human-readable matched terms (or `null`
+until classification runs). Scores are 0–100. Offers inserted before the
+classifier existed keep `null` scores until `jobwatch reclassify` or the
+next sighting; `min_title_confidence` / `min_location_confidence` exclude
+NULL scores.
 
 ### POST /api/offers/import
 
@@ -201,13 +209,24 @@ count.
                "body": "...", "pinned_event_id": 4,
                "created_at": "...", "updated_at": "..." } ],
   "latest_snapshot": { "id": 9, "raw_text": "...", "captured_at": "..." },
+  "snapshot_diff": {
+    "from": { "id": 8, "captured_at": "2026-11-12T09:00:00Z" },
+    "to": { "id": 9, "captured_at": "2026-11-16T09:00:00Z" },
+    "lines": [
+      { "op": "equal", "text": "About the team" },
+      { "op": "removed", "text": "We use Kubernetes." },
+      { "op": "added", "text": "We use Kubernetes and Terraform." }
+    ]
+  },
   "snapshot_count": 3
 }
 ```
 
 `source_id`/`source_name` are `null` for manual imports. Events are
 ordered chronologically. `latest_snapshot` is `null` when no snapshot
-exists. `404 not_found` for an unknown offer.
+exists. `snapshot_diff` is `null` until two snapshots exist; `op` is
+`equal`, `added` or `removed`, and it always compares the two latest
+snapshots in chronological order. `404 not_found` for an unknown offer.
 
 ### PATCH /api/offers/:id
 
@@ -226,6 +245,65 @@ Body may contain any of:
 - Fingerprints are not recomputed on a location correction.
 - `200 { "offer": {...} }`; `400 validation_failed` when no field is
   given or a value is invalid; `404 not_found`.
+
+### POST /api/offers/:id/merge
+
+Explicitly merges offer `:id` **into** `into_id` after user confirmation.
+
+```json
+{ "into_id": 12 }
+```
+
+In one transaction: every provenance row, event, offer note and snapshot
+of `:id` moves to `into_id`; earliest `first_seen_at`/latest
+`last_seen_at` are kept; duplicate provenance URLs are collapsed; the
+target adopts the source application state only when it is still `todo`;
+`changed` wins if either offer was changed. The absorbed offer row is
+removed after its children have moved.
+
+```json
+{
+  "offer": { "id": 12, "...": "..." },
+  "merged_offer_id": 7,
+  "moved_provenance": 2, "moved_events": 3,
+  "moved_notes": 1, "moved_snapshots": 4
+}
+```
+
+- `400 validation_failed` when merging an offer into itself.
+- `404 not_found` when either offer does not exist.
+
+### POST /api/offers/:id/split
+
+Creates a second offer in the same company from selected provenance rows.
+
+```json
+{ "provenance_ids": [4, 5], "title": "SRE - Payments",
+  "location": "Lyon, France" }
+```
+
+`provenance_ids` is required and every row must belong to `:id`. `title`
+is optional (default: the original title). `location` is optional:
+omitted copies the original location, `null` clears it. At least one
+provenance row must remain on the original. Events, notes and snapshots
+stay on the original; the new offer starts with application state
+`todo` and is `active` (or `disappeared` if the original was
+disappeared). The original canonical URL is repaired if the moved row
+owned it.
+
+`201`:
+
+```json
+{ "offer": { "id": 13, "title": "SRE - Payments",
+             "location": "Lyon, France", "...": "..." },
+  "moved_provenance": 2 }
+```
+
+- `400 validation_failed` for no/foreign provenance rows, or when no row
+  would remain on the original.
+- `409 offer_conflict` when the new company+title+location already
+  exists; change the title or location and retry.
+- `404 not_found` for an unknown offer.
 
 ## Events (offer timeline)
 
@@ -387,4 +465,5 @@ when it has none, and the emptied company row is deleted.
 | 409 | `duplicate_company` | normalized company name already exists |
 | 409 | `company_has_offers` | deleting a company that still owns offers |
 | 409 | `merge_conflict` | offer fingerprints would collide during rename/merge |
+| 409 | `offer_conflict` | splitting an offer would reuse an existing company+title+location fingerprint |
 | 500 | `internal` | unexpected storage error |

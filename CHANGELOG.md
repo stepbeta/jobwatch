@@ -68,6 +68,47 @@
 #### Fixed
 - Deleting a non-existent company now returns `404` instead of `204`.
 
+### Milestone 3 — Classification, dedup UX, changed-offer diff
+
+#### Added
+- Deterministic classifier (`internal/classify`): weighted title keyword
+  tables (strong/weak positives, strong negatives, management penalty),
+  location and description scoring, derived `remote_policy`, and
+  `match_reasons_json` with a human-readable rationale list per score.
+  Includes French internship terms and whole-token matching so "Marketing
+  Platform Lead" cannot outrank "Platform Engineer".
+- `jobwatch reclassify [--all]` backfills scores and remote policies for
+  offers created before the classifier; `--all` recomputes every offer
+  after keyword changes.
+- Classifier wired into every scan and manual import; scores and remote
+  policy are refreshed on every sighting.
+- Offer merge endpoint and detail-page dialog: all provenance rows,
+  events, notes and snapshots move to the kept offer, duplicate links are
+  collapsed, and the absorbed offer row is removed only afterwards.
+- Offer split endpoint and detail-page workflow: select provenance rows,
+  adjust the new title/location, and create a second offer in the same
+  company. Events/notes/snapshots stay with the tracked original.
+- Line diff between the two latest snapshots (`internal/diff`,
+  `snapshot_diff` in offer detail) with added/removed lines highlighted
+  on `changed` offers.
+- Dismissible possible-duplicate-company banner (dismissal remembered in
+  localStorage per company) and an explicit keep-which-company merge
+  dialog.
+- Tests: table-driven classifier cases (including tricky titles and
+  remote policies), line-diff cases, DB merge/split and reclassification
+  tests, and API tests for offer merge/split and snapshot diff.
+
+#### Changed
+- Score badges now show the classifier's matching terms as tooltips;
+  title/location confidence filters operate on the new scores.
+- `remote_policy` is no longer always `unknown`; it is derived from
+  location and description (remote/hybrid/onsite).
+- Milestone 3 needs no schema migration; migration 0001 already has the
+  confidence columns.
+- The data-safety rule now records the single explicit exception: an
+  explicit user-confirmed offer merge deletes the absorbed row after all
+  child rows have moved; scans still never delete offers.
+
 
 ### Changed
 - SPEC updated to match decisions made in Milestone 1: Ashby is fetched

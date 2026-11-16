@@ -44,6 +44,13 @@ func nullInt(p *int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: *p, Valid: true}
 }
 
+func nullIntFromInt(p *int) sql.NullInt64 {
+	if p == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(*p), Valid: true}
+}
+
 func intPtr(n sql.NullInt64) *int {
 	if !n.Valid {
 		return nil
@@ -345,13 +352,22 @@ func InsertOffer(ctx context.Context, q Querier, o model.JobOffer, now time.Time
 		o.RemotePolicy = model.RemoteUnknown
 	}
 	ts := model.FormatTime(now)
+	firstSeen, lastSeen := ts, ts
+	if !o.FirstSeenAt.IsZero() {
+		firstSeen = model.FormatTime(o.FirstSeenAt)
+	}
+	if !o.LastSeenAt.IsZero() {
+		lastSeen = model.FormatTime(o.LastSeenAt)
+	}
 	res, err := q.ExecContext(ctx, `INSERT INTO job_offers(
 		company_id, title, title_normalized, location, remote_policy, url, fingerprint,
 		first_seen_at, last_seen_at, offer_state, application_state, raw_text, text_hash,
+		title_confidence, location_confidence, match_reasons_json,
 		created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		o.CompanyID, o.Title, o.TitleNormalized, nullStr(o.Location), string(o.RemotePolicy), nullStr(o.URL), o.Fingerprint,
-		ts, ts, string(o.OfferState), string(o.ApplicationState), nullStr(o.RawText), nullStr(o.TextHash),
+		firstSeen, lastSeen, string(o.OfferState), string(o.ApplicationState), nullStr(o.RawText), nullStr(o.TextHash),
+		nullIntFromInt(o.TitleConfidence), nullIntFromInt(o.LocationConfidence), nullStr(o.MatchReasonsJSON),
 		ts, ts)
 	if err != nil {
 		return model.JobOffer{}, fmt.Errorf("insert offer %q: %w", o.Title, err)
@@ -360,7 +376,13 @@ func InsertOffer(ctx context.Context, q Querier, o model.JobOffer, now time.Time
 		return model.JobOffer{}, fmt.Errorf("insert offer %q: %w", o.Title, err)
 	}
 	t := now.UTC().Truncate(time.Second)
-	o.FirstSeenAt, o.LastSeenAt, o.CreatedAt, o.UpdatedAt = t, t, t, t
+	o.CreatedAt, o.UpdatedAt = t, t
+	if o.FirstSeenAt.IsZero() {
+		o.FirstSeenAt = t
+	}
+	if o.LastSeenAt.IsZero() {
+		o.LastSeenAt = t
+	}
 	return o, nil
 }
 
@@ -375,6 +397,67 @@ func UpdateOfferSighting(ctx context.Context, q Querier, id int64, state model.O
 		return fmt.Errorf("update offer %d sighting: %w", id, err)
 	}
 	return nil
+}
+
+// SetOfferClassification stores the deterministic classifier output on an
+// offer. It deliberately does not bump updated_at: reclassifying old offers
+// is maintenance, not job-search activity.
+func SetOfferClassification(ctx context.Context, q Querier, id int64, s model.OfferScores) error {
+	policy := s.RemotePolicy
+	if policy == "" {
+		policy = model.RemoteUnknown
+	}
+	reasons := s.MatchReasonsJSON
+	if reasons == "" {
+		reasons = `{"title":[],"location":[]}`
+	}
+	res, err := q.ExecContext(ctx, `UPDATE job_offers
+		SET remote_policy = ?, title_confidence = ?, location_confidence = ?, match_reasons_json = ?
+		WHERE id = ?`,
+		string(policy), s.TitleConfidence, s.LocationConfidence, reasons, id)
+	if err != nil {
+		return fmt.Errorf("set classification of offer %d: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// OfferClassificationInput is the minimal offer row needed to re-run the
+// classifier.
+type OfferClassificationInput struct {
+	ID       int64
+	Title    string
+	Location *string
+	RawText  *string
+}
+
+// ListOffersForClassification returns offers in ID order. onlyMissing
+// restricts the result to offers that have no score yet.
+func ListOffersForClassification(ctx context.Context, q Querier, onlyMissing bool) ([]OfferClassificationInput, error) {
+	query := `SELECT id, title, location, raw_text FROM job_offers`
+	if onlyMissing {
+		query += ` WHERE title_confidence IS NULL OR location_confidence IS NULL`
+	}
+	query += ` ORDER BY id`
+	rows, err := q.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list offers for classification: %w", err)
+	}
+	defer rows.Close()
+	out := []OfferClassificationInput{}
+	for rows.Next() {
+		var o OfferClassificationInput
+		var loc, raw sql.NullString
+		if err := rows.Scan(&o.ID, &o.Title, &loc, &raw); err != nil {
+			return nil, fmt.Errorf("list offers for classification: %w", err)
+		}
+		o.Location = strPtr(loc)
+		o.RawText = strPtr(raw)
+		out = append(out, o)
+	}
+	return out, rows.Err()
 }
 
 // TouchOfferLastSeen only bumps last_seen_at (manual re-import).

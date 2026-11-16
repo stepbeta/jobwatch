@@ -207,3 +207,19 @@ type snapshotJSON struct {
 func snapshotToJSON(s model.Snapshot) snapshotJSON {
 	return snapshotJSON{ID: s.ID, RawText: s.RawText, CapturedAt: model.FormatTime(s.CapturedAt)}
 }
+
+type snapshotRefJSON struct {
+	ID         int64  `json:"id"`
+	CapturedAt string `json:"captured_at"`
+}
+
+type diffLineJSON struct {
+	Op   string `json:"op"`
+	Text string `json:"text"`
+}
+
+type snapshotDiffJSON struct {
+	From  snapshotRefJSON `json:"from"`
+	To    snapshotRefJSON `json:"to"`
+	Lines []diffLineJSON  `json:"lines"`
+}

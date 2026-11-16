@@ -31,10 +31,14 @@ notes, states) per offer and per company.
    classifier is keyword/score based and lives in `internal/classify`.
 5. **No silent merging.** Duplicate companies or offers may only be
    merged after explicit user confirmation in the UI.
-6. **Data safety.** All scan writes happen in transactions. Never
-   delete offers ( disappearing offers become `disappeared`, never
-   removed). Every state-changing migration must be reversible-safe
-   for a single SQLite file (i.e. additive migrations preferred).
+6. **Data safety.** All scan writes happen in transactions. Scans never
+   delete offers (disappearing offers become `disappeared`, never
+   removed). The only offer deletion is the absorbed row of an explicit,
+   user-confirmed offer merge, and it happens only after every event,
+   note, snapshot and provenance row has moved to the kept offer. Thus
+   the "never delete offers" rule for automated behavior is absolute.
+   Every state-changing migration must be reversible-safe for a single
+   SQLite file (i.e. additive migrations preferred).
 
 ## Tech stack
 
@@ -46,7 +50,7 @@ notes, states) per offer and per company.
   setup, no heavyweight framework ceremony. Built output is embedded
   into the binary via `go:embed` under `web/dist`.
 - CLI: Cobra with subcommands (`serve`, `scan`, `add-source`, `list`,
-  `import`, `backup`).
+  `import`, `backup`, `reclassify`).
 
 ## Repository layout (keep it tidy)
 
@@ -54,8 +58,9 @@ notes, states) per offer and per company.
 cmd/jobwatch/        main + subcommands
 internal/db/         sqlite setup, migrations runner, queries
 internal/sources/    Fetcher interface + per-type adapters
-internal/scan/       scan pipeline + manual import (uses db + sources)
+internal/scan/       scan pipeline + manual import + classifier backfill (uses db + sources + classify)
 internal/classify/   scoring engine + keyword tables
+internal/diff/       line diff for changed-offer snapshots
 internal/api/        REST handlers
 internal/model/      types shared across packages
 web/                 React SPA source (src/) + Go embed (embed.go, noui.go, spa.go)

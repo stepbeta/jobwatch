@@ -65,21 +65,51 @@ Done criteria (all met):
 | Offer PATCH does not recompute the fingerprint on a location correction | location is a display/collision-bucket field; keeping the identity stable avoids surprise duplicate offers |
 | No new Go package for DTOs; API response types live in `internal/api/dto.go` | keeps the JSON contract separate from `model` without another package |
 
+## Milestone 3 — Classification, dedup UX, changed-offer diff — DONE
+
+Done criteria (all met):
+- [x] Deterministic `internal/classify` engine: weighted title keyword
+      sets, location/description scoring, derived `remote_policy`, and
+      `match_reasons_json` with per-score human-readable terms
+- [x] Classifier wired into every scan/import sighting; `jobwatch
+      reclassify [--all]` backfills existing offers
+- [x] Table-driven classifier tests incl. "Engineering Manager -
+      Platform" vs "Marketing Platform Lead", locations/remote policies
+- [x] Score badges use the matching reason list as tooltip; the
+      title/location confidence filters work end to end
+- [x] Possible-duplicate-company banner (dismissible) and explicit
+      keep-which-company merge dialog
+- [x] Offer merge and split endpoints + UI: merge moves all
+      events/notes/snapshots/provenance; split creates a second offer and
+      assigns selected provenance rows
+- [x] `snapshot_diff` line diff between the two latest snapshots shown on
+      the changed offer detail page
+- [x] `go build`, `go vet`, `go test`, `npm run build` green
+- [x] No schema migration needed (0001 already has the score columns)
+
+### Deviations (permanent decisions; SPEC updated, see SPEC §11)
+
+| Deviation | Reason |
+|---|---|
+| `match_reasons_json` is `{"title":[],"location":[]}`, not one flat array | each score needs its own tooltip; the SPEC only asked for "a list per score" |
+| An explicit offer merge deletes the absorbed `job_offers` row after moving every child row | merging must leave one offer; all provenance, events, notes and snapshots are preserved. Scans still never delete offers |
+| Splitting requires at least one provenance row to stay and a non-colliding company+title+location | otherwise it is not a split, or it would create a duplicate fingerprint |
+| Split leaves events/notes/snapshots on the original | those describe the tracked application, not the link |
+| Classifier adds French internship terms (`stage`, `alternance`) and a management penalty | the target market is France and manager titles are not hands-on Platform/SRE roles |
+| Score caps by remote policy (onsite 50, hybrid 75, unknown 60) | `location_confidence` means "full remote in France", not just "France" |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
 |---|---|---|
-| Classification not run during scans | §6, §7 step 3 | Open. `title_confidence`, `location_confidence`, `match_reasons_json` stay NULL; `remote_policy` stays `unknown`. The UI shows score badges as `—` placeholders |
-| ATS workplace hints discarded | §6 | Open. Lever/Ashby `workplaceType` is not carried in `RawOffer` |
-| No offer merge/split | §5, §8 | Open. Company merge exists; the offer detail page shows a disabled "Split offer" placeholder. Same-bucket postings share one offer with several provenance rows |
-| No diff summary for `changed` offers | §5 | Open. Snapshots are stored; the UI shows the latest text and the snapshot count, no diff |
-| No "N consecutive failures" counter | §7 | Open. One failed scan marks the source `error`/`blocked`; the next success resets it. The error text is in the scan summary but not stored |
+| ATS workplace hints discarded | §6 | Open. Lever/Ashby `workplaceType` is not carried in `RawOffer`; `remote_policy` is derived from location and description text |
 | Title change of a posting creates a new offer | §5 | Open. Identity is the fingerprint only (external UID not used) |
 | Adapters for personio, workable, wttj, rss, html missing | §7 | Open. Such sources can be registered; scan reports `skipped` and leaves their status unchanged |
+| No "N consecutive failures" counter | §7 | Open. One failed scan marks the source `error`/`blocked`; the next success resets it. The error text is in the scan summary but not stored |
 | `notes_fts` not exposed | §4 | Open. The index is maintained but `GET /api/offers?q=` searches offers only |
 | No FTS search over companies in the UI | §9 | Open. `GET /api/companies?q=` matches the name; no full-text company search |
 | Import by URL alone is not implemented | §3 | Open. Both CLI and API require `company` and `title`; a bare URL cannot be fetched for metadata |
-| No snapshot listing endpoint | §9 | Open. Detail returns the latest snapshot and the count only |
+| No snapshot listing endpoint | §9 | Open. Detail returns the latest snapshot, the count and a diff of the two latest only |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
 | No scheduled scans or notifications | §10 | Out of scope for v1 |

@@ -4,10 +4,10 @@ JobWatch is a local, single-user tool that tracks job offers from
 company job boards (Greenhouse, Lever, Ashby), detects new, changed and
 disappeared offers, and keeps everything in a single SQLite file.
 
-Status: Milestone 2 (REST API + web UI). The Go server exposes the full
-API and, when built with the `ui` tag, embeds the React SPA. See
-[docs/MILESTONES.md](docs/MILESTONES.md) for what is done and the known
-gaps.
+Status: Milestone 3 (classification, offer/company dedup UX, changed-offer
+diff). The Go server exposes the full API and, when built with the `ui`
+tag, embeds the React SPA. See [docs/MILESTONES.md](docs/MILESTONES.md)
+for what is done and the known gaps.
 
 ## Requirements
 
@@ -56,6 +56,8 @@ Use the global `--db <path>` flag to choose another file.
 ./jobwatch list
 ./jobwatch list --offer-state changed
 ./jobwatch list --sources
+./jobwatch reclassify            # backfill scores of older offers
+./jobwatch reclassify --all      # recompute every score after keyword changes
 ```
 
 ## Commands
@@ -67,6 +69,7 @@ Use the global `--db <path>` flag to choose another file.
 | `add-source <url> [--name N] [--type T] [--config JSON] [--disabled]` | Register a source |
 | `list [--offer-state S] [--app-state S] [--limit N] [--sources]` | List offers (most recently seen first) or sources |
 | `import <url \| json \| file.json \| ->` | Add an offer seen elsewhere, without fetching anything |
+| `reclassify [--all]` | Backfill title/location scores and remote policies with the deterministic classifier; `--all` recomputes every offer |
 | `backup <dest>` | Write a consistent copy of the database to `dest` (must not exist) |
 
 Run `./jobwatch <command> --help` for details.
@@ -79,16 +82,19 @@ Built with React + TypeScript (Vite). The pages are:
   application state is not `todo`, most recent timeline activity first),
   then the offers table with filters (application/offer state, remote
   policy, score minima, company, full-text search), sorting and
-  pagination. Score badges show `—` until the classifier is wired in.
+  pagination. Score badges show 0–100 title/location confidences; hover
+  one to see the matched keywords from the classifier.
 - **Sources** — enable/disable, scan status, per-source Refresh, a
   global Refresh all in the top bar, and add/edit forms whose config
   fields depend on the source type.
 - **Offer detail** — editable application/offer state and location,
-  all provenance links side by side (with a split placeholder), a
-  vertical timeline with backdating, notes optionally pinned to an
-  event, and the latest description snapshot.
-- **Company detail** — offers, company notes, rename/website edit and a
-  merge prompt when a possible duplicate company is detected.
+  score badges, all provenance links side by side, explicit merge into
+  another offer and split (select links for a second offer), a vertical
+  timeline with backdating, notes optionally pinned to an event, and the
+  latest description plus a removed/added line diff for `changed` offers.
+- **Company detail** — offers, company notes, rename/website edit, a
+  dismissible possible-duplicate banner and a merge dialog that lets you
+  choose which company row to keep. Nothing is merged automatically.
 
 Development (two processes):
 
@@ -158,8 +164,20 @@ is added to that offer instead of creating a duplicate.
 ### Offer states
 
 - `active`: seen in the latest scan.
-- `changed`: the description changed (each version is kept as a snapshot).
-- `disappeared`: no longer listed on any source. Offers are never deleted.
+- `changed`: the description changed (each version is kept as a snapshot;
+  the detail page shows the added/removed lines between the two latest).
+- `disappeared`: no longer listed on any source. Scans never delete offers.
+
+### Classification
+
+Every scan and import scores each offer deterministically (no LLM):
+`title_confidence` asks whether the title is a Platform/SRE/DevOps/Infra
+role, `location_confidence` whether it is full remote and
+France-compatible, and `remote_policy` is derived from the location and
+description. The keyword tables live in `internal/classify/tables.go`.
+Offer lists can be filtered by both minimum scores. Run
+`./jobwatch reclassify` once after upgrading an existing database to fill
+older offers; `--all` recomputes after changing the tables.
 
 ### Backups
 

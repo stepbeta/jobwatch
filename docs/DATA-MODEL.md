@@ -16,8 +16,8 @@ require a table rebuild.
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
 Opening a database that records a version unknown to the binary fails.
-Milestone 2 (REST API + web UI) needs no schema change; it uses the
-tables, indexes and FTS5 triggers created by 0001.
+Milestones 2 and 3 need no schema change; they use the tables, indexes
+and FTS5 triggers created by 0001.
 
 ## Tables
 
@@ -66,7 +66,7 @@ company), `rate_limit_ms` (min interval between requests, default 2000),
 | title | TEXT NOT NULL | as first seen |
 | title_normalized | TEXT NOT NULL | `model.NormalizeTitle`: lowercase, accents folded, gender markers (`H/F`, `m/w/d`…) removed, punctuation → space |
 | location | TEXT | free text as first seen |
-| remote_policy | TEXT NOT NULL DEFAULT 'unknown' | `remote` `hybrid` `onsite` `unknown` (classifier not yet implemented: always `unknown`) |
+| remote_policy | TEXT NOT NULL DEFAULT 'unknown' | `remote` `hybrid` `onsite` `unknown`; derived by the deterministic classifier from location and description on every sighting (and by `jobwatch reclassify`) |
 | url | TEXT | canonical (first-seen) link |
 | fingerprint | TEXT NOT NULL UNIQUE | see Fingerprints |
 | first_seen_at, last_seen_at | TEXT NOT NULL | |
@@ -74,12 +74,31 @@ company), `rate_limit_ms` (min interval between requests, default 2000),
 | application_state | TEXT NOT NULL DEFAULT 'todo' | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
 | raw_text | TEXT | latest plain-text description |
 | text_hash | TEXT | SHA-256 hex of whitespace-collapsed `raw_text`; NULL when no description |
-| title_confidence | INTEGER | 0..100 (CHECK), NULL until classified |
-| location_confidence | INTEGER | 0..100 (CHECK), NULL until classified |
-| match_reasons_json | TEXT | NULL until classified |
+| title_confidence | INTEGER | 0..100 (CHECK), probability the title is a Platform/SRE/DevOps/Infra role; NULL only until classified |
+| location_confidence | INTEGER | 0..100 (CHECK), probability the offer is full remote and France-compatible; NULL only until classified |
+| match_reasons_json | TEXT | `{"title":["..."],"location":["..."]}`: human-readable matched terms and weights per score (see Classification below) |
 | created_at, updated_at | TEXT | |
 
 Indexes: company_id, offer_state, application_state, last_seen_at.
+
+### Classification columns
+
+- Scores are additive keyword outcomes clamped to 0..100. The title table
+  has strong positives (60), weak technology/role terms (15–25), strong
+  negatives (marketing, sales, recruiter, internship, account executive,
+  French internship/apprenticeship words; −120) and management penalties
+  (−20). A strong negative therefore suppresses even a strong positive.
+- Location scoring combines remote/hybrid/onsite phrases with France,
+  French city, EMEA/EU/Europe and time-zone terms; clearly incompatible
+  locations subtract points. Description evidence carries lower weight.
+  The derived policy caps the score: onsite ≤ 50, hybrid ≤ 75, unknown
+  ≤ 60; only a remote role can reach 100.
+- `match_reasons_json` is always valid JSON with two arrays. Each element
+  is a readable string such as `strong positive "platform engineer"
+  (+60)` or `description "remote" (+25)`. The UI uses the matching array
+  as the score-badge tooltip.
+- `jobwatch reclassify` fills missing scores; `--all` recomputes every
+  offer after a keyword-table change. It does not change `updated_at`.
 
 ### job_offer_provenance
 One row per (offer, link) sighting. `UNIQUE(offer_id, url)`.
@@ -131,7 +150,10 @@ when that event is deleted). The pin must belong to the note's entity
 | raw_text | TEXT NOT NULL | description at capture time (may be empty for offers created without one) |
 | captured_at | TEXT NOT NULL | |
 
-Index: (offer_id, captured_at).
+Index: (offer_id, captured_at). Every first description and every
+text-hash change appends a row. `GET /api/offers/:id` exposes the latest
+snapshot and, when at least two exist, a line diff between the two latest
+snapshots (oldest → newest) for the changed-offer view.
 
 ### Full-text search
 - `job_offers_fts` — FTS5, external content `job_offers` (columns
@@ -171,8 +193,11 @@ sync by AFTER INSERT / DELETE / UPDATE OF triggers
 - A sighting without description never clears stored text. A first
   description on an offer that had none fills `raw_text` (+ snapshot)
   without becoming `changed`.
+- The classifier re-runs on every sighting using the stored title,
+  location and latest description; score columns and `remote_policy` are
+  updated even when the offer state does not change.
 - Failed or blocked scans change no offer.
-- Offers are never deleted.
+- Offers are never deleted by scans or imports.
 - When several postings of one scan map to the same offer, only the
   first one updates the offer; the others only add provenance.
 
@@ -204,6 +229,30 @@ surfaced on `GET /api/sources`.
   rejected with `409 merge_conflict` and nothing changes.
 - Deleting a company is refused while it owns offers. Deleting a source
   keeps its provenance rows but sets their `source_id` to NULL.
+
+## Offer merge and split
+
+Both operations are explicit user actions on the offer detail page; scans
+never merge or split offers.
+
+- **Merge** (`POST /api/offers/:id/merge` with `into_id`): moves the
+  absorbed offer's provenance rows, events, offer notes and snapshots to
+  the target, keeps the earliest `first_seen_at` / latest `last_seen_at`,
+  collapses duplicate provenance URLs (earliest first-seen, latest
+  last-seen), adopts the absorbed application state when the target is
+  `todo`, and keeps `changed` when either side was changed. The absorbed
+  `job_offers` row is deleted only after all children have moved; no
+  events, notes, snapshots or provenance rows are lost.
+- **Split** (`POST /api/offers/:id/split` with `provenance_ids`, optional
+  `title`, optional `location`): creates a second offer in the same
+  company and moves the selected provenance rows to it. Events, notes and
+  snapshots stay with the original because they describe the tracked
+  application. At least one provenance row must remain on the original.
+  The new offer gets `active` (or `disappeared` when the original was
+  disappeared), application state `todo`, and a fingerprint computed from
+  the company, new title and location; a collision is rejected with
+  `409 offer_conflict`. The original canonical `url` is repaired to a
+  remaining link when the moved row owned it.
 
 ## Full-text search exposure
 
