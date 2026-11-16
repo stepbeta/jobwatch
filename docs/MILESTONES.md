@@ -451,6 +451,43 @@ Done criteria (all met):
 | `snapshot-diff` rejects `from == to` | a self-diff is not a version comparison and is almost certainly a UI bug |
 | Older versions are fetched by reusing `GET /api/offers/:id?snapshot_id=N` instead of adding a separate snapshot endpoint | keeps the API surface small; the detail response is local and bounded, and only one extra fetch happens when the user opens an older version |
 
+## Milestone 7d — Editable events and note↔event linking — DONE
+
+Done criteria (all met):
+- [x] Every timeline event row has Edit and Delete icon actions. Edit
+      turns the row into an inline form with type, description and a
+      required date + optional time; Save calls
+      `PATCH /api/offers/:id/events/:eventID` with all three fields and
+      Cancel sends no request.
+- [x] Backdating accepts a date alone in both the edit and create forms;
+      the API value is `YYYY-MM-DD` when no time is given.
+- [x] Delete keeps the shared ConfirmDialog. Deleting a pinned event
+      reloads the offer, so the note keeps its text and loses its pin
+      badge (`ON DELETE SET NULL`).
+- [x] Direction A: a pinned note card has a coloured left border and a
+      badge with the event type icon and date; clicking it scrolls to and
+      briefly highlights the event row.
+- [x] Direction B: an event with pinned notes shows a note icon and
+      count; clicking it expands the pinned notes inline under the event
+      row (chosen interaction).
+- [x] Both directions are built client-side from `notes.pinned_event_id`
+      in the offer detail response; no API or schema change.
+- [x] Component tests (Vitest + jsdom + Testing Library, mocked API)
+      cover the backdated save, cancel-without-request, the pinned-note
+      cue, the note-count marker and pin clearing after deletion.
+- [x] `go build`, `go vet`, `go test`, `npm run build` and `npm test`
+      green; no classifier, adapter, migration, event-enum,
+      note-pinning-contract or application-state change.
+
+### Deviations (permanent decisions)
+
+| Deviation | Reason |
+|---|---|
+| The create form was changed to the same date + optional time inputs as the edit form | the prompt refers to a Milestone 7a input format that is not present in this repository; the existing create form used a single `datetime-local` field, which cannot express a date-only backdate. Aligning both forms satisfies the date-only requirement and keeps the two flows identical |
+| The PATCH sends all three editable fields, not only the changed ones | the inline form always shows the complete event, so sending the full state avoids diffing and makes clearing the description explicit (`null`) |
+| Direction B expands the pinned notes inline under the event row | keeps the note text next to its event without moving the notes column or adding a second scroll target |
+| Frontend tests add Vitest, jsdom and Testing Library as dev dependencies | the repository had no browser test runner and the milestone requires UI-level tests; these are dev-only and do not affect the single-binary build |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -468,7 +505,7 @@ Done criteria (all met):
 | No FTS search over companies in the UI | §9 | Open. `GET /api/companies?q=` matches the name; no full-text company search |
 | Pre-7c snapshot origins are all `scan` | §9 | By design after 7c. The old schema had no reliable manual marker; only snapshots written from 7c onward carry an exact origin |
 | Manual description edits do not refresh classifier scores | §6 | Open. Scores keep their previous values until the next sighting or `jobwatch reclassify --all`; the edit itself is versioned normally |
-| No frontend component tests | §9 | Open. UI changes are validated by `tsc`/`vite build` and backend tests; the event-label rename has no browser test runner |
+| Frontend component tests cover only the offer timeline/notes flows | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); other pages still rely on `tsc`/`vite build` and backend tests |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
 | Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |

@@ -55,8 +55,14 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
 4. Open an offer. Set **Application** to `Applied`, leave **Offer** on
    `active`, correct the location if needed, and click **Save**.
 5. In the **Timeline** panel add a `CV sent` event; set *Occurred at* to
-   yesterday to exercise backdating; add an optional description. In the
-   **Notes** panel add a note and pin it to that event.
+   yesterday (leave the time empty to exercise date-only backdating); add
+   an optional description. In the **Notes** panel add a note and pin it
+   to that event. The note card shows a badge with the event type and
+   date; click it to scroll to and highlight the event. The event row
+   shows a note icon with the count; click it to expand the pinned note
+   inline. Use the pencil icon to edit the event (change the type or
+   backdate it) and the trash icon to delete it; after deleting a pinned
+   event the note keeps its text and loses the badge.
 6. Go back to the Dashboard: the offer is in **Applications**, sorted by
    recent activity. The **Company** link opens the company page (offers,
    notes, possible duplicate companies).

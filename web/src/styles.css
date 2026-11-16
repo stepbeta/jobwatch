@@ -640,6 +640,108 @@ details.panel > summary {
   gap: 2px;
 }
 
+.timeline li.timeline-highlight {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: var(--radius);
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+  transition: background 0.25s ease;
+}
+
+.timeline-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.timeline-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.timeline-title svg {
+  color: var(--accent);
+  flex: none;
+}
+
+.timeline-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+}
+
+.icon-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel-alt);
+  border-color: var(--border);
+}
+
+.icon-button.danger:hover:not(:disabled) {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.note-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--blue-bg);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 999px;
+}
+
+.note-count[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+}
+
+.event-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding-left: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.event-note p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.event-edit {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  background: var(--panel-alt);
+}
+
+.date-time {
+  display: flex;
+  gap: 6px;
+}
+
+.date-time input[type='date'] {
+  flex: 1;
+}
+
 /* notes */
 .notes {
   display: flex;
@@ -657,6 +759,34 @@ details.panel > summary {
 .note p {
   margin: 0 0 4px;
   white-space: pre-wrap;
+}
+
+.note.note-pinned {
+  border-left: 3px solid var(--accent);
+}
+
+.note-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.note-pin-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--blue-bg);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 999px;
+}
+
+.note-pin-cue:hover:not(:disabled) {
+  border-color: var(--accent);
 }
 
 .note textarea {

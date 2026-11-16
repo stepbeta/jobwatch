@@ -419,3 +419,38 @@
   keep passing through the default `scan` origin.
 - API, DATA-MODEL, ARCHITECTURE, SPEC, MILESTONES, README and this
   changelog are updated; no classifier, adapter, event-type or note change.
+
+### Milestone 7d — Editable events and note↔event linking
+
+#### Added
+- Every timeline event has inline Edit and Delete icon actions. Edit
+  opens a form with the same fields as creation (type, description,
+  required date plus optional time) and calls
+  `PATCH /api/offers/:id/events/:eventID` with all three fields; Cancel
+  discards the draft without a request. Backdating accepts a date alone,
+  exactly like the create form.
+- The create form now uses the same required date + optional time inputs,
+  so date-only backdating works there too.
+- Bidirectional note↔event cues, both derived from the offer detail
+  payload: a pinned note card shows a coloured left border and a badge
+  with the event's type icon and date; clicking it scrolls to and briefly
+  highlights the event row. An event with pinned notes shows a note icon
+  with the count; clicking it expands the pinned notes inline under the
+  event row.
+- Deleting a pinned event refreshes the notes, so the pin badge
+  disappears while the note text stays (the API clears
+  `pinned_event_id`).
+- Dependency-free inline SVG icons for event types and the edit, delete
+  and note actions.
+
+#### Changed
+- The frontend now has component tests: Vitest + jsdom +
+  Testing Library run against a mocked API. They cover saving a
+  backdated event, cancelling without a request, the pinned-note cue,
+  the event note-count marker and the pin clearing after event deletion.
+  `npm test` runs them.
+- No backend, schema, classifier, adapter, event-enum or note-contract
+  change was needed; the existing PATCH/DELETE endpoints already support
+  the flow.
+- ARCHITECTURE, MILESTONES, SMOKE-TEST, README and this changelog are
+  updated.

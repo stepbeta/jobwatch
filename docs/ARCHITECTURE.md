@@ -259,12 +259,15 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`), filtered/paginated offers table, import form |
 | `pages/SourcesPage.tsx` | source list, enable toggle, scan status, per-source refresh, add/edit form with type-dependent config fields (personio/workable/rss/html included), explanatory notes on seeded sources |
-| `pages/OfferPage.tsx` | editable states/location, score badges with reason tooltips, collapsed provenance disclosure with explicit merge and split actions (open state stored per offer in localStorage), timeline with backdating and message event labels, notes with event pin, and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save) |
+| `pages/OfferPage.tsx` | editable states/location, score badges with reason tooltips, collapsed provenance disclosure with explicit merge and split actions (open state stored per offer in localStorage), timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save) |
+| `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note) |
 | `pages/CompanyPage.tsx` | offers, company notes, rename/website edit, dismissible possible-duplicate banner and explicit keep-which-company merge dialog |
 | `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source/event/note/company) |
 | `App.tsx` | top bar, global refresh-all loop, auto-dismissing toast stack, routing |
 
 `vite.config.ts` proxies `/api` to `127.0.0.1:8080` in development.
+`vitest.config.ts` runs the component tests in jsdom; they mock `api.ts`
+and need no server or network.
 
 In production the built `web/dist` is embedded by `web/embed.go`
 (`//go:build ui`, `//go:embed all:dist`). `web/spa.go` serves the files

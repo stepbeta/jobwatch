@@ -326,6 +326,7 @@ manual UI steps for a live source are in
 ```sh
 go build ./... && go vet ./... && go test ./...
 cd web && npm run build        # type-check + production bundle
+cd web && npm test             # component tests (Vitest + jsdom)
 ```
 
 Tests use recorded fixtures (`internal/sources/testdata`) and never hit

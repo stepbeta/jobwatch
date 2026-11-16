@@ -3,14 +3,17 @@ import { api, errorMessage } from '../api'
 import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
 import { Link } from '../components/Link'
 import { ScoreBadge } from '../components/ScoreBadge'
+import { ActionIcon, EventIcon } from '../components/icons'
 import {
   APP_STATES,
   EVENT_TYPES,
   OFFER_STATES,
   appLabel,
   eventLabel,
+  eventTimestamp,
+  fmtDate,
   fmtDateTime,
-  fromLocalInput,
+  splitLocalInput,
   toLocalInput,
 } from '../format'
 import type { NoticeKind } from '../App'
@@ -79,8 +82,19 @@ export function OfferPage({
   const [saving, setSaving] = useState(false)
 
   const [eventType, setEventType] = useState<EventType>('cv_sent')
-  const [eventAt, setEventAt] = useState(() => toLocalInput(new Date()))
+  const [eventDate, setEventDate] = useState(() => splitLocalInput(toLocalInput(new Date())).date)
+  const [eventTime, setEventTime] = useState(() => splitLocalInput(toLocalInput(new Date())).time)
   const [eventDesc, setEventDesc] = useState('')
+  const [editingEvent, setEditingEvent] = useState<{
+    id: number
+    type: EventType
+    description: string
+    date: string
+    time: string
+  } | null>(null)
+  const [savingEvent, setSavingEvent] = useState(false)
+  const [expandedEventNotes, setExpandedEventNotes] = useState<number[]>([])
+  const [highlightEventID, setHighlightEventID] = useState<number | null>(null)
 
   const [noteBody, setNoteBody] = useState('')
   const [notePin, setNotePin] = useState('')
@@ -138,6 +152,9 @@ export function OfferPage({
     setSplitIDs([])
     setMergeOpen(false)
     setEditingDescription(false)
+    setEditingEvent(null)
+    setExpandedEventNotes([])
+    setHighlightEventID(null)
     setProvenanceOpen(readProvenanceOpen(id))
     setSelectedSnapshotID(null)
     setSnapshotTexts({})
@@ -272,14 +289,20 @@ export function OfferPage({
 
   async function addEvent(e: FormEvent) {
     e.preventDefault()
+    if (!eventDate) {
+      onNotice('error', 'Occurred at date is required.')
+      return
+    }
     try {
       await api.createEvent(id, {
         type: eventType,
         description: eventDesc.trim() || undefined,
-        occurred_at: fromLocalInput(eventAt) || undefined,
+        occurred_at: eventTimestamp(eventDate, eventTime) || undefined,
       })
       setEventDesc('')
-      setEventAt(toLocalInput(new Date()))
+      const now = splitLocalInput(toLocalInput(new Date()))
+      setEventDate(now.date)
+      setEventTime(now.time)
       await load()
       onNotice('success', 'Timeline event added.')
     } catch (err) {
@@ -289,6 +312,64 @@ export function OfferPage({
     }
   }
 
+  function startEventEdit(ev: OfferDetail['events'][number]) {
+    const local = splitLocalInput(toLocalInput(new Date(ev.occurred_at)))
+    setEditingEvent({
+      id: ev.id,
+      type: ev.type,
+      description: ev.description ?? '',
+      date: local.date,
+      time: local.time,
+    })
+  }
+
+  // The PATCH always sends all three editable fields: the form shows the
+  // complete event, so there is no partial-field ambiguity. An empty
+  // description is sent as null, which clears it.
+  async function saveEvent(e: FormEvent) {
+    e.preventDefault()
+    if (!editingEvent) return
+    if (!editingEvent.date) {
+      onNotice('error', 'Occurred at date is required.')
+      return
+    }
+    setSavingEvent(true)
+    try {
+      await api.updateEvent(id, editingEvent.id, {
+        type: editingEvent.type,
+        description: editingEvent.description.trim() || null,
+        occurred_at: eventTimestamp(editingEvent.date, editingEvent.time),
+      })
+      setEditingEvent(null)
+      await load()
+      onNotice('success', 'Timeline event updated.')
+    } catch (err) {
+      const text = errorMessage(err)
+      setError(text)
+      onNotice('error', text)
+    } finally {
+      setSavingEvent(false)
+    }
+  }
+
+  function toggleEventNotes(eventId: number) {
+    setExpandedEventNotes((ids) =>
+      ids.includes(eventId) ? ids.filter((v) => v !== eventId) : [...ids, eventId],
+    )
+  }
+
+  function focusEvent(eventId: number) {
+    setHighlightEventID(eventId)
+    const el = document.getElementById(`event-${eventId}`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  useEffect(() => {
+    if (highlightEventID === null) return
+    const timer = window.setTimeout(() => setHighlightEventID(null), 1800)
+    return () => window.clearTimeout(timer)
+  }, [highlightEventID])
+
   function deleteEvent(eventId: number) {
     setConfirm({
       title: 'Delete timeline event',
@@ -296,6 +377,8 @@ export function OfferPage({
       confirmLabel: 'Delete event',
       onConfirm: async () => {
         await api.deleteEvent(id, eventId)
+        setExpandedEventNotes((ids) => ids.filter((v) => v !== eventId))
+        setEditingEvent((current) => (current?.id === eventId ? null : current))
         await load()
         onNotice('success', 'Timeline event deleted.')
       },
@@ -442,6 +525,16 @@ export function OfferPage({
     const ev = detail.events.find((e) => e.id === eventId)
     if (!ev) return `event #${eventId}`
     return `${eventLabel(ev.type)} · ${fmtDateTime(ev.occurred_at)}`
+  }
+
+  // Both visual directions are derived from the detail payload: notes
+  // carry pinned_event_id, so no extra request is needed.
+  const notesByEvent = new Map<number, OfferDetail['notes']>()
+  for (const n of detail.notes) {
+    if (n.pinned_event_id === null) continue
+    const list = notesByEvent.get(n.pinned_event_id) ?? []
+    list.push(n)
+    notesByEvent.set(n.pinned_event_id, list)
   }
 
   const snapshots = detail.snapshots
@@ -643,21 +736,145 @@ export function OfferPage({
             <p className="empty">No events yet.</p>
           ) : (
             <ol className="timeline">
-              {detail.events.map((ev) => (
-                <li key={ev.id}>
-                  <span className="timeline-dot" />
-                  <div className="timeline-body">
-                    <div>
-                      <strong>{eventLabel(ev.type)}</strong>{' '}
-                      <span className="muted small">{fmtDateTime(ev.occurred_at)}</span>
+              {detail.events.map((ev) => {
+                const pinnedNotes = notesByEvent.get(ev.id) ?? []
+                const notesOpen = expandedEventNotes.includes(ev.id)
+                return (
+                  <li
+                    key={ev.id}
+                    id={`event-${ev.id}`}
+                    tabIndex={-1}
+                    className={highlightEventID === ev.id ? 'timeline-highlight' : undefined}
+                  >
+                    <span className="timeline-dot" />
+                    <div className="timeline-body">
+                      {editingEvent?.id === ev.id ? (
+                        <form className="stack event-edit" onSubmit={(e) => void saveEvent(e)}>
+                          <div className="row">
+                            <label>
+                              Type
+                              <select
+                                value={editingEvent.type}
+                                onChange={(e) =>
+                                  setEditingEvent({
+                                    ...editingEvent,
+                                    type: e.target.value as EventType,
+                                  })
+                                }
+                              >
+                                {EVENT_TYPES.map((t) => (
+                                  <option key={t} value={t}>
+                                    {eventLabel(t)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              Occurred at
+                              <span className="date-time">
+                                <input
+                                  type="date"
+                                  required
+                                  aria-label="Occurred at date"
+                                  value={editingEvent.date}
+                                  onChange={(e) =>
+                                    setEditingEvent({ ...editingEvent, date: e.target.value })
+                                  }
+                                />
+                                <input
+                                  type="time"
+                                  aria-label="Occurred at time (optional)"
+                                  value={editingEvent.time}
+                                  onChange={(e) =>
+                                    setEditingEvent({ ...editingEvent, time: e.target.value })
+                                  }
+                                />
+                              </span>
+                            </label>
+                          </div>
+                          <label>
+                            Description
+                            <textarea
+                              rows={2}
+                              value={editingEvent.description}
+                              onChange={(e) =>
+                                setEditingEvent({ ...editingEvent, description: e.target.value })
+                              }
+                              placeholder="optional"
+                            />
+                          </label>
+                          <div className="actions">
+                            <button type="submit" className="primary" disabled={savingEvent}>
+                              {savingEvent ? 'Saving…' : 'Save'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={savingEvent}
+                              onClick={() => setEditingEvent(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <>
+                          <div className="timeline-head">
+                            <div className="timeline-title">
+                              <EventIcon type={ev.type} />
+                              <strong>{eventLabel(ev.type)}</strong>{' '}
+                              <span className="muted small">{fmtDateTime(ev.occurred_at)}</span>
+                            </div>
+                            <div className="timeline-actions">
+                              {pinnedNotes.length > 0 && (
+                                <button
+                                  type="button"
+                                  className="note-count"
+                                  aria-expanded={notesOpen}
+                                  aria-label={`${pinnedNotes.length} pinned note${pinnedNotes.length === 1 ? '' : 's'}`}
+                                  title={`${pinnedNotes.length} pinned note${pinnedNotes.length === 1 ? '' : 's'}`}
+                                  onClick={() => toggleEventNotes(ev.id)}
+                                >
+                                  <ActionIcon name="note" />
+                                  {pinnedNotes.length}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="icon-button"
+                                aria-label="Edit event"
+                                title="Edit event"
+                                onClick={() => startEventEdit(ev)}
+                              >
+                                <ActionIcon name="edit" />
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-button danger"
+                                aria-label="Delete event"
+                                title="Delete event"
+                                onClick={() => void deleteEvent(ev.id)}
+                              >
+                                <ActionIcon name="trash" />
+                              </button>
+                            </div>
+                          </div>
+                          {ev.description && <div>{ev.description}</div>}
+                          {notesOpen && (
+                            <div className="event-notes">
+                              {pinnedNotes.map((n) => (
+                                <div className="event-note" key={n.id}>
+                                  <p>{n.body}</p>
+                                  <span className="muted small">{fmtDateTime(n.created_at)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
-                    {ev.description && <div>{ev.description}</div>}
-                    <button type="button" className="link-button" onClick={() => void deleteEvent(ev.id)}>
-                      Delete
-                    </button>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                )
+              })}
             </ol>
           )}
           <form className="stack" onSubmit={(e) => void addEvent(e)}>
@@ -674,7 +891,21 @@ export function OfferPage({
               </label>
               <label>
                 Occurred at
-                <input type="datetime-local" value={eventAt} onChange={(e) => setEventAt(e.target.value)} />
+                <span className="date-time">
+                  <input
+                    type="date"
+                    required
+                    aria-label="Occurred at date"
+                    value={eventDate}
+                    onChange={(e) => setEventDate(e.target.value)}
+                  />
+                  <input
+                    type="time"
+                    aria-label="Occurred at time (optional)"
+                    value={eventTime}
+                    onChange={(e) => setEventTime(e.target.value)}
+                  />
+                </span>
               </label>
             </div>
             <label>
@@ -700,43 +931,65 @@ export function OfferPage({
             <p className="empty">No notes yet.</p>
           ) : (
             <div className="notes">
-              {detail.notes.map((n) => (
-                <article className="note" key={n.id}>
-                  {editingNote?.id === n.id ? (
-                    <>
-                      <textarea
-                        value={editingNote.body}
-                        onChange={(e) => setEditingNote({ id: n.id, body: e.target.value })}
-                        rows={4}
-                      />
-                      <div className="actions">
-                        <button type="button" className="primary" onClick={() => void saveNote()}>
-                          Save
-                        </button>
-                        <button type="button" onClick={() => setEditingNote(null)}>
-                          Cancel
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <p>{n.body}</p>
-                      <div className="muted small">
-                        {fmtDateTime(n.created_at)}
-                        {n.pinned_event_id !== null && ` · pinned to ${pinLabel(n.pinned_event_id)}`}
-                      </div>
-                      <div className="actions">
-                        <button type="button" onClick={() => setEditingNote({ id: n.id, body: n.body })}>
-                          Edit
-                        </button>
-                        <button type="button" onClick={() => void deleteNote(n.id)}>
-                          Delete
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </article>
-              ))}
+              {detail.notes.map((n) => {
+                const pinnedEvent =
+                  n.pinned_event_id === null
+                    ? undefined
+                    : detail.events.find((e) => e.id === n.pinned_event_id)
+                return (
+                  <article className={`note${pinnedEvent ? ' note-pinned' : ''}`} key={n.id}>
+                    {editingNote?.id === n.id ? (
+                      <>
+                        <textarea
+                          value={editingNote.body}
+                          onChange={(e) => setEditingNote({ id: n.id, body: e.target.value })}
+                          rows={4}
+                        />
+                        <div className="actions">
+                          <button type="button" className="primary" onClick={() => void saveNote()}>
+                            Save
+                          </button>
+                          <button type="button" onClick={() => setEditingNote(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p>{n.body}</p>
+                        <div className="note-meta">
+                          <span className="muted small">{fmtDateTime(n.created_at)}</span>
+                          {pinnedEvent ? (
+                            <button
+                              type="button"
+                              className="note-pin-cue"
+                              title="Show this event in the timeline"
+                              onClick={() => focusEvent(pinnedEvent.id)}
+                            >
+                              <EventIcon type={pinnedEvent.type} />
+                              <span>
+                                {eventLabel(pinnedEvent.type)} · {fmtDate(pinnedEvent.occurred_at)}
+                              </span>
+                            </button>
+                          ) : (
+                            n.pinned_event_id !== null && (
+                              <span className="muted small">pinned to {pinLabel(n.pinned_event_id)}</span>
+                            )
+                          )}
+                        </div>
+                        <div className="actions">
+                          <button type="button" onClick={() => setEditingNote({ id: n.id, body: n.body })}>
+                            Edit
+                          </button>
+                          <button type="button" onClick={() => void deleteNote(n.id)}>
+                            Delete
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </article>
+                )
+              })}
             </div>
           )}
           <form className="stack" onSubmit={(e) => void addNote(e)}>

@@ -123,6 +123,25 @@ export function fromLocalInput(value: string): string {
   return d.toISOString()
 }
 
+// splitLocalInput splits a datetime-local value into the date and time
+// parts used by the separate date + optional time event inputs.
+export function splitLocalInput(value: string): { date: string; time: string } {
+  if (!value) return { date: '', time: '' }
+  const [date, time = ''] = value.split('T')
+  return { date, time: time.slice(0, 5) }
+}
+
+// eventTimestamp builds the API value for an event's occurred_at from a
+// required date and an optional time. A date without a time is sent as
+// YYYY-MM-DD, which the API accepts and interprets as UTC midnight.
+export function eventTimestamp(date: string, time: string): string {
+  if (!date) return ''
+  if (!time) return date
+  const d = new Date(`${date}T${time}`)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toISOString()
+}
+
 // reasonsText renders the classifier's match reasons for one score as a
 // badge tooltip. Legacy array-shaped reasons are still rendered.
 export function reasonsText(reasons: MatchReasons | unknown, kind: 'title' | 'location'): string {
