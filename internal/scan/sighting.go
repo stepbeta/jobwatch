@@ -81,7 +81,7 @@ func applySighting(ctx context.Context, q db.Querier, in Sighting, now time.Time
 		if err != nil {
 			return 0, 0, err
 		}
-		if err := db.InsertSnapshot(ctx, q, o.ID, desc, now); err != nil {
+		if err := db.InsertSnapshotOrigin(ctx, q, o.ID, desc, model.SnapshotOriginScan, now); err != nil {
 			return 0, 0, err
 		}
 		offerID, outcome = o.ID, OutcomeNew
@@ -123,7 +123,7 @@ func applySighting(ctx context.Context, q db.Querier, in Sighting, now time.Time
 			return 0, 0, err
 		}
 		if snapshot {
-			if err := db.InsertSnapshot(ctx, q, offerID, desc, now); err != nil {
+			if err := db.InsertSnapshotOrigin(ctx, q, offerID, desc, model.SnapshotOriginScan, now); err != nil {
 				return 0, 0, err
 			}
 		}

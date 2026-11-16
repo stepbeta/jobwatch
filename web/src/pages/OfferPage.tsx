@@ -14,7 +14,15 @@ import {
   toLocalInput,
 } from '../format'
 import type { NoticeKind } from '../App'
-import type { ApplicationState, EventType, Offer, OfferDetail, OfferState } from '../types'
+import type {
+  ApplicationState,
+  EventType,
+  Offer,
+  OfferDetail,
+  OfferState,
+  SnapshotDiff,
+  SnapshotOrigin,
+} from '../types'
 
 function hostname(url: string): string {
   try {
@@ -48,6 +56,10 @@ function writeProvenanceOpen(offerId: number, open: boolean): void {
   } catch {
     // Private browsing or a disabled storage API: keep the in-memory state.
   }
+}
+
+function originLabel(origin: SnapshotOrigin): string {
+  return origin === 'manual' ? 'Manual' : 'Scan'
 }
 
 export function OfferPage({
@@ -93,16 +105,28 @@ export function OfferPage({
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [savingDescription, setSavingDescription] = useState(false)
 
-  const load = useCallback(async () => {
+  const [selectedSnapshotID, setSelectedSnapshotID] = useState<number | null>(null)
+  const [snapshotTexts, setSnapshotTexts] = useState<Record<number, string>>({})
+  const [snapshotDiffs, setSnapshotDiffs] = useState<Record<string, SnapshotDiff>>({})
+  const [loadingSnapshotTextID, setLoadingSnapshotTextID] = useState<number | null>(null)
+  const [loadingSnapshotDiffKey, setLoadingSnapshotDiffKey] = useState<string | null>(null)
+
+  const load = useCallback(async (): Promise<OfferDetail | null> => {
     try {
       const d = await api.getOffer(id)
       setDetail(d)
+      setSelectedSnapshotID((prev) => {
+        if (prev !== null && d.snapshots.some((s) => s.id === prev)) return prev
+        return d.snapshots.length > 0 ? d.snapshots[d.snapshots.length - 1].id : null
+      })
       setAppState(d.offer.application_state)
       setOfferState(d.offer.offer_state)
       setLocation(d.offer.location ?? '')
       setError('')
+      return d
     } catch (e) {
       setError(errorMessage(e))
+      return null
     } finally {
       setLoading(false)
     }
@@ -115,6 +139,11 @@ export function OfferPage({
     setMergeOpen(false)
     setEditingDescription(false)
     setProvenanceOpen(readProvenanceOpen(id))
+    setSelectedSnapshotID(null)
+    setSnapshotTexts({})
+    setSnapshotDiffs({})
+    setLoadingSnapshotTextID(null)
+    setLoadingSnapshotDiffKey(null)
     void load()
   }, [load])
 
@@ -139,7 +168,17 @@ export function OfferPage({
   }
 
   function startDescriptionEdit() {
-    setDescriptionDraft(detail?.latest_snapshot?.raw_text ?? '')
+    const snaps = detail?.snapshots ?? []
+    const active =
+      snaps.find((s) => s.id === selectedSnapshotID) ?? snaps[snaps.length - 1]
+    let text = ''
+    if (active) {
+      text =
+        active.id === detail?.latest_snapshot?.id
+          ? detail?.latest_snapshot?.raw_text ?? ''
+          : snapshotTexts[active.id] ?? ''
+    }
+    setDescriptionDraft(text)
     setEditingDescription(true)
   }
 
@@ -148,7 +187,10 @@ export function OfferPage({
     try {
       await api.patchOffer(id, { description: descriptionDraft })
       setEditingDescription(false)
-      await load()
+      const d = await load()
+      setSelectedSnapshotID(
+        d && d.snapshots.length > 0 ? d.snapshots[d.snapshots.length - 1].id : null,
+      )
       onNotice('success', 'Description updated.')
     } catch (err) {
       const text = errorMessage(err)
@@ -163,6 +205,70 @@ export function OfferPage({
     setProvenanceOpen(open)
     writeProvenanceOpen(id, open)
   }
+
+  // Fetch the selected version's text only when it is not the latest one
+  // (the detail response already carries the latest full text).
+  useEffect(() => {
+    if (!detail || detail.offer.id !== id || detail.snapshots.length === 0) return
+    const foundIndex = detail.snapshots.findIndex((s) => s.id === selectedSnapshotID)
+    const activeIndex = foundIndex >= 0 ? foundIndex : detail.snapshots.length - 1
+    const active = detail.snapshots[activeIndex]
+    if (!active || active.id === detail.latest_snapshot?.id || snapshotTexts[active.id] !== undefined) {
+      return
+    }
+    let cancelled = false
+    setLoadingSnapshotTextID(active.id)
+    api
+      .getSnapshotText(id, active.id)
+      .then((text) => {
+        if (!cancelled) setSnapshotTexts((prev) => ({ ...prev, [active.id]: text }))
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          const text = errorMessage(err)
+          setError(text)
+          onNotice('error', text)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSnapshotTextID(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [detail, id, selectedSnapshotID, snapshotTexts, onNotice])
+
+  // Fetch the diff between the selected version and the one before it.
+  useEffect(() => {
+    if (!detail || detail.offer.id !== id || detail.snapshots.length === 0) return
+    const foundIndex = detail.snapshots.findIndex((s) => s.id === selectedSnapshotID)
+    const activeIndex = foundIndex >= 0 ? foundIndex : detail.snapshots.length - 1
+    const active = detail.snapshots[activeIndex]
+    const previous = activeIndex > 0 ? detail.snapshots[activeIndex - 1] : undefined
+    if (!active || !previous) return
+    const key = `${previous.id}:${active.id}`
+    if (snapshotDiffs[key]) return
+    let cancelled = false
+    setLoadingSnapshotDiffKey(key)
+    api
+      .getSnapshotDiff(id, previous.id, active.id)
+      .then((res) => {
+        if (!cancelled) setSnapshotDiffs((prev) => ({ ...prev, [key]: res.snapshot_diff }))
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          const text = errorMessage(err)
+          setError(text)
+          onNotice('error', text)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSnapshotDiffKey(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [detail, id, selectedSnapshotID, snapshotDiffs, onNotice])
 
   async function addEvent(e: FormEvent) {
     e.preventDefault()
@@ -337,6 +443,25 @@ export function OfferPage({
     if (!ev) return `event #${eventId}`
     return `${eventLabel(ev.type)} · ${fmtDateTime(ev.occurred_at)}`
   }
+
+  const snapshots = detail.snapshots
+  const selectedIndex = snapshots.findIndex((s) => s.id === selectedSnapshotID)
+  const activeIndex = selectedIndex >= 0 ? selectedIndex : snapshots.length - 1
+  const activeSnapshot = activeIndex >= 0 ? snapshots[activeIndex] : undefined
+  const previousSnapshot = activeIndex > 0 ? snapshots[activeIndex - 1] : undefined
+  const activeIsLatest = activeSnapshot !== undefined && activeSnapshot.id === detail.latest_snapshot?.id
+  const selectedText = !activeSnapshot
+    ? ''
+    : activeIsLatest
+      ? detail.latest_snapshot?.raw_text ?? ''
+      : snapshotTexts[activeSnapshot.id] ?? ''
+  const selectedTextReady =
+    !activeSnapshot || activeIsLatest || snapshotTexts[activeSnapshot.id] !== undefined
+  const diffKey =
+    activeSnapshot && previousSnapshot ? `${previousSnapshot.id}:${activeSnapshot.id}` : ''
+  const selectedDiff = diffKey ? snapshotDiffs[diffKey] : undefined
+  const textLoading = activeSnapshot !== undefined && loadingSnapshotTextID === activeSnapshot.id
+  const diffLoading = diffKey !== '' && loadingSnapshotDiffKey === diffKey
 
   return (
     <div className="page">
@@ -646,60 +771,125 @@ export function OfferPage({
         <summary>
           Description ({detail.snapshot_count} snapshot{detail.snapshot_count === 1 ? '' : 's'})
         </summary>
-        {detail.snapshot_diff && (
-          <div className="diff-wrap">
-            <div className="muted small">
-              Changes from snapshot #{detail.snapshot_diff.from.id} (
-              {fmtDateTime(detail.snapshot_diff.from.captured_at)}) to snapshot #
-              {detail.snapshot_diff.to.id} ({fmtDateTime(detail.snapshot_diff.to.captured_at)})
+        {snapshots.length > 0 && activeSnapshot ? (
+          <div className="snapshot-viewer">
+            <div className="snapshot-head">
+              <div className="snapshot-title">
+                <strong>
+                  Version {activeIndex + 1} of {snapshots.length}
+                </strong>
+                <span className="muted small">{fmtDateTime(activeSnapshot.captured_at)}</span>
+                <span className={`origin-badge origin-${activeSnapshot.origin}`}>
+                  {originLabel(activeSnapshot.origin)}
+                </span>
+              </div>
+              <div className="snapshot-nav">
+                <button
+                  type="button"
+                  aria-label="Older version"
+                  title="Older version"
+                  disabled={activeIndex <= 0}
+                  onClick={() => setSelectedSnapshotID(snapshots[activeIndex - 1].id)}
+                >
+                  «
+                </button>
+                <select
+                  aria-label="Version"
+                  value={activeSnapshot.id}
+                  onChange={(e) => setSelectedSnapshotID(Number(e.target.value))}
+                >
+                  {snapshots.map((s, i) => (
+                    <option key={s.id} value={s.id}>
+                      Version {i + 1} / {snapshots.length} — {originLabel(s.origin)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  aria-label="Newer version"
+                  title="Newer version"
+                  disabled={activeIndex >= snapshots.length - 1}
+                  onClick={() => setSelectedSnapshotID(snapshots[activeIndex + 1].id)}
+                >
+                  ›
+                </button>
+              </div>
             </div>
-            <div className="diff">
-              {detail.snapshot_diff.lines.map((line, i) => (
-                <div key={i} className={`diff-line diff-${line.op}`}>
-                  <span className="diff-mark">{diffPrefix(line.op)}</span>
-                  {line.text || ' '}
+
+            {editingDescription ? (
+              <div className="stack">
+                <textarea
+                  value={descriptionDraft}
+                  onChange={(e) => setDescriptionDraft(e.target.value)}
+                  rows={12}
+                  placeholder="paste or edit the description"
+                />
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={savingDescription}
+                    onClick={() => void saveDescription()}
+                  >
+                    {savingDescription ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingDescription}
+                    onClick={() => setEditingDescription(false)}
+                  >
+                    Cancel
+                  </button>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {editingDescription ? (
-          <div className="stack">
-            <textarea
-              value={descriptionDraft}
-              onChange={(e) => setDescriptionDraft(e.target.value)}
-              rows={12}
-              placeholder="paste or edit the description"
-            />
-            <div className="actions">
-              <button
-                type="button"
-                className="primary"
-                disabled={savingDescription}
-                onClick={() => void saveDescription()}
-              >
-                {savingDescription ? 'Saving…' : 'Save'}
-              </button>
-              <button type="button" disabled={savingDescription} onClick={() => setEditingDescription(false)}>
-                Cancel
-              </button>
-            </div>
-            <p className="muted small">
-              Saving appends a description snapshot. Clearing the text stores an empty description.
-            </p>
-          </div>
-        ) : detail.latest_snapshot ? (
-          <>
-            {detail.snapshot_diff && <h3 className="diff-heading">Latest description</h3>}
-            {detail.latest_snapshot.raw_text.trim() !== '' ? (
-              <pre>{detail.latest_snapshot.raw_text}</pre>
+                <p className="muted small">
+                  Saving appends a manual snapshot and selects it. Clearing the text stores an empty
+                  description.
+                </p>
+              </div>
             ) : (
-              <p className="muted">No description yet.</p>
+              <>
+                {textLoading || !selectedTextReady ? (
+                  <p className="muted" aria-busy="true">
+                    Loading version…
+                  </p>
+                ) : selectedText.trim() !== '' ? (
+                  <pre>{selectedText}</pre>
+                ) : (
+                  <p className="muted">No description yet.</p>
+                )}
+                <button type="button" onClick={startDescriptionEdit} disabled={!selectedTextReady}>
+                  {selectedText.trim() === '' ? 'Add description' : 'Edit description'}
+                </button>
+              </>
             )}
-            <button type="button" onClick={startDescriptionEdit}>
-              {detail.latest_snapshot.raw_text.trim() === '' ? 'Add description' : 'Edit description'}
-            </button>
-          </>
+
+            {!editingDescription &&
+              (previousSnapshot ? (
+                <div className="diff-wrap">
+                  <div className="muted small">
+                    Changes from version {activeIndex} ({originLabel(previousSnapshot.origin)},{' '}
+                    {fmtDateTime(previousSnapshot.captured_at)}) to version {activeIndex + 1} (
+                    {originLabel(activeSnapshot.origin)}, {fmtDateTime(activeSnapshot.captured_at)})
+                  </div>
+                  {diffLoading && !selectedDiff ? (
+                    <p className="muted small" aria-busy="true">
+                      Loading diff…
+                    </p>
+                  ) : selectedDiff ? (
+                    <div className="diff">
+                      {selectedDiff.lines.map((line, i) => (
+                        <div key={i} className={`diff-line diff-${line.op}`}>
+                          <span className="diff-mark">{diffPrefix(line.op)}</span>
+                          {line.text || ' '}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="muted small">First captured version — no earlier version to diff against.</p>
+              ))}
+          </div>
         ) : (
           <>
             <p className="muted">No description captured.</p>
@@ -707,9 +897,6 @@ export function OfferPage({
               Add description
             </button>
           </>
-        )}
-        {detail.snapshot_count > 1 && !detail.snapshot_diff && (
-          <p className="muted small">Older versions are stored as snapshots.</p>
         )}
       </details>
 

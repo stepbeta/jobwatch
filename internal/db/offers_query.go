@@ -252,7 +252,7 @@ func UpdateOfferFields(ctx context.Context, sqlDB *sql.DB, id int64, u OfferUpda
 		return ErrNotFound
 	}
 	if u.Description != nil {
-		if err := InsertSnapshot(ctx, tx, id, strings.TrimSpace(*u.Description), now); err != nil {
+		if err := InsertSnapshotOrigin(ctx, tx, id, strings.TrimSpace(*u.Description), model.SnapshotOriginManual, now); err != nil {
 			return err
 		}
 	}
@@ -266,16 +266,17 @@ func UpdateOfferFields(ctx context.Context, sqlDB *sql.DB, id int64, u OfferUpda
 // offer, or ErrNotFound when none exists.
 func LatestSnapshot(ctx context.Context, q Querier, offerID int64) (model.Snapshot, error) {
 	var s model.Snapshot
-	var captured sql.NullString
+	var origin, captured sql.NullString
 	err := q.QueryRowContext(ctx,
-		`SELECT id, offer_id, raw_text, captured_at FROM snapshots WHERE offer_id = ? ORDER BY captured_at DESC, id DESC LIMIT 1`,
-		offerID).Scan(&s.ID, &s.OfferID, &s.RawText, &captured)
+		`SELECT id, offer_id, origin, raw_text, captured_at FROM snapshots WHERE offer_id = ? ORDER BY captured_at DESC, id DESC LIMIT 1`,
+		offerID).Scan(&s.ID, &s.OfferID, &origin, &s.RawText, &captured)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Snapshot{}, ErrNotFound
 	}
 	if err != nil {
 		return model.Snapshot{}, fmt.Errorf("latest snapshot of offer %d: %w", offerID, err)
 	}
+	s.Origin = model.SnapshotOrigin(origin.String)
 	s.CapturedAt = parseNullTime(captured)
 	return s, nil
 }
@@ -287,7 +288,7 @@ func LatestSnapshots(ctx context.Context, q Querier, offerID int64, limit int) (
 		return []model.Snapshot{}, nil
 	}
 	rows, err := q.QueryContext(ctx,
-		`SELECT id, offer_id, raw_text, captured_at FROM snapshots
+		`SELECT id, offer_id, origin, raw_text, captured_at FROM snapshots
 		 WHERE offer_id = ? ORDER BY captured_at DESC, id DESC LIMIT ?`, offerID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("latest snapshots of offer %d: %w", offerID, err)
@@ -296,10 +297,11 @@ func LatestSnapshots(ctx context.Context, q Querier, offerID int64, limit int) (
 	out := []model.Snapshot{}
 	for rows.Next() {
 		var s model.Snapshot
-		var captured sql.NullString
-		if err := rows.Scan(&s.ID, &s.OfferID, &s.RawText, &captured); err != nil {
+		var origin, captured sql.NullString
+		if err := rows.Scan(&s.ID, &s.OfferID, &origin, &s.RawText, &captured); err != nil {
 			return nil, fmt.Errorf("latest snapshots of offer %d: %w", offerID, err)
 		}
+		s.Origin = model.SnapshotOrigin(origin.String)
 		s.CapturedAt = parseNullTime(captured)
 		out = append(out, s)
 	}

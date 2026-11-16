@@ -15,7 +15,7 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 | `internal/scan` | Scan pipeline, manual import and classifier backfill; depends on `db`, `classify` and `sources`, shared by CLI and API |
 | `internal/importmeta` | Lightweight metadata extraction from a job page (JSON-LD, Open Graph, meta tags, title) for URL imports |
 | `internal/classify` | Deterministic title/location scoring, remote-policy derivation and reason lists |
-| `internal/diff` | Small line diff used for the changed-offer snapshot view |
+| `internal/diff` | Small line diff used for snapshot version comparisons and the changed-offer view |
 | `internal/api` | REST handlers under `/api`: sources, offers, events, notes, companies, import, health |
 | `web/` | React + TypeScript SPA source and its Go embedding (`Handler`) |
 
@@ -110,11 +110,11 @@ never stops on a failing one:
    - for each `RawOffer` (skipped if no title or URL): company =
      `RawOffer.Company` → `config.company` → source name;
      `ResolveCompany` (exact normalized match or insert); `resolveOffer`
-     by fingerprint with location-bucket fallback; insert (+ snapshot) or
-     update per the offer_state machine (DATA-MODEL.md); classify the
-     title/location/description, persist the scores and remote policy;
-     upsert provenance `(offer_id, url)` with `source_id`,
-     `external_uid`, `last_seen_at = now`.
+     by fingerprint with location-bucket fallback; insert (+ snapshot with
+     `origin = scan`) or update per the offer_state machine
+     (DATA-MODEL.md); classify the title/location/description, persist the
+     scores and remote policy; upsert provenance `(offer_id, url)` with
+     `source_id`, `external_uid`, `last_seen_at = now`.
    - `MarkDisappeared(source, now)`.
    - `last_scan_status = ok`, `last_scan_at = now`; commit.
 4. A failure inside the transaction rolls back and marks the source `error`.
@@ -174,7 +174,7 @@ Errors always use `{"error":{"code","message"}}`.
 |---|---|
 | health | `GET /api/health` |
 | sources | `GET/POST /api/sources`, `GET/PATCH/DELETE /api/sources/{id}`, `POST /api/sources/{id}/scan` |
-| offers | `GET /api/offers`, `POST /api/offers/import`, `GET/PATCH /api/offers/{id}`, `POST /api/offers/{id}/merge`, `POST /api/offers/{id}/split` |
+| offers | `GET /api/offers`, `POST /api/offers/import`, `GET/PATCH /api/offers/{id}`, `GET /api/offers/{id}/snapshot-diff`, `POST /api/offers/{id}/merge`, `POST /api/offers/{id}/split` |
 | events | `GET/POST /api/offers/{id}/events`, `PATCH/DELETE /api/offers/{id}/events/{eventID}` |
 | notes | `GET/POST /api/notes`, `GET/PATCH/DELETE /api/notes/{id}` |
 | companies | `GET/POST /api/companies`, `GET/PATCH/DELETE /api/companies/{id}`, `POST /api/companies/{id}/merge` |
@@ -196,11 +196,15 @@ front so a syntax error is a 400), enum lists, score minima,
 `has_application`, company filter, five sort orders, `limit`/`offset`.
 `recent_event` sorts by `MAX(events.occurred_at)` with `updated_at` as
 fallback. Detail responses join provenance with source names, events,
-offer notes, the latest snapshot, the snapshot count and a line diff
-between the two latest snapshots (`snapshot_diff`) when two exist.
+offer notes, the snapshot version history (metadata only), the latest
+snapshot, the snapshot count and a line diff between the two latest
+snapshots (`snapshot_diff`) when two exist. `?snapshot_id=N` adds the full
+text of that version; `GET /api/offers/{id}/snapshot-diff?from=N&to=M`
+reuses `internal/diff` for any two versions (ordered older → newer).
 `PATCH /api/offers/{id}` applies state/location/description changes in
-one transaction; a description edit also recomputes `text_hash` and
-appends a snapshot. Event types are validated in Go; `message_received`
+one transaction; a description edit recomputes `text_hash` and appends a
+snapshot with `origin = manual`. Scan and manual-import snapshots use
+`origin = scan`. Event types are validated in Go; `message_received`
 replaced `reply_received` (migration 0006) and `message_sent` was added.
 
 ## Offer merge and split (`internal/db`)
@@ -255,7 +259,7 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`), filtered/paginated offers table, import form |
 | `pages/SourcesPage.tsx` | source list, enable toggle, scan status, per-source refresh, add/edit form with type-dependent config fields (personio/workable/rss/html included), explanatory notes on seeded sources |
-| `pages/OfferPage.tsx` | editable states/location, score badges with reason tooltips, collapsed provenance disclosure with explicit merge and split actions (open state stored per offer in localStorage), timeline with backdating and message event labels, notes with event pin, snapshot diff, and full description with Add/Edit save |
+| `pages/OfferPage.tsx` | editable states/location, score badges with reason tooltips, collapsed provenance disclosure with explicit merge and split actions (open state stored per offer in localStorage), timeline with backdating and message event labels, notes with event pin, and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save) |
 | `pages/CompanyPage.tsx` | offers, company notes, rename/website edit, dismissible possible-duplicate banner and explicit keep-which-company merge dialog |
 | `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source/event/note/company) |
 | `App.tsx` | top bar, global refresh-all loop, auto-dismissing toast stack, routing |

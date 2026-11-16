@@ -103,6 +103,11 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	snapshotID, err := queryInt64(r, "snapshot_id")
+	if err != nil || (snapshotID != nil && *snapshotID <= 0) {
+		writeError(w, http.StatusBadRequest, "validation_failed", "snapshot_id must be a positive integer")
+		return
+	}
 	o, err := db.GetOffer(ctx, s.DB, id)
 	if errors.Is(err, db.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", fmt.Sprintf("offer %d not found", id))
@@ -137,6 +142,29 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	var rawTextID int64
+	if snapshotID != nil {
+		rawTextID = *snapshotID
+	}
+	infos, err := db.ListSnapshotInfos(ctx, s.DB, id, rawTextID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if snapshotID != nil {
+		found := false
+		for _, s := range infos {
+			if s.ID == *snapshotID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeError(w, http.StatusNotFound, "not_found",
+				fmt.Sprintf("snapshot %d not found on offer %d", *snapshotID, id))
+			return
+		}
+	}
 	snaps, err := db.LatestSnapshots(ctx, s.DB, id, 2)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -148,6 +176,10 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(snaps) > 1 {
 		snapshotDiff = diffToJSON(snaps[1], snaps[0])
+	}
+	snapshotsOut := make([]snapshotSummaryJSON, 0, len(infos))
+	for _, s := range infos {
+		snapshotsOut = append(snapshotsOut, snapshotInfoToJSON(s))
 	}
 
 	provOut := make([]provenanceJSON, 0, len(prov))
@@ -180,6 +212,7 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 		"provenance":      provOut,
 		"events":          eventsOut,
 		"notes":           notesOut,
+		"snapshots":       snapshotsOut,
 		"latest_snapshot": snapshot,
 		"snapshot_diff":   snapshotDiff,
 		"snapshot_count":  snapCount,
@@ -286,6 +319,64 @@ func diffToJSON(from, to model.Snapshot) snapshotDiffJSON {
 		out.Lines = append(out.Lines, diffLineJSON{Op: string(line.Op), Text: line.Text})
 	}
 	return out
+}
+
+// snapshotDiff returns the line diff between any two snapshots of an
+// offer. The pair is ordered oldest -> newest server-side.
+func (s *Server) snapshotDiff(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_id", "offer id must be a positive integer")
+		return
+	}
+	fromID, err := queryInt64(r, "from")
+	if err != nil || fromID == nil || *fromID <= 0 {
+		writeError(w, http.StatusBadRequest, "validation_failed", "from must be a positive integer")
+		return
+	}
+	toID, err := queryInt64(r, "to")
+	if err != nil || toID == nil || *toID <= 0 {
+		writeError(w, http.StatusBadRequest, "validation_failed", "to must be a positive integer")
+		return
+	}
+	if *fromID == *toID {
+		writeError(w, http.StatusBadRequest, "validation_failed", "from and to must be different snapshots")
+		return
+	}
+	ctx := r.Context()
+	if _, err := db.GetOffer(ctx, s.DB, id); errors.Is(err, db.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", fmt.Sprintf("offer %d not found", id))
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	from, err := db.GetSnapshotForOffer(ctx, s.DB, id, *fromID)
+	if errors.Is(err, db.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found",
+			fmt.Sprintf("snapshot %d not found on offer %d", *fromID, id))
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	to, err := db.GetSnapshotForOffer(ctx, s.DB, id, *toID)
+	if errors.Is(err, db.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found",
+			fmt.Sprintf("snapshot %d not found on offer %d", *toID, id))
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	older, newer := from, to
+	if newer.CapturedAt.Before(older.CapturedAt) ||
+		(newer.CapturedAt.Equal(older.CapturedAt) && newer.ID < older.ID) {
+		older, newer = newer, older
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"snapshot_diff": diffToJSON(older, newer)})
 }
 
 type mergeOfferInput struct {

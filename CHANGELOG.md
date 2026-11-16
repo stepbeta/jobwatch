@@ -382,3 +382,40 @@
   description marks the offer `changed` with another snapshot.
 - ARCHITECTURE, API, DATA-MODEL, SPEC, MILESTONES and this changelog are
   updated; no command, adapter, classifier or application-state change.
+
+### Milestone 7c — Snapshot origins and version browsing
+
+#### Added
+- Additive migration `0007_snapshot_origin.sql` adds
+  `snapshots.origin` (`scan` or `manual`, default `scan`). Scan and manual
+  URL import snapshots are written as `scan`; description saves through
+  `PATCH /api/offers/:id` are written as `manual`.
+- `GET /api/offers/:id` now returns a `snapshots` version history (oldest
+  → newest) with id, origin, captured time and text length. The full text
+  of one version is included only with `?snapshot_id=N`, so the common
+  detail payload stays small.
+- `GET /api/offers/:id/snapshot-diff?from=N&to=M` returns the line diff
+  between any two versions of the offer. Both must belong to the offer;
+  the server orders the pair older → newer regardless of argument order.
+- The offer detail Description block is now a single-version browser:
+  prev/next arrows, a version dropdown, "Version X of N", captured time,
+  a Scan/Manual origin badge, and an on-demand removed/added diff against
+  the previous version. The oldest version shows a "first captured
+  version" hint instead of a diff. Saving a manual description selects
+  the new latest version.
+
+#### Changed
+- Historical snapshots are all backfilled as `scan`: the pre-0007 schema
+  has no reliable marker that distinguishes older manual edits from scans.
+  Origins are exact for snapshots written from this migration onward.
+  This is recorded in DATA-MODEL and MILESTONES.
+- The fixed "diff of the two latest snapshots" in the UI is replaced by
+  the selected version's diff. The API keeps `snapshot_diff` and
+  `latest_snapshot` for compatibility; `latest_snapshot` now includes its
+  origin.
+- Tests cover the pre-0007 upgrade with no data loss, snapshot history and
+  conditional text payload, arbitrary/reversed/foreign diffs, and origins
+  recorded through a real scan and through PATCH. Existing snapshot tests
+  keep passing through the default `scan` origin.
+- API, DATA-MODEL, ARCHITECTURE, SPEC, MILESTONES, README and this
+  changelog are updated; no classifier, adapter, event-type or note change.

@@ -119,8 +119,19 @@ export interface Note {
 
 export interface Snapshot {
   id: number
+  origin: SnapshotOrigin
   raw_text: string
   captured_at: string
+}
+
+export type SnapshotOrigin = 'scan' | 'manual'
+
+export interface SnapshotSummary {
+  id: number
+  origin: SnapshotOrigin
+  captured_at: string
+  text_length: number
+  raw_text?: string
 }
 
 export interface SnapshotRef {
@@ -145,6 +156,7 @@ export interface OfferDetail {
   provenance: Provenance[]
   events: Event[]
   notes: Note[]
+  snapshots: SnapshotSummary[]
   latest_snapshot: Snapshot | null
   snapshot_diff: SnapshotDiff | null
   snapshot_count: number

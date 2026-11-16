@@ -17,6 +17,7 @@ require a table rebuild.
 | 0004 | `0004_seed_5c_sources.sql` | Audit-only, data-only no-op: Milestone 5c introduced no new source rows. The We Work Remotely rss row, the Workable search note row and the aggregator rows were already seeded by 0003. Contains no INSERT or UPDATE, so applying it changes nothing and it cannot overwrite or restore user edits |
 | 0005 | `0005_seed_bamboohr_sources.sql` | Data-only seed: the Semble BambooHR source verified in Milestone 6a (`bamboohr`, `{"subdomain":"semble"}`, enabled). `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
 | 0006 | `0006_event_message_types.sql` | Data-only rename for Milestone 7b: `UPDATE events SET type = 'message_received' WHERE type = 'reply_received'`. No table or column change; the WHERE clause makes re-application match no rows |
+| 0007 | `0007_snapshot_origin.sql` | Additive schema change for Milestone 7c: `ALTER TABLE snapshots ADD COLUMN origin TEXT NOT NULL DEFAULT 'scan'`. Existing snapshots keep their text/timestamps and read as `scan`; new inserts record `scan` or `manual`. No row is deleted or rewritten |
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -28,7 +29,9 @@ Milestone 5c's source decisions were already part of 0003, so 0004 is an
 audit-only no-op. Milestone 6a adds one enabled BambooHR row in 0005, so
 the seeded total is 70 rows (38 enabled, 32 disabled). Milestone 7b
 renames the old `reply_received` event value in place in 0006; it changes
-no source row and no schema.
+no source row and no schema. Milestone 7c adds the snapshot `origin`
+column in 0007 (additive, default `scan`) so every future snapshot records
+whether it came from a scan/import or a manual description edit.
 
 ## Tables
 
@@ -142,7 +145,8 @@ Indexes: company_id, offer_state, application_state, last_seen_at.
 
 `PATCH /api/offers/:id` accepts `description` (string). It replaces
 `raw_text`, recomputes `text_hash` from the whitespace-collapsed text and
-appends a `snapshots` row in the same transaction; `updated_at` is bumped.
+appends a `snapshots` row with `origin = 'manual'` in the same
+transaction; `updated_at` is bumped.
 `null` is rejected (`400 validation_failed`), so the version chain cannot
 be cleared through the API. An empty string is valid: it stores no
 description (`raw_text` and `text_hash` NULL) and appends an empty
@@ -214,14 +218,28 @@ extra metadata beyond the resulting offer/provenance/snapshot rows.
 |---|---|---|
 | id | INTEGER PK | |
 | offer_id | INTEGER NOT NULL → job_offers ON DELETE CASCADE | |
+| origin | TEXT NOT NULL DEFAULT 'scan' | `scan` (scan pipeline or manual URL import) or `manual` (description saved through `PATCH /api/offers/:id`); validated in Go |
 | raw_text | TEXT NOT NULL | description at capture time (may be empty for offers created without one) |
 | captured_at | TEXT NOT NULL | |
 
 Index: (offer_id, captured_at). Every first description, every
 text-hash change and every manual description save appends a row.
-`GET /api/offers/:id` exposes the latest snapshot and, when at least two
-exist, a line diff between the two latest snapshots (oldest → newest)
-for the changed-offer view.
+Snapshots are ordered by `captured_at`, then `id` for versions captured in
+the same second. `GET /api/offers/:id` exposes the version history from
+oldest to newest, the latest snapshot (with full text), the count and the
+diff between the two latest snapshots; `GET /api/offers/:id?snapshot_id=N`
+adds the full text of one version and `GET /api/offers/:id/snapshot-diff`
+computes the diff between any two versions on demand.
+
+Migration 0007 adds `origin` with a default of `scan`. Historical manual
+snapshots are not distinguishable from scan snapshots: both used
+`captured_at` as their capture time, and scans also bump
+`job_offers.updated_at` in the same transaction. The only partial signal
+(a latest snapshot whose `captured_at` equals `updated_at` but differs
+from `last_seen_at`) cannot cover older manual versions, so every
+pre-0007 snapshot is backfilled as `scan`; origins are exact from 7c on.
+Merging offers moves snapshot rows unchanged, so their origin is
+preserved.
 
 ### Full-text search
 - `job_offers_fts` — FTS5, external content `job_offers` (columns

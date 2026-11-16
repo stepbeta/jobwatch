@@ -7,6 +7,7 @@ import type {
   OfferDetail,
   OfferList,
   ScanResponse,
+  SnapshotDiff,
   Source,
   SourceType,
 } from './types'
@@ -118,7 +119,22 @@ export const api = {
 
   // offers
   listOffers: (query: OfferQuery = {}) => request<OfferList>(`/offers${queryString({ ...query })}`),
-  getOffer: (id: number) => request<OfferDetail>(`/offers/${id}`),
+  getOffer: (id: number, snapshotId?: number) =>
+    request<OfferDetail>(`/offers/${id}${queryString({ snapshot_id: snapshotId })}`),
+  getSnapshotDiff: (id: number, from: number, to: number) =>
+    request<{ snapshot_diff: SnapshotDiff }>(
+      `/offers/${id}/snapshot-diff${queryString({ from, to })}`,
+    ),
+  getSnapshotText: async (id: number, snapshotId: number) => {
+    const detail = await request<OfferDetail>(
+      `/offers/${id}${queryString({ snapshot_id: snapshotId })}`,
+    )
+    const snapshot = detail.snapshots.find((s) => s.id === snapshotId)
+    if (!snapshot || snapshot.raw_text === undefined) {
+      throw new ApiError('missing_snapshot', `Snapshot ${snapshotId} has no text`, 404)
+    }
+    return snapshot.raw_text
+  },
   patchOffer: (
     id: number,
     patch: {

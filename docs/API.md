@@ -38,13 +38,16 @@ Base path `/api`, JSON in and out. Every endpoint is served by
 | `application_state` | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
 | `remote_policy` | `remote` `hybrid` `onsite` `unknown` |
 | event `type` | `cv_sent` `message_received` `message_sent` `interview` `offer` `rejected` `ghosted` `other` |
+| snapshot `origin` | `scan` `manual` |
 | note `entity_type` | `offer` `company` |
 
 Event `message_received` covers both a recruiter's inbound first contact
 and a reply to an application; `message_sent` covers user-initiated
 pings and follow-ups. Existing `reply_received` rows are renamed to
 `message_received` by migration 0006 and the old value is no longer
-accepted.
+accepted. Snapshot `origin` is `scan` for the scan pipeline and manual URL
+imports, and `manual` for descriptions saved through
+`PATCH /api/offers/:id`.
 
 ## GET /api/health
 
@@ -233,8 +236,10 @@ Two input modes:
 ### GET /api/offers/:id
 
 Full detail: offer, company, every provenance link (with source name),
-the timeline, the offer's notes, the latest snapshot and the snapshot
-count.
+the timeline, the offer's notes, the description version history, the
+latest snapshot and the snapshot count. Optional query parameter
+`snapshot_id=N` adds the full `raw_text` of that one version (the other
+history entries stay metadata-only).
 
 ```json
 {
@@ -251,7 +256,12 @@ count.
   "notes": [ { "id": 2, "entity_type": "offer", "entity_id": 7,
                "body": "...", "pinned_event_id": 4,
                "created_at": "...", "updated_at": "..." } ],
-  "latest_snapshot": { "id": 9, "raw_text": "...", "captured_at": "..." },
+  "snapshots": [
+    { "id": 7, "origin": "scan",   "captured_at": "2026-11-10T09:00:00Z", "text_length": 812 },
+    { "id": 8, "origin": "scan",   "captured_at": "2026-11-12T09:00:00Z", "text_length": 845 },
+    { "id": 9, "origin": "manual", "captured_at": "2026-11-16T09:00:00Z", "text_length": 901 }
+  ],
+  "latest_snapshot": { "id": 9, "origin": "manual", "raw_text": "...", "captured_at": "..." },
   "snapshot_diff": {
     "from": { "id": 8, "captured_at": "2026-11-12T09:00:00Z" },
     "to": { "id": 9, "captured_at": "2026-11-16T09:00:00Z" },
@@ -266,10 +276,37 @@ count.
 ```
 
 `source_id`/`source_name` are `null` for manual imports. Events are
-ordered chronologically. `latest_snapshot` is `null` when no snapshot
-exists. `snapshot_diff` is `null` until two snapshots exist; `op` is
-`equal`, `added` or `removed`, and it always compares the two latest
-snapshots in chronological order. `404 not_found` for an unknown offer.
+ordered chronologically. `snapshots` is ordered **oldest → newest** and
+version 1 is the oldest row; `text_length` counts Unicode characters.
+`raw_text` is omitted for every entry unless `?snapshot_id=N` selects that
+snapshot. `latest_snapshot` is `null` when no snapshot exists.
+`snapshot_diff` is `null` until two snapshots exist; `op` is `equal`,
+`added` or `removed`, and it always compares the two latest snapshots in
+chronological order. `404 not_found` for an unknown offer or a
+`snapshot_id` that does not belong to it; `400 validation_failed` for a
+malformed `snapshot_id`.
+
+### GET /api/offers/:id/snapshot-diff
+
+Returns the line diff between any two snapshots of one offer. Both `from`
+and `to` are required positive snapshot IDs and must belong to `:id`.
+Arguments may be supplied in either order: the server orders the pair by
+`captured_at`, then `id`, and always returns older → newer.
+
+```json
+{ "snapshot_diff": {
+  "from": { "id": 7, "captured_at": "2026-11-10T09:00:00Z" },
+  "to":   { "id": 9, "captured_at": "2026-11-16T09:00:00Z" },
+  "lines": [
+    { "op": "equal", "text": "About the team" },
+    { "op": "removed", "text": "We use Kubernetes." },
+    { "op": "added", "text": "We use Kubernetes and Terraform." }
+  ]
+} }
+```
+
+- `400 validation_failed` for a missing/malformed ID or `from == to`.
+- `404 not_found` when the offer or either snapshot does not exist on it.
 
 ### PATCH /api/offers/:id
 
@@ -283,11 +320,11 @@ Body may contain any of:
 - `application_state`, `offer_state`: validated enum values.
 - `location`: string to set, `null` to clear.
 - `description`: string that replaces `raw_text`. The server recomputes
-  `text_hash` and appends a `snapshots` row in the same transaction, so a
-  manual edit is versioned like a scan-captured description. `null` is
-  rejected with `400 validation_failed`; an empty string stores no
-  description (NULL `raw_text`/`text_hash`) and appends an empty
-  snapshot. A description edit does not change `offer_state`.
+  `text_hash` and appends a `snapshots` row with `origin = "manual"` in
+  the same transaction, so a manual edit is versioned like a scan-captured
+  description. `null` is rejected with `400 validation_failed`; an empty
+  string stores no description (NULL `raw_text`/`text_hash`) and appends
+  an empty snapshot. A description edit does not change `offer_state`.
 - The update bumps `updated_at`; that is the audit trail.
 - Setting `offer_state` to `active` is how a user acknowledges a
   `changed` offer.

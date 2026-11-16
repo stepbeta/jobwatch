@@ -406,6 +406,51 @@ Done criteria (all met):
 | Provenance expansion persists per offer in `localStorage` instead of per session | the user usually revisits the same offer; remembering the choice per offer is the least noisy option and survives reloads |
 | The description editor lives inside the existing Description `<details>` block rather than a separate panel | keeps the diff, snapshot count and manual edit in one place without changing the established detail layout |
 
+## Milestone 7c — Snapshot origins and version browsing — DONE
+
+Done criteria (all met):
+- [x] Additive migration `0007_snapshot_origin.sql` adds
+      `snapshots.origin TEXT NOT NULL DEFAULT 'scan'`; existing rows keep
+      their text and timestamps and read as `scan`.
+- [x] Scan pipeline and manual URL imports write `scan`; description
+      saves through `PATCH /api/offers/:id` write `manual`. The default
+      keeps existing `InsertSnapshot` callers working as `scan`.
+- [x] `GET /api/offers/:id` returns a `snapshots` version history ordered
+      oldest → newest with `id`, `origin`, `captured_at`, `text_length`
+      (Unicode characters) and no full text by default. `?snapshot_id=N`
+      adds the full `raw_text` of that one version; unknown/foreign IDs
+      return `404 not_found`.
+- [x] `GET /api/offers/:id/snapshot-diff?from=N&to=M` diffs any two
+      versions on demand through `internal/diff`, validates ownership of
+      both IDs, and orders the pair by `captured_at` then `id`
+      (older → newer). Missing/malformed IDs and `from == to` are `400`.
+- [x] `latest_snapshot` also carries its `origin`.
+- [x] UI Description block is a single-version viewer (never a list),
+      defaulting to the latest version: prev/next arrows disabled at the
+      ends, a version dropdown, "Version X of N", captured time and a
+      Scan/Manual origin badge. The removed/added diff against the
+      previous version is fetched from the snapshot-diff endpoint on
+      demand; the oldest version shows a "first captured version" hint.
+- [x] Add/Edit still appends a `manual` snapshot; after saving, the viewer
+      selects the new latest version.
+- [x] Tests: pre-0007 upgrade keeps every snapshot and marks it `scan`;
+      the snapshots array/table metadata and conditional full text;
+      arbitrary and reversed diffs; foreign snapshot rejection; origin
+      recorded by both a real scan path and PATCH. Existing snapshot tests
+      keep passing through the default `scan`.
+- [x] `go build`, `go vet`, `go test` and `npm run build` green; no
+      classifier, adapter, event-type or note change.
+
+### Deviations (permanent decisions)
+
+| Deviation | Reason |
+|---|---|
+| Every pre-0007 snapshot is backfilled as `scan` | the old schema has no reliable marker: scan and manual inserts both set `captured_at` at write time, and scans also bump `updated_at` in the same transaction. The only partial signal identifies at most the latest manual snapshot per offer, not older ones, so a heuristic would be misleading |
+| Snapshot history is metadata-only; full text is returned for one version through `?snapshot_id=N` | a long ATS description can be tens of kilobytes and an offer can have many versions, so returning every full text would inflate the common detail payload |
+| Versions are ordered oldest → newest with `id` as the tie-break within the same second | matches the "Version 1 = first captured" UI wording and gives a stable order when `captured_at` has second precision |
+| `snapshot-diff` rejects `from == to` | a self-diff is not a version comparison and is almost certainly a UI bug |
+| Older versions are fetched by reusing `GET /api/offers/:id?snapshot_id=N` instead of adding a separate snapshot endpoint | keeps the API surface small; the detail response is local and bounded, and only one extra fetch happens when the user opens an older version |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -421,7 +466,7 @@ Done criteria (all met):
 | No "N consecutive failures" counter | §7 | Open. One failed scan marks the source `error`/`blocked`; the next success resets it. The error text is in the scan summary but not stored |
 | `notes_fts` not exposed | §4 | Open. The index is maintained but `GET /api/offers?q=` searches offers only |
 | No FTS search over companies in the UI | §9 | Open. `GET /api/companies?q=` matches the name; no full-text company search |
-| No snapshot listing endpoint | §9 | Open. Detail returns the latest snapshot, the count and a diff of the two latest only |
+| Pre-7c snapshot origins are all `scan` | §9 | By design after 7c. The old schema had no reliable manual marker; only snapshots written from 7c onward carry an exact origin |
 | Manual description edits do not refresh classifier scores | §6 | Open. Scores keep their previous values until the next sighting or `jobwatch reclassify --all`; the edit itself is versioned normally |
 | No frontend component tests | §9 | Open. UI changes are validated by `tsc`/`vite build` and backend tests; the event-label rename has no browser test runner |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |

@@ -469,6 +469,144 @@ func TestMigrationRenamesReplyReceived(t *testing.T) {
 	}
 }
 
+// TestMigrationAddsSnapshotOrigin upgrades a pre-0007 database: existing
+// snapshots keep their text/timestamps and become scan-origin rows, and
+// new rows can record manual origin.
+func TestMigrationAddsSnapshotOrigin(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "snapshots.db")
+	sqlDB, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+
+	base := fstest.MapFS{}
+	for _, name := range []string{
+		"0001_init.sql",
+		"0002_known_hard_sources.sql",
+		"0003_seed_remote_sources.sql",
+		"0004_seed_5c_sources.sql",
+		"0005_seed_bamboohr_sources.sql",
+		"0006_event_message_types.sql",
+	} {
+		body, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base[name] = &fstest.MapFile{Data: body}
+	}
+	if err := Migrate(ctx, sqlDB, base); err != nil {
+		t.Fatalf("apply migrations 0001-0006: %v", err)
+	}
+
+	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
+	c, _, err := ResolveCompany(ctx, sqlDB, "Acme", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
+		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0007",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pre-0007 snapshots have no origin column yet.
+	oldRows := []struct {
+		text string
+		at   time.Time
+	}{
+		{"first version", now},
+		{"second version", now.Add(10 * time.Minute)},
+	}
+	for _, row := range oldRows {
+		if _, err := sqlDB.ExecContext(ctx,
+			`INSERT INTO snapshots(offer_id, raw_text, captured_at) VALUES (?, ?, ?)`,
+			o.ID, row.text, model.FormatTime(row.at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := Migrate(ctx, sqlDB, migrations.FS); err != nil {
+		t.Fatalf("upgrade with embedded migrations: %v", err)
+	}
+
+	var recorded int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 7 AND name = 'snapshot_origin'`).
+		Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Errorf("migration 0007 recorded %d times, want 1", recorded)
+	}
+
+	rows, err := sqlDB.QueryContext(ctx,
+		`SELECT raw_text, captured_at, origin FROM snapshots WHERE offer_id = ? ORDER BY id`, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var n int
+	for rows.Next() {
+		var text, captured, origin string
+		if err := rows.Scan(&text, &captured, &origin); err != nil {
+			t.Fatal(err)
+		}
+		want := oldRows[n]
+		if text != want.text || captured != model.FormatTime(want.at) || origin != string(model.SnapshotOriginScan) {
+			t.Errorf("snapshot %d after migration = (%q, %q, %q), want (%q, %q, scan)",
+				n, text, captured, origin, want.text, model.FormatTime(want.at))
+		}
+		n++
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if n != len(oldRows) {
+		t.Errorf("snapshots after migration = %d, want %d", n, len(oldRows))
+	}
+
+	// The column default keeps old-style inserts working, and an explicit
+	// manual insert is stored as such.
+	if _, err := sqlDB.ExecContext(ctx,
+		`INSERT INTO snapshots(offer_id, raw_text, captured_at) VALUES (?, 'defaulted', ?)`,
+		o.ID, model.FormatTime(now.Add(20*time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	if err := InsertSnapshotOrigin(ctx, sqlDB, o.ID, "typed manually", model.SnapshotOriginManual, now.Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got := countSnapshotsByOrigin(t, sqlDB, o.ID); got[model.SnapshotOriginScan] != 3 || got[model.SnapshotOriginManual] != 1 {
+		t.Errorf("origins after new inserts = %v, want 3 scan and 1 manual", got)
+	}
+}
+
+func countSnapshotsByOrigin(t *testing.T, sqlDB *sql.DB, offerID int64) map[model.SnapshotOrigin]int {
+	t.Helper()
+	rows, err := sqlDB.Query(`SELECT origin, COUNT(*) FROM snapshots WHERE offer_id = ? GROUP BY origin`, offerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[model.SnapshotOrigin]int{}
+	for rows.Next() {
+		var origin string
+		var n int
+		if err := rows.Scan(&origin, &n); err != nil {
+			t.Fatal(err)
+		}
+		out[model.SnapshotOrigin(origin)] = n
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 func TestMigrateIdempotent(t *testing.T) {
 	sqlDB := openTest(t)
 	ctx := context.Background()

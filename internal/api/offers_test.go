@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/stepbeta/jobwatch/internal/db"
 	"github.com/stepbeta/jobwatch/internal/model"
+	"github.com/stepbeta/jobwatch/internal/sources"
 )
 
 type offerListResp struct {
@@ -25,14 +27,15 @@ type MatchReasons struct {
 }
 
 type offerDetailResp struct {
-	Offer          offerJSON         `json:"offer"`
-	Company        companyJSON       `json:"company"`
-	Provenance     []provenanceJSON  `json:"provenance"`
-	Events         []eventJSON       `json:"events"`
-	Notes          []noteJSON        `json:"notes"`
-	LatestSnapshot *snapshotJSON     `json:"latest_snapshot"`
-	SnapshotDiff   *snapshotDiffJSON `json:"snapshot_diff"`
-	SnapshotCount  int               `json:"snapshot_count"`
+	Offer          offerJSON             `json:"offer"`
+	Company        companyJSON           `json:"company"`
+	Provenance     []provenanceJSON      `json:"provenance"`
+	Events         []eventJSON           `json:"events"`
+	Notes          []noteJSON            `json:"notes"`
+	Snapshots      []snapshotSummaryJSON `json:"snapshots"`
+	LatestSnapshot *snapshotJSON         `json:"latest_snapshot"`
+	SnapshotDiff   *snapshotDiffJSON     `json:"snapshot_diff"`
+	SnapshotCount  int                   `json:"snapshot_count"`
 }
 
 func seedOfferSet(t *testing.T, ts *testServer) (model.JobOffer, model.Company) {
@@ -372,6 +375,193 @@ func TestOfferDetailSnapshotDiff(t *testing.T) {
 	}
 	if strings.Join(removed, "|") != "two" || strings.Join(added, "|") != "TWO|four" {
 		t.Errorf("diff = %+v", got.SnapshotDiff.Lines)
+	}
+}
+
+func TestOfferSnapshotHistory(t *testing.T) {
+	ts := newTestServer(t)
+	acme := ts.seedCompany(t, "Acme")
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
+	ctx := context.Background()
+
+	if err := db.InsertSnapshot(ctx, ts.db, o.ID, "one", ts.clock.now()); err != nil {
+		t.Fatal(err)
+	}
+	ts.clock.advance(time.Minute)
+	if err := db.InsertSnapshot(ctx, ts.db, o.ID, "one\ntwo", ts.clock.now()); err != nil {
+		t.Fatal(err)
+	}
+	ts.clock.advance(time.Minute)
+	rec := ts.do(t, "PATCH", "/api/offers/1", map[string]any{"description": "manual text"})
+	wantCode(t, rec, 200)
+
+	rec = ts.do(t, "GET", "/api/offers/1", nil)
+	wantCode(t, rec, 200)
+	got := decodeBody[offerDetailResp](t, rec)
+	if len(got.Snapshots) != 3 || got.SnapshotCount != 3 {
+		t.Fatalf("snapshots = %+v, count = %d", got.Snapshots, got.SnapshotCount)
+	}
+	want := []struct {
+		origin string
+		length int
+	}{
+		{"scan", len("one")},
+		{"scan", len("one\ntwo")},
+		{"manual", len("manual text")},
+	}
+	for i, w := range want {
+		s := got.Snapshots[i]
+		if s.Origin != w.origin || s.TextLength != w.length || s.CapturedAt == "" {
+			t.Errorf("snapshot %d = %+v, want origin=%s length=%d", i, s, w.origin, w.length)
+		}
+		if s.RawText != nil {
+			t.Errorf("snapshot %d includes raw_text without snapshot_id: %q", i, *s.RawText)
+		}
+	}
+	if got.LatestSnapshot == nil || got.LatestSnapshot.Origin != "manual" || got.LatestSnapshot.RawText != "manual text" {
+		t.Errorf("latest_snapshot = %+v, want manual text", got.LatestSnapshot)
+	}
+
+	// The metadata payload stays small; the requested snapshot alone gets
+	// its full text.
+	firstID := got.Snapshots[0].ID
+	rec = ts.do(t, "GET", fmt.Sprintf("/api/offers/1?snapshot_id=%d", firstID), nil)
+	wantCode(t, rec, 200)
+	selected := decodeBody[offerDetailResp](t, rec)
+	if len(selected.Snapshots) != 3 {
+		t.Fatalf("snapshots with snapshot_id = %+v", selected.Snapshots)
+	}
+	for i, s := range selected.Snapshots {
+		if s.ID == firstID {
+			if s.RawText == nil || *s.RawText != "one" {
+				t.Errorf("requested snapshot raw_text = %v, want one", s.RawText)
+			}
+		} else if s.RawText != nil {
+			t.Errorf("snapshot %d includes raw_text: %q", i, *s.RawText)
+		}
+	}
+
+	wantErrorCode(t, ts.do(t, "GET", "/api/offers/1?snapshot_id=9999", nil), 404, "not_found")
+	wantErrorCode(t, ts.do(t, "GET", "/api/offers/1?snapshot_id=abc", nil), 400, "validation_failed")
+	wantErrorCode(t, ts.do(t, "GET", "/api/offers/1?snapshot_id=0", nil), 400, "validation_failed")
+}
+
+func TestSnapshotDiffEndpoint(t *testing.T) {
+	ts := newTestServer(t)
+	acme := ts.seedCompany(t, "Acme")
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
+	ctx := context.Background()
+
+	texts := []string{"alpha\nbeta", "alpha\ngamma", "alpha\ngamma\ndelta"}
+	for i, text := range texts {
+		if i > 0 {
+			ts.clock.advance(time.Minute)
+		}
+		if err := db.InsertSnapshot(ctx, ts.db, o.ID, text, ts.clock.now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	infos, err := db.ListSnapshotInfos(ctx, ts.db, o.ID, 0)
+	if err != nil || len(infos) != 3 {
+		t.Fatalf("snapshot infos = %+v (err %v)", infos, err)
+	}
+	first, second, third := infos[0].ID, infos[1].ID, infos[2].ID
+
+	// Reversed arguments are ordered oldest -> newest server-side.
+	rec := ts.do(t, "GET",
+		fmt.Sprintf("/api/offers/1/snapshot-diff?from=%d&to=%d", third, first), nil)
+	wantCode(t, rec, 200)
+	res := decodeBody[struct {
+		SnapshotDiff snapshotDiffJSON `json:"snapshot_diff"`
+	}](t, rec)
+	if res.SnapshotDiff.From.ID != first || res.SnapshotDiff.To.ID != third {
+		t.Errorf("diff refs = %+v, want %d -> %d", res.SnapshotDiff, first, third)
+	}
+	var removed, added []string
+	for _, line := range res.SnapshotDiff.Lines {
+		switch line.Op {
+		case "removed":
+			removed = append(removed, line.Text)
+		case "added":
+			added = append(added, line.Text)
+		}
+	}
+	if strings.Join(removed, "|") != "beta" || strings.Join(added, "|") != "gamma|delta" {
+		t.Errorf("arbitrary diff removed=%v added=%v", removed, added)
+	}
+
+	rec = ts.do(t, "GET",
+		fmt.Sprintf("/api/offers/1/snapshot-diff?from=%d&to=%d", first, second), nil)
+	wantCode(t, rec, 200)
+	res = decodeBody[struct {
+		SnapshotDiff snapshotDiffJSON `json:"snapshot_diff"`
+	}](t, rec)
+	if res.SnapshotDiff.From.ID != first || res.SnapshotDiff.To.ID != second {
+		t.Errorf("forward diff refs = %+v, want %d -> %d", res.SnapshotDiff, first, second)
+	}
+
+	// Snapshots of another offer are rejected.
+	other := ts.seedOffer(t, acme, "Platform Engineer", "Lyon", model.AppTodo, model.RemoteUnknown, 0, 0)
+	if err := db.InsertSnapshot(ctx, ts.db, other.ID, "foreign", ts.clock.now()); err != nil {
+		t.Fatal(err)
+	}
+	foreignInfos, err := db.ListSnapshotInfos(ctx, ts.db, other.ID, 0)
+	if err != nil || len(foreignInfos) != 1 {
+		t.Fatalf("foreign snapshots = %+v (err %v)", foreignInfos, err)
+	}
+	wantErrorCode(t, ts.do(t, "GET",
+		fmt.Sprintf("/api/offers/1/snapshot-diff?from=%d&to=%d", foreignInfos[0].ID, first), nil),
+		404, "not_found")
+
+	wantErrorCode(t, ts.do(t, "GET", "/api/offers/1/snapshot-diff?to=1", nil), 400, "validation_failed")
+	wantErrorCode(t, ts.do(t, "GET", "/api/offers/1/snapshot-diff?from=abc&to=1", nil), 400, "validation_failed")
+	wantErrorCode(t, ts.do(t, "GET",
+		fmt.Sprintf("/api/offers/1/snapshot-diff?from=%d&to=%d", first, first), nil),
+		400, "validation_failed")
+	wantErrorCode(t, ts.do(t, "GET", "/api/offers/99/snapshot-diff?from=1&to=2", nil),
+		404, "not_found")
+}
+
+func TestSnapshotOriginsScanAndPatch(t *testing.T) {
+	ts := newTestServer(t)
+	ctx := context.Background()
+	src, err := db.InsertSource(ctx, ts.db, model.Source{
+		Name: "Scan Co", URL: "https://scan.example/board", Type: model.SourceGreenhouse,
+		ConfigJSON: "{}", Enabled: true,
+	}, ts.clock.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts.fetcher.offers[src.ID] = []sources.RawOffer{{
+		ExternalUID: "1", Title: "SRE", Location: "Paris, France",
+		URL: "https://scan.example/jobs/1", Description: "scan description",
+	}}
+	rec := ts.do(t, "POST", "/api/sources/"+strconv.FormatInt(src.ID, 10)+"/scan", nil)
+	wantCode(t, rec, 200)
+
+	var offerID int64
+	if err := ts.db.QueryRowContext(ctx, `SELECT id FROM job_offers WHERE title = 'SRE'`).Scan(&offerID); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/offers/" + strconv.FormatInt(offerID, 10)
+	detail := decodeBody[offerDetailResp](t, ts.do(t, "GET", path, nil))
+	if len(detail.Snapshots) != 1 || detail.Snapshots[0].Origin != "scan" {
+		t.Fatalf("scan snapshots = %+v, want one scan snapshot", detail.Snapshots)
+	}
+	if detail.LatestSnapshot == nil || detail.LatestSnapshot.Origin != "scan" {
+		t.Errorf("latest snapshot origin = %+v, want scan", detail.LatestSnapshot)
+	}
+
+	rec = ts.do(t, "PATCH", path, map[string]any{"description": "manual override"})
+	wantCode(t, rec, 200)
+	detail = decodeBody[offerDetailResp](t, ts.do(t, "GET", path, nil))
+	if len(detail.Snapshots) != 2 ||
+		detail.Snapshots[0].Origin != "scan" || detail.Snapshots[1].Origin != "manual" {
+		t.Fatalf("origins after PATCH = %+v", detail.Snapshots)
+	}
+	if detail.LatestSnapshot == nil || detail.LatestSnapshot.Origin != "manual" ||
+		detail.LatestSnapshot.RawText != "manual override" {
+		t.Errorf("latest snapshot after PATCH = %+v", detail.LatestSnapshot)
 	}
 }
 

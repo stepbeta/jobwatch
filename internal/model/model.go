@@ -144,6 +144,27 @@ func (t EntityType) Valid() bool {
 	return false
 }
 
+// SnapshotOrigin records how a description snapshot was captured.
+type SnapshotOrigin string
+
+const (
+	// SnapshotOriginScan is written by the scan pipeline or a manual URL
+	// import.
+	SnapshotOriginScan SnapshotOrigin = "scan"
+	// SnapshotOriginManual is written when the user saves a description
+	// through PATCH /api/offers/:id.
+	SnapshotOriginManual SnapshotOrigin = "manual"
+)
+
+// Valid reports whether o is a known snapshot origin.
+func (o SnapshotOrigin) Valid() bool {
+	switch o {
+	case SnapshotOriginScan, SnapshotOriginManual:
+		return true
+	}
+	return false
+}
+
 type Company struct {
 	ID             int64
 	Name           string
@@ -229,6 +250,7 @@ type Note struct {
 type Snapshot struct {
 	ID         int64
 	OfferID    int64
+	Origin     SnapshotOrigin
 	RawText    string
 	CapturedAt time.Time
 }

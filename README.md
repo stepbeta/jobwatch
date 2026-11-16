@@ -6,8 +6,9 @@ BambooHR), RSS / Atom feeds and CSS-selector career pages. It detects
 new, changed and disappeared offers and keeps everything in a single
 SQLite file.
 
-Status: Milestone 6a (BambooHR adapter). The Go server exposes the full
-API and, when built with the `ui` tag, embeds the React SPA. See [docs/MILESTONES.md](docs/MILESTONES.md) for what is done and
+Status: Milestone 7c (snapshot origins and version browsing). The Go
+server exposes the full API and, when built with the `ui` tag, embeds the
+React SPA. See [docs/MILESTONES.md](docs/MILESTONES.md) for what is done and
 the known gaps, and [docs/SOURCE-DECISIONS.md](docs/SOURCE-DECISIONS.md)
 for the per-URL decisions on the bookmark list.
 
@@ -104,10 +105,12 @@ Built with React + TypeScript (Vite). The pages are:
   seeded rows for the known-hard Workday/SuccessFactors/WTTJ links and
   the not-trackable sources show their explanation.
 - **Offer detail** — editable application/offer state and location,
-  score badges, all provenance links side by side, explicit merge into
+  score badges, collapsed provenance links with explicit merge into
   another offer and split (select links for a second offer), a vertical
-  timeline with backdating, notes optionally pinned to an event, and the
-  latest description plus a removed/added line diff for `changed` offers.
+  timeline with backdating, notes optionally pinned to an event, and a
+  single-version description browser (prev/next, version dropdown,
+  Scan/Manual origin badge, diff against the previous version, Add/Edit
+  manual description).
 - **Company detail** — offers, company notes, rename/website edit, a
   dismissible possible-duplicate banner and a merge dialog that lets you
   choose which company row to keep. Nothing is merged automatically.
@@ -283,8 +286,9 @@ register that board instead so future scans track it automatically. See
 ### Offer states
 
 - `active`: seen in the latest scan.
-- `changed`: the description changed (each version is kept as a snapshot;
-  the detail page shows the added/removed lines between the two latest).
+- `changed`: the description changed (each version is kept as a snapshot
+  with its scan/manual origin; the detail page browses the versions and
+  shows the added/removed lines against the previous one).
 - `disappeared`: no longer listed on any source. Scans never delete offers.
 
 ### Classification

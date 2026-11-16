@@ -128,6 +128,7 @@ notes (                           -- timestamp-less notes, on offers AND compani
 snapshots (                       -- historical description snapshots
   id INTEGER PK,
   offer_id INTEGER NOT NULL REFERENCES job_offers(id) ON DELETE CASCADE,
+  origin TEXT NOT NULL DEFAULT 'scan',  -- scan | manual
   raw_text TEXT NOT NULL,
   captured_at TEXT NOT NULL
 )
@@ -243,9 +244,12 @@ global "Refresh all". Optionally trigger via `jobwatch scan`.
 
 - CRUD `/api/sources`, `POST /api/sources/:id/scan`
 - `GET /api/offers?filters...` (state, scores, remote policy, company,
-  full-text query), `GET /api/offers/:id`
+  full-text query), `GET /api/offers/:id` (with snapshot version history;
+  `?snapshot_id=N` returns that version's full text)
 - `PATCH /api/offers/:id` (states, location edit, description edit,
   manual merge/split)
+- `GET /api/offers/:id/snapshot-diff?from=N&to=M` (any two versions,
+  ordered older → newer)
 - CRUD `/api/offers/:id/events`, CRUD `/api/notes`
 - CRUD `/api/companies`, `GET /api/companies/:id` (offers + notes)
 - `POST /api/offers/import`, `POST /api/companies/:id/merge`
@@ -273,9 +277,13 @@ Local-only dashboard. Sections:
   - left column: vertical **timeline** of events, add/backdate/delete
   - right column: stacked **notes**, each optionally pinned to a
     timeline event
-  - full description text with snapshots/diff view when `changed`, plus
-    an Add/Edit action that saves a manually pasted description through
-    `PATCH /api/offers/:id` (versioned as a new snapshot)
+  - description: a single-version browser (never a list), defaulting to
+    the latest snapshot; prev/next arrows and a version dropdown, a
+    "Version X of N" header with captured time and a Scan/Manual origin
+    badge, and an on-demand removed/added diff against the previous
+    version (the oldest version shows a hint). An Add/Edit action saves a
+    manually pasted description through `PATCH /api/offers/:id`
+    (versioned as a new `manual` snapshot and selected after saving).
 - **Company detail page**: all its offers + company-level notes +
   possible-duplicate-company merge prompt.
 - **Sources page**: list with type, last scan status/time, enable/disable,
@@ -357,3 +365,12 @@ plain React + a lightweight table component is fine.
   later differing source description marks the offer `changed` and
   appends a snapshot, while a sighting without a description never
   clears the stored text.
+- 2026-11-16 (after Milestone 7c): `snapshots` gains `origin`
+  (`scan` | `manual`) via additive migration 0007. Scan/import inserts
+  write `scan`; `PATCH /api/offers/:id` writes `manual`. Pre-0007
+  snapshots are backfilled as `scan` because the old schema has no
+  reliable manual marker. `GET /api/offers/:id` exposes the version
+  history (oldest → newest) as metadata and returns one version's full
+  text with `?snapshot_id=N`; `GET /api/offers/:id/snapshot-diff` diffs
+  any two versions on demand. The UI shows exactly one version at a time
+  with origin badge, navigation and a diff against the previous version.

@@ -200,12 +200,36 @@ func noteToJSON(n model.Note) noteJSON {
 
 type snapshotJSON struct {
 	ID         int64  `json:"id"`
+	Origin     string `json:"origin"`
 	RawText    string `json:"raw_text"`
 	CapturedAt string `json:"captured_at"`
 }
 
 func snapshotToJSON(s model.Snapshot) snapshotJSON {
-	return snapshotJSON{ID: s.ID, RawText: s.RawText, CapturedAt: model.FormatTime(s.CapturedAt)}
+	return snapshotJSON{
+		ID:         s.ID,
+		Origin:     string(s.Origin),
+		RawText:    s.RawText,
+		CapturedAt: model.FormatTime(s.CapturedAt),
+	}
+}
+
+type snapshotSummaryJSON struct {
+	ID         int64   `json:"id"`
+	Origin     string  `json:"origin"`
+	CapturedAt string  `json:"captured_at"`
+	TextLength int     `json:"text_length"`
+	RawText    *string `json:"raw_text,omitempty"`
+}
+
+func snapshotInfoToJSON(s db.SnapshotInfo) snapshotSummaryJSON {
+	return snapshotSummaryJSON{
+		ID:         s.ID,
+		Origin:     string(s.Origin),
+		CapturedAt: model.FormatTime(s.CapturedAt),
+		TextLength: s.TextLength,
+		RawText:    s.RawText,
+	}
 }
 
 type snapshotRefJSON struct {

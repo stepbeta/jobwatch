@@ -628,11 +628,25 @@ func ListProvenance(ctx context.Context, q Querier, offerID int64) ([]model.Prov
 
 // ---------- snapshots ----------
 
-// InsertSnapshot stores a description snapshot for an offer.
+// InsertSnapshot stores a scan-origin snapshot. It is the default used by
+// existing callers; new code should pass an explicit origin through
+// InsertSnapshotOrigin.
 func InsertSnapshot(ctx context.Context, q Querier, offerID int64, rawText string, now time.Time) error {
+	return InsertSnapshotOrigin(ctx, q, offerID, rawText, model.SnapshotOriginScan, now)
+}
+
+// InsertSnapshotOrigin stores a description snapshot with its origin.
+// An empty origin defaults to "scan".
+func InsertSnapshotOrigin(ctx context.Context, q Querier, offerID int64, rawText string, origin model.SnapshotOrigin, now time.Time) error {
+	if origin == "" {
+		origin = model.SnapshotOriginScan
+	}
+	if !origin.Valid() {
+		return fmt.Errorf("insert snapshot for offer %d: invalid origin %q", offerID, origin)
+	}
 	if _, err := q.ExecContext(ctx,
-		`INSERT INTO snapshots(offer_id, raw_text, captured_at) VALUES (?, ?, ?)`,
-		offerID, rawText, model.FormatTime(now)); err != nil {
+		`INSERT INTO snapshots(offer_id, raw_text, origin, captured_at) VALUES (?, ?, ?, ?)`,
+		offerID, rawText, string(origin), model.FormatTime(now)); err != nil {
 		return fmt.Errorf("insert snapshot for offer %d: %w", offerID, err)
 	}
 	return nil
@@ -645,4 +659,70 @@ func CountSnapshots(ctx context.Context, q Querier, offerID int64) (int, error) 
 		return 0, fmt.Errorf("count snapshots for offer %d: %w", offerID, err)
 	}
 	return n, nil
+}
+
+// SnapshotInfo is a lightweight snapshot row for version history. RawText
+// is only populated for the requested snapshot (nil otherwise).
+type SnapshotInfo struct {
+	ID         int64
+	Origin     model.SnapshotOrigin
+	CapturedAt time.Time
+	TextLength int
+	RawText    *string
+}
+
+// ListSnapshotInfos returns an offer's snapshots oldest first. When
+// rawTextID is positive, that snapshot's raw text is included; the other
+// rows only carry metadata.
+func ListSnapshotInfos(ctx context.Context, q Querier, offerID, rawTextID int64) ([]SnapshotInfo, error) {
+	query := `SELECT id, origin, captured_at, length(raw_text), NULL
+	          FROM snapshots WHERE offer_id = ? ORDER BY captured_at, id`
+	args := []any{offerID}
+	if rawTextID > 0 {
+		query = `SELECT id, origin, captured_at, length(raw_text),
+		                CASE WHEN id = ? THEN raw_text END
+		         FROM snapshots WHERE offer_id = ? ORDER BY captured_at, id`
+		args = []any{rawTextID, offerID}
+	}
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list snapshots of offer %d: %w", offerID, err)
+	}
+	defer rows.Close()
+	out := []SnapshotInfo{}
+	for rows.Next() {
+		var s SnapshotInfo
+		var origin, captured string
+		var length int64
+		var raw sql.NullString
+		if err := rows.Scan(&s.ID, &origin, &captured, &length, &raw); err != nil {
+			return nil, fmt.Errorf("list snapshots of offer %d: %w", offerID, err)
+		}
+		s.Origin = model.SnapshotOrigin(origin)
+		s.CapturedAt = parseTime(captured)
+		s.TextLength = int(length)
+		s.RawText = strPtr(raw)
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// GetSnapshotForOffer returns one snapshot, enforcing that it belongs to
+// the offer.
+func GetSnapshotForOffer(ctx context.Context, q Querier, offerID, snapshotID int64) (model.Snapshot, error) {
+	var s model.Snapshot
+	var origin, captured string
+	err := q.QueryRowContext(ctx,
+		`SELECT id, offer_id, origin, raw_text, captured_at
+		 FROM snapshots WHERE id = ? AND offer_id = ?`, snapshotID, offerID).
+		Scan(&s.ID, &s.OfferID, &origin, &s.RawText, &captured)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Snapshot{}, ErrNotFound
+	}
+	if err != nil {
+		return model.Snapshot{}, fmt.Errorf("get snapshot %d of offer %d: %w", snapshotID, offerID, err)
+	}
+	s.Origin = model.SnapshotOrigin(origin)
+	s.CapturedAt = parseTime(captured)
+	return s, nil
 }

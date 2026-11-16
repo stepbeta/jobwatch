@@ -693,6 +693,59 @@ details.panel > summary {
   padding: 10px;
 }
 
+.snapshot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.snapshot-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.snapshot-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.snapshot-nav select {
+  max-width: 220px;
+}
+
+.snapshot-nav button {
+  padding: 1px 8px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.origin-badge {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  background: var(--panel-alt);
+}
+
+.origin-scan {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+}
+
+.origin-manual {
+  border-color: color-mix(in srgb, var(--amber) 55%, var(--border));
+  color: var(--amber);
+}
+
 /* changed-offer banner and description diff */
 .changed-banner {
   border: 1px solid color-mix(in srgb, var(--amber) 55%, var(--border));
