@@ -175,6 +175,37 @@ Done criteria (all met):
 | `add-sources` exits 0 when some URLs are not detected | the report is the result; failing the batch would hide the sources that were added. File read and database errors still fail |
 | `add-sources` also supports `--disabled` | keeps parity with `add-source`; the bulk list can be staged before enabling |
 
+## Milestone 5b — Undetected source decisions — DONE
+
+Done criteria (all met):
+- [x] Every URL in `docs/REMOTE-SOURCES.txt` that `sources.Detect` could
+      not classify was investigated with exactly one polite fetch
+      through the shared client (robots.txt, rate limit, no retries, no
+      anti-bot bypassing)
+- [x] `docs/SOURCE-DECISIONS.md` records one action per URL
+      (URL | company | action | reason)
+- [x] 19 underlying ATS boards found, registered with `add-source`,
+      scanned, and confirmed to return offers
+- [x] 5 RSS/Atom feeds registered with the mapping they need; fixture
+      tests cover the new Teamtailor nested-location and Homerun Atom
+      shapes
+- [x] 5 server-rendered HTML listings registered with selectors and
+      verified with one real scan each
+- [x] 28 not-trackable URLs registered with `add-source --disabled` and
+      an explanatory `note`
+- [x] README, CHANGELOG and MILESTONES updated; no schema migration
+- [x] `go build`, `go vet`, `go test` green
+
+### Deviations (permanent decisions)
+
+| Deviation | Reason |
+|---|---|
+| Toggl is disabled even though `jobs.ashbyhq.com/toggl` exists | the Ashby public posting API returns 404 for that org; only the embed script is available, so the Ashby adapter cannot fetch it |
+| Harvest is disabled although its page is server-rendered | the page currently lists no openings, so selectors cannot be verified; it can be revisited when roles appear |
+| Murena tracks only the engineering table | the page has a second "Other positions" table with a different column layout; the engineering table is the relevant one and its selectors are stable |
+| We Work Remotely keeps the source name as the company | the feed has no company element and titles are "Company: Role"; splitting titles is the existing RSS known gap, not a 5b change |
+| The 28 not-trackable rows are `html`/`wttj` sources with a `note` | consistent with the seeded Workday/SuccessFactors/WTTJ rows; they are never scanned and offers enter through manual import |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -192,5 +223,7 @@ Done criteria (all met):
 | No snapshot listing endpoint | §9 | Open. Detail returns the latest snapshot, the count and a diff of the two latest only |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
-| Most career-page bookmarks are not auto-detected | §7 | Open. `add-sources` recognized 8 of 65 URLs in `docs/REMOTE-SOURCES.txt`; the 57 plain career/aggregator pages need the next milestone's handling or a manual `--type html`/`--type rss` source |
+| Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |
+| Teamtailor offers created before the mapping fix have no location | §7 | Open data artifact. The `locations/location/name` mapping is correct and fixture-tested; scans do not update the location of an existing offer, so only new offers carry it |
+| Murena "Other positions" table is not tracked | §7 | By design. The second table has a different column layout; the engineering table is tracked |
 | No scheduled scans or notifications | §10 | Out of scope for v1 |

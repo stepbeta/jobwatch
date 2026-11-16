@@ -40,8 +40,8 @@ Adapters (`sources.NewRegistry`):
 | ashby | `GET https://api.ashbyhq.com/posting-api/job-board/{org}` | `isListed=false` skipped; secondary locations joined with `; ` |
 | personio | `GET https://{tenant}.jobs.personio.{de,com}/xml` | `position` elements; office is the location, `id` builds `{tenant}/job/{id}`, `jobDescriptions` joined as titled HTML→text blocks; optional `language` query |
 | workable | `GET https://apply.workable.com/api/v1/widget/accounts/{account}?details=true` | keyless widget API; entries with the same `shortcode` are grouped, all `locations` joined, `telecommuting` adds a remote marker; `name` is the company |
-| rss | `GET <source url>` | RSS 2.0 and Atom; item/field mapping in config (`item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field`); paths are child local names with `@attr` and `#text`; Atom alternate links and HTML descriptions handled |
-| html | `GET <source url>` | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); one request per scan, no per-offer page fetches; minimum interval 5 s |
+| rss | `GET <source url>` | RSS 2.0 and Atom; item/field mapping in config (`item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field`); paths are child local names joined with `/` (e.g. `locations/location/name`) with `@attr` and `#text`; Atom alternate links and HTML descriptions handled |
+| html | `GET <source url>` | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); cascadia supports `:has()` and `:haschild()` for row containers; one request per scan, no per-offer page fetches; minimum interval 5 s |
 
 `wttj` and `manual` have no fetcher; `wttj` scans are skipped and manual
 offers come from the import path. The seeded Workday/SuccessFactors rows

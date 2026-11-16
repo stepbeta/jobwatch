@@ -205,6 +205,37 @@
 - `add-source` and `add-sources` now share one validation path, so their
   accepted URLs and derived names cannot drift apart.
 
+### Milestone 5b — Undetected source decisions
+
+#### Added
+- `docs/SOURCE-DECISIONS.md`: one row per undetected URL from
+  `docs/REMOTE-SOURCES.txt` with the company, the single action taken
+  and the reason. Totals: 19 underlying ATS boards, 5 RSS feeds, 5 HTML
+  listings and 28 disabled not-trackable sources.
+- 19 underlying boards registered and scanned: Nearform, GitLab,
+  Wikimedia Foundation, Zapier, Percona, Automattic, Algolia, Camunda,
+  GitBook, BlaBlaCar, Linear, ESL FACEIT Group, Docker, CircleCI,
+  Canonical, Pulumi, Knack, Ashby and Supabase.
+- 5 RSS sources registered and scanned: Ghost (Homerun Atom), Epi
+  Company, Tiime and Sekoia (Teamtailor), and We Work Remotely.
+- 5 server-rendered HTML sources registered and verified with a real
+  scan: Buffer, Tiger Data, Shopify, ElevenLabs and Murena.
+- 28 disabled sources with an explanatory `note` for JS-only SPAs,
+  Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho,
+  WTTJ, robots.txt disallows and aggregators.
+- Fixture tests for the Teamtailor nested-location mapping
+  (`locations/location/name`) and the Homerun Atom `<description>`
+  shape, with trimmed feeds under `internal/sources/testdata/`.
+
+#### Changed
+- README documents nested RSS paths, `:has()`/`:haschild()` HTML
+  selectors, the new source examples and the per-URL decision table.
+- ARCHITECTURE notes the nested RSS path and selector support.
+- MILESTONES records the 5b criteria and updates the known-gaps table.
+- HTML sources can use `:haschild()` to match the immediate row
+  container without matching every ancestor; the Murena source uses it
+  to skip the separate "Other positions" table.
+
 ### Changed
 - SPEC updated to match decisions made in Milestone 1: Ashby is fetched
   with GET, a few schema columns are NOT NULL with defaults, enum values

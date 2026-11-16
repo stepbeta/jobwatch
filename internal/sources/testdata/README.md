@@ -16,6 +16,12 @@ Fixtures recorded from the public APIs/sites on 2026-11-15/16 and trimmed
   descriptions replaced with a short excerpt)
 - `atom_feed.xml`: go.dev/blog/feed.atom (first three entries, content
   replaced with a short excerpt)
+- `teamtailor_feed.xml`: careers.epicompany.eu/jobs.rss (first two items,
+  descriptions replaced with a short excerpt; the nested
+  `tt:locations/tt:location/tt:name` shape is kept)
+- `homerun_feed.xml`: feed.homerun.co/ghost (first two entries,
+  descriptions replaced with a short excerpt; keeps the non-standard
+  Atom `<description>` element)
 - `html_listing.html`: hand-written listing page (there is no public
   fixture API) covering relative/absolute links, optional selectors and
   a missing link that must be skipped

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:tt="https://teamtailor.com/locations">
+  <channel>
+    <title>Epi Company</title>
+    <description></description>
+    <link>https://careers.epicompany.eu/jobs</link>
+    <item>
+      <title>Team Manager - Monitoring &amp; Incident Management – Remote-First</title>
+      <description>&lt;p&gt;Lead the monitoring and incident management team.&lt;/p&gt;</description>
+      <pubDate>Tue, 27 Oct 2026 08:51:37 +0000</pubDate>
+      <link>https://careers.epicompany.eu/jobs/8622189-team-manager-monitoring-incident-management-remote-first</link>
+      <remoteStatus>fully</remoteStatus>
+      <guid>9f9434ef-8881-46ab-91b4-ba85e0978b15</guid>
+      <tt:locations>
+        <tt:location>
+          <tt:name>Remote-First in Belgium</tt:name>
+          <tt:address/>
+          <tt:zip/>
+          <tt:city>Brussels</tt:city>
+          <tt:country>Belgium</tt:country>
+        </tt:location>
+        <tt:location>
+          <tt:name>Remote-First in France</tt:name>
+          <tt:address/>
+          <tt:zip/>
+          <tt:city>Paris</tt:city>
+          <tt:country>France</tt:country>
+        </tt:location>
+      </tt:locations>
+      <tt:department>Operations &amp; Service Delivery</tt:department>
+      <tt:role/>
+    </item>
+    <item>
+      <title>Staff Designer – Remote-First</title>
+      <description>&lt;p&gt;Design the Wero wallet experience.&lt;/p&gt;</description>
+      <pubDate>Mon, 26 Oct 2026 09:00:00 +0000</pubDate>
+      <link>https://careers.epicompany.eu/jobs/8393869-staff-designer-remote-first</link>
+      <remoteStatus>fully</remoteStatus>
+      <guid>11111111-2222-3333-4444-555555555555</guid>
+      <tt:locations>
+        <tt:location>
+          <tt:name>Remote-First in France</tt:name>
+          <tt:address/>
+          <tt:zip/>
+          <tt:city>Paris</tt:city>
+          <tt:country>France</tt:country>
+        </tt:location>
+      </tt:locations>
+      <tt:department>Design</tt:department>
+      <tt:role/>
+    </item>
+  </channel>
+</rss>

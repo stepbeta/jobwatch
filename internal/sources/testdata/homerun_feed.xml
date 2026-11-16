@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title type="text">Ghost</title>
+  <subtitle type="html"><![CDATA[We are hiring!]]></subtitle>
+  <id>https://careers.ghost.org/</id>
+  <link rel="alternate" type="text/html" href="https://careers.ghost.org/"></link>
+  <entry>
+    <author>
+      <name>Ghost</name>
+    </author>
+    <title type="text">Staff Product Engineer</title>
+    <link rel="alternate" type="text/html" href="https://careers.ghost.org/staff-product-engineer"></link>
+    <id>job_w9iLO3e0iMEITMxpk6bQ</id>
+    <summary type="html"><![CDATA[Short summary.]]></summary>
+    <content type="html"><![CDATA[Short content.]]></content>
+    <description type="html"><![CDATA[<p>Build the Ghost product.</p>]]></description>
+  </entry>
+  <entry>
+    <author>
+      <name>Ghost</name>
+    </author>
+    <title type="text">Senior Security Engineer</title>
+    <link rel="alternate" type="text/html" href="https://careers.ghost.org/senior-security-engineer"></link>
+    <id>job_abc123</id>
+    <summary type="html"><![CDATA[Short summary.]]></summary>
+    <content type="html"><![CDATA[Short content.]]></content>
+    <description type="html"><![CDATA[<p>Keep Ghost secure.</p>]]></description>
+  </entry>
+</feed>

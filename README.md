@@ -5,11 +5,11 @@ company job boards (Greenhouse, Lever, Ashby, Personio, Workable), RSS /
 Atom feeds and CSS-selector career pages. It detects new, changed and
 disappeared offers and keeps everything in a single SQLite file.
 
-Status: Milestone 5a (bulk source registration). The Go server exposes
-the full API and, when built with the `ui` tag, embeds the React SPA.
-See
-[docs/MILESTONES.md](docs/MILESTONES.md) for what is done and the known
-gaps.
+Status: Milestone 5b (undetected source decisions). The Go server
+exposes the full API and, when built with the `ui` tag, embeds the React
+SPA. See [docs/MILESTONES.md](docs/MILESTONES.md) for what is done and
+the known gaps, and [docs/SOURCE-DECISIONS.md](docs/SOURCE-DECISIONS.md)
+for the per-URL decisions on the bookmark list.
 
 ## Requirements
 
@@ -158,8 +158,8 @@ Optional `--config` keys:
 | `board_token` / `site` + `region` / `org` | Greenhouse / Lever (`region: "eu"`) / Ashby board name, if it can't be derived from the URL |
 | `tenant` + `language` | Personio tenant (if not in the URL) and optional feed language |
 | `account` | Workable account slug (if not in the URL) |
-| `item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field` | RSS/Atom mapping. Paths are child element local names; `@name` reads an attribute and `#text` reads text. Defaults cover RSS `<item>` and Atom `<entry>` |
-| `item_selector`, `title_selector`, `link_selector`, `link_attr`, `location_selector`, `description_selector`, `company_selector`, `uid_selector`, `uid_attr` | HTML listing page CSS selectors. `item_selector` and `title_selector` are required; only the listing page is fetched, at most every 5 s |
+| `item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field` | RSS/Atom mapping. Paths are child element local names joined with `/` (e.g. `locations/location/name`); `@name` reads an attribute and `#text` reads text. Defaults cover RSS `<item>` and Atom `<entry>` |
+| `item_selector`, `title_selector`, `link_selector`, `link_attr`, `location_selector`, `description_selector`, `company_selector`, `uid_selector`, `uid_attr` | HTML listing page CSS selectors. `item_selector` and `title_selector` are required; only the listing page is fetched, at most every 5 s. Selectors use cascadia's CSS support, including `:has()` and `:haschild()` for item containers |
 
 RSS/Atom and HTML sources need `--type`:
 
@@ -172,6 +172,20 @@ RSS/Atom and HTML sources need `--type`:
   --type html --name "Example careers" \
   --config '{"item_selector":"li.job","title_selector":"h2 a",
              "location_selector":".location","description_selector":".summary"}'
+
+# Teamtailor feeds nest the location under tt:locations/tt:location;
+# paths use local names, so the namespace prefix is omitted.
+./jobwatch add-source https://careers.example.com/jobs.rss \
+  --type rss --name "Example" \
+  --config '{"location_field":"locations/location/name"}'
+
+# Item containers can be selected with :has()/:haschild() when the
+# listing has no stable class on the row itself.
+./jobwatch add-source https://careers.example.com/jobs \
+  --type html --name "Example careers" \
+  --config '{"item_selector":"li:haschild(a[href^=\"/jobs/\"])",
+             "title_selector":"a[href^=\"/jobs/\"] h2",
+             "link_selector":"a[href^=\"/jobs/\"]"}'
 ```
 
 `wttj` has no adapter. A fresh database also contains disabled rows for
@@ -205,6 +219,17 @@ through the same detection and validation as `add-source`:
 
 The command exits successfully as long as the file can be read and the
 database does not fail; the report is the result, not an error.
+
+### Source decisions
+
+The 57 URLs that `add-sources` could not detect were investigated one
+polite fetch at a time. The outcome is recorded per URL in
+[docs/SOURCE-DECISIONS.md](docs/SOURCE-DECISIONS.md): 19 underlying ATS
+boards, 5 RSS feeds, 5 server-rendered HTML listings, and 28 disabled
+sources with an explanatory `note` (JS-only SPAs, Notion, candidate
+logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt
+disallows, aggregators). Disabled sources are never scanned; their
+offers enter through manual import.
 
 JobWatch honors `robots.txt` and spaces its requests. A source that
 refuses access is marked `blocked`; any other failure marks it `error`.

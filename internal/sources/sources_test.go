@@ -549,6 +549,33 @@ func TestRSSAdapter(t *testing.T) {
 			wantDescIn: "Happy Birthday",
 			wantComp:   "Austin Clements, for the Go team",
 		},
+		{
+			// Teamtailor nests locations under tt:locations/tt:location
+			// and exposes the display name as tt:name. The path uses the
+			// local names, so the namespace prefix is not part of it.
+			name:       "teamtailor nested location",
+			path:       "/teamtailor.xml",
+			fixture:    "teamtailor_feed.xml",
+			config:     `{"location_field":"locations/location/name"}`,
+			wantCount:  2,
+			wantTitle:  "Team Manager - Monitoring & Incident Management – Remote-First",
+			wantURL:    "https://careers.epicompany.eu/jobs/8622189-team-manager-monitoring-incident-management-remote-first",
+			wantUID:    "9f9434ef-8881-46ab-91b4-ba85e0978b15",
+			wantDescIn: "monitoring and incident management",
+			wantLoc:    "Remote-First in Belgium",
+		},
+		{
+			// Homerun publishes Atom entries with a non-standard
+			// <description> element; the default mapping reads it.
+			name:       "homerun atom description",
+			path:       "/homerun.xml",
+			fixture:    "homerun_feed.xml",
+			wantCount:  2,
+			wantTitle:  "Staff Product Engineer",
+			wantURL:    "https://careers.ghost.org/staff-product-engineer",
+			wantUID:    "job_w9iLO3e0iMEITMxpk6bQ",
+			wantDescIn: "Build the Ghost product",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
