@@ -5,9 +5,9 @@ company job boards (Greenhouse, Lever, Ashby, Personio, Workable), RSS /
 Atom feeds and CSS-selector career pages. It detects new, changed and
 disappeared offers and keeps everything in a single SQLite file.
 
-Status: Milestone 4 (more source adapters, URL import metadata, backup
-validation, UI polish). The Go server exposes the full API and, when
-built with the `ui` tag, embeds the React SPA. See
+Status: Milestone 5a (bulk source registration). The Go server exposes
+the full API and, when built with the `ui` tag, embeds the React SPA.
+See
 [docs/MILESTONES.md](docs/MILESTONES.md) for what is done and the known
 gaps.
 
@@ -51,6 +51,9 @@ Use the global `--db <path>` flag to choose another file.
 ./jobwatch add-source https://acme.jobs.personio.de --name Acme
 ./jobwatch add-source https://apply.workable.com/acme --name Acme
 
+# or register every recognized URL from a bookmark list
+./jobwatch add-sources docs/REMOTE-SOURCES.txt
+
 # 2. Start the web UI (or scan headlessly with ./jobwatch scan)
 ./jobwatch serve
 # → http://127.0.0.1:8080
@@ -72,6 +75,7 @@ Use the global `--db <path>` flag to choose another file.
 | `serve [--port 8080] [--addr 127.0.0.1]` | Start the local server: REST API under `/api` and the SPA at `/` |
 | `scan [all\|<source-id>]` | Scan all enabled sources (default) or one source by ID. Exits non-zero if a source failed |
 | `add-source <url> [--name N] [--type T] [--config JSON] [--disabled]` | Register a source |
+| `add-sources <file> [--disabled]` | Register every recognized URL in a file; reports added / already registered / not detected |
 | `list [--offer-state S] [--app-state S] [--limit N] [--sources]` | List offers (most recently seen first) or sources |
 | `import <url \| json \| file.json \| ->` | Add an offer seen elsewhere. A bare URL is fetched for JSON-LD/Open Graph/title metadata (`--no-fetch` disables); JSON fields can be supplied manually |
 | `reclassify [--all]` | Backfill title/location scores and remote policies with the deterministic classifier; `--all` recomputes every offer |
@@ -174,6 +178,33 @@ RSS/Atom and HTML sources need `--type`:
 Datadog/Cisco (Workday), SAP (SuccessFactors) and WTTJ with an
 explanatory `note`; they are never scanned unless you enable them and
 configure selectors.
+
+### Bulk source registration
+
+`jobwatch add-sources <file>` reads one URL per line and runs every URL
+through the same detection and validation as `add-source`:
+
+```sh
+./jobwatch add-sources docs/REMOTE-SOURCES.txt
+```
+
+- Blank lines and lines starting with `#` are ignored. A `#` preceded by
+  whitespace starts an inline comment (`... # note`); a `#` inside the
+  URL is kept as a fragment (`https://example.com/jobs#openings`).
+- Duplicate URLs in the file are refused (the first occurrence wins)
+  and the remaining lines are still processed.
+- A URL that is already registered, a duplicate line, an invalid URL or
+  a page without a known ATS adapter never aborts the run. The final
+  report has three groups: **added**, **already registered** and **not
+  detected**. The not-detected URLs are also printed as a plain list at
+  the end.
+- `--disabled` registers the new sources disabled, like `add-source`.
+- Only URLs of supported ATS boards (Greenhouse, Lever, Ashby, Personio,
+  Workable) are detected. Plain career pages need `add-source --type
+  html` or `--type rss` plus selectors/mapping.
+
+The command exits successfully as long as the file can be read and the
+database does not fail; the report is the result, not an error.
 
 JobWatch honors `robots.txt` and spaces its requests. A source that
 refuses access is marked `blocked`; any other failure marks it `error`.

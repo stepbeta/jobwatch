@@ -25,6 +25,10 @@ func Detect(rawURL string) (typ model.SourceType, cfg Config, ok bool) {
 		if len(segs) >= 3 && segs[0] == "v1" && segs[1] == "boards" {
 			return model.SourceGreenhouse, Config{BoardToken: segs[2]}, true
 		}
+	case host == "my.greenhouse.io" || host == "www.greenhouse.io":
+		// The greenhouse.io corporate site and the candidate dashboard
+		// are not job boards.
+		return "", Config{}, false
 	case strings.HasSuffix(host, "greenhouse.io"):
 		if len(segs) >= 1 && segs[0] == "embed" {
 			if t := u.Query().Get("for"); t != "" {

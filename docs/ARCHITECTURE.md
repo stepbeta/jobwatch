@@ -7,7 +7,7 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 
 | Package | Role |
 |---|---|
-| `cmd/jobwatch` | Cobra root + subcommands: `serve`, `scan`, `add-source`, `list`, `import`, `backup`, `reclassify` |
+| `cmd/jobwatch` | Cobra root + subcommands: `serve`, `scan`, `add-source`, `add-sources`, `list`, `import`, `backup`, `reclassify` |
 | `migrations` | Numbered `NNNN_name.sql` files embedded with `go:embed` |
 | `internal/db` | `Open` (DSN pragmas: WAL, foreign_keys, busy_timeout 5s, `_txlock=immediate`), migration runner, `Backup` (`VACUUM INTO`), queries over a `Querier` (`*sql.DB` or `*sql.Tx`) |
 | `internal/model` | Table structs, enum constants, `normalize.go` (company/title keyword normalization, location bucket, fingerprint, text hash), time helpers |
@@ -52,7 +52,26 @@ are disabled `html`/`wttj` sources with a `note` in `config_json`.
 `jobs.ashbyhq.com/x`, `{tenant}.jobs.personio.{de,com}`,
 `apply.workable.com/{account}`, `{account}.workable.com`, and the API
 URLs) to a type + config. Adapters use config keys first, then fall back
-to detection on the source URL.
+to detection on the source URL. The Greenhouse corporate site and the
+candidate dashboard (`www.greenhouse.io`, `my.greenhouse.io`) are not
+boards and are rejected.
+
+## Source registration (CLI)
+
+`add-source` and `add-sources` share `sourceFromURL` in
+`cmd/jobwatch/addsource.go`: HTTP(S) validation, `sources.Detect`, the
+`--type` override (single URL only), config merging and the default
+name (`board_token` / `site` / `org` / `tenant` / `account`, else the
+hostname). Both reject `manual` and check `sources.url` for duplicates
+through `db.FindSourceByURL`.
+
+`add-sources` first parses the file: blank lines and `#`-prefixed lines
+are skipped, and a `#` preceded by whitespace starts an inline comment,
+so URL fragments survive. It keeps exact-URL duplicates out (first line
+wins) and never stops on a bad line. Each line ends up in one of three
+buckets: added, already registered (including in-file duplicates) or
+not detected (invalid URL or no known adapter). The report and a plain
+list of undetected URLs go to stdout.
 
 ### Polite client (`sources.Client`)
 

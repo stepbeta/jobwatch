@@ -15,6 +15,10 @@ import (
 	"github.com/stepbeta/jobwatch/internal/sources"
 )
 
+// errNotDetected is returned by sourceFromURL when the URL is valid but no
+// adapter can be inferred from it.
+var errNotDetected = errors.New("cannot detect source type from URL")
+
 func newAddSourceCmd(opts *rootOptions) *cobra.Command {
 	var name, typ, cfgJSON string
 	var disabled bool
@@ -35,45 +39,15 @@ RSS/Atom feeds and HTML listing pages need --type plus --config; see the README.
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			rawURL := strings.TrimSpace(args[0])
-			u, err := url.Parse(rawURL)
-			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-				return fmt.Errorf("add-source: %q is not an http(s) URL", rawURL)
-			}
 
-			detType, detCfg, detected := sources.Detect(rawURL)
-			st := model.SourceType(typ)
-			if st == "" {
-				if !detected {
-					return errors.New("add-source: cannot detect source type from URL; pass --type")
+			src, err := sourceFromURL(rawURL, name, typ, cfgJSON)
+			if err != nil {
+				if errors.Is(err, errNotDetected) {
+					return fmt.Errorf("add-source: %w; pass --type", err)
 				}
-				st = detType
+				return fmt.Errorf("add-source: %w", err)
 			}
-			if !st.Valid() {
-				return fmt.Errorf("add-source: unknown type %q", st)
-			}
-			if st == model.SourceManual {
-				return errors.New("add-source: manual offers have no source; use `jobwatch import`")
-			}
-
-			cfg := map[string]any{}
-			if detected && detType == st {
-				b, _ := json.Marshal(detCfg)
-				_ = json.Unmarshal(b, &cfg)
-			}
-			if cfgJSON != "" {
-				var extra map[string]any
-				if err := json.Unmarshal([]byte(cfgJSON), &extra); err != nil {
-					return fmt.Errorf("add-source: --config is not a JSON object: %w", err)
-				}
-				for k, v := range extra {
-					cfg[k] = v
-				}
-			}
-			cfgBytes, _ := json.Marshal(cfg)
-
-			if name == "" {
-				name = defaultSourceName(detCfg, u)
-			}
+			src.Enabled = !disabled
 
 			sqlDB, err := opts.open(ctx)
 			if err != nil {
@@ -87,13 +61,11 @@ RSS/Atom feeds and HTML listing pages need --type plus --config; see the README.
 				return err
 			}
 
-			src, err := db.InsertSource(ctx, sqlDB, model.Source{
-				Name: name, URL: rawURL, Type: st, ConfigJSON: string(cfgBytes), Enabled: !disabled,
-			}, time.Now())
+			saved, err := db.InsertSource(ctx, sqlDB, src, time.Now())
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "added source %d: %s [%s] %s config=%s\n", src.ID, src.Name, src.Type, src.URL, src.ConfigJSON)
+			fmt.Fprintf(cmd.OutOrStdout(), "added source %d: %s [%s] %s config=%s\n", saved.ID, saved.Name, saved.Type, saved.URL, saved.ConfigJSON)
 			return nil
 		},
 	}
@@ -102,6 +74,60 @@ RSS/Atom feeds and HTML listing pages need --type plus --config; see the README.
 	cmd.Flags().StringVar(&cfgJSON, "config", "", `extra config_json keys, e.g. '{"company":"Acme","rate_limit_ms":5000}'`)
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "register the source disabled")
 	return cmd
+}
+
+// sourceFromURL validates a source URL, detects its type and per-type
+// config, derives the default name, and returns an enabled source ready
+// for insertion. It is shared by `add-source` and `add-sources` so both
+// commands accept exactly the same URLs.
+func sourceFromURL(rawURL, name, typ, cfgJSON string) (model.Source, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return model.Source{}, fmt.Errorf("%q is not an http(s) URL", rawURL)
+	}
+
+	detType, detCfg, detected := sources.Detect(rawURL)
+	st := model.SourceType(typ)
+	if st == "" {
+		if !detected {
+			return model.Source{}, errNotDetected
+		}
+		st = detType
+	}
+	if !st.Valid() {
+		return model.Source{}, fmt.Errorf("unknown type %q", st)
+	}
+	if st == model.SourceManual {
+		return model.Source{}, errors.New("manual offers have no source; use `jobwatch import`")
+	}
+
+	cfg := map[string]any{}
+	if detected && detType == st {
+		b, _ := json.Marshal(detCfg)
+		_ = json.Unmarshal(b, &cfg)
+	}
+	if cfgJSON != "" {
+		var extra map[string]any
+		if err := json.Unmarshal([]byte(cfgJSON), &extra); err != nil {
+			return model.Source{}, fmt.Errorf("--config is not a JSON object: %w", err)
+		}
+		for k, v := range extra {
+			cfg[k] = v
+		}
+	}
+	cfgBytes, _ := json.Marshal(cfg)
+
+	if name == "" {
+		name = defaultSourceName(detCfg, u)
+	}
+
+	return model.Source{
+		Name:       name,
+		URL:        rawURL,
+		Type:       st,
+		ConfigJSON: string(cfgBytes),
+		Enabled:    true,
+	}, nil
 }
 
 func defaultSourceName(c sources.Config, u *url.URL) string {

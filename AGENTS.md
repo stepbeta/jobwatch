@@ -49,8 +49,8 @@ notes, states) per offer and per company.
 - Frontend: React + TypeScript (Vite), plain CSS or a minimal utility
   setup, no heavyweight framework ceremony. Built output is embedded
   into the binary via `go:embed` under `web/dist`.
-- CLI: Cobra with subcommands (`serve`, `scan`, `add-source`, `list`,
-  `import`, `backup`, `reclassify`).
+- CLI: Cobra with subcommands (`serve`, `scan`, `add-source`,
+  `add-sources`, `list`, `import`, `backup`, `reclassify`).
 
 ## Repository layout (keep it tidy)
 

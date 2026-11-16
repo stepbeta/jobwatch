@@ -1,0 +1,13 @@
+# Remote-friendly employers
+# (full-line comments are ignored)
+
+https://boards.greenhouse.io/acme                 # recognized, inline comment
+https://jobs.lever.co/acme#openings                # URL fragment is not a comment
+   # indented full-line comment
+
+not-a-url
+https://careers.example.com/jobs                   # no adapter
+https://boards.greenhouse.io/acme                  # duplicate of line 4
+https://jobs.lever.co/acme#openings                # duplicate of line 5
+https://careers.example.com/jobs                   # duplicate of line 9, still undetected
+https://jobs.ashbyhq.com/other

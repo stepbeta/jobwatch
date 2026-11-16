@@ -44,6 +44,7 @@ func newRootCmd() *cobra.Command {
 		newServeCmd(opts),
 		newScanCmd(opts),
 		newAddSourceCmd(opts),
+		newAddSourcesCmd(opts),
 		newListCmd(opts),
 		newImportCmd(opts),
 		newBackupCmd(opts),

@@ -171,6 +171,39 @@
 - API server no longer creates two independent polite clients when both
   scanning and import metadata are used.
 
+### Milestone 5a — Bulk source registration
+
+#### Added
+- `jobwatch add-sources <file>`: registers every recognized ATS board
+  URL in a file of bookmarks, one per line. Blank lines and `#` comments
+  are ignored; an inline `# comment` (after whitespace) is stripped and
+  URL fragments are kept. Each URL uses the same detection, validation
+  and name derivation as `add-source` (shared `sourceFromURL`).
+- The command never stops on a bad line: in-file duplicates are refused,
+  unknown or invalid URLs are skipped, and the final report lists the
+  added sources, the already registered ones (with the source ID and a
+  reason) and the not-detected URLs, which are also printed as a plain
+  list for follow-up. `--disabled` stages the batch without scanning it.
+- Table-driven tests over fixture files cover comments, inline comments,
+  fragments, line numbers, duplicates, already-registered URLs,
+  undetected URLs and the `--disabled` flag.
+- `docs/REMOTE-SOURCES.txt` (65 bookmark URLs) is committed; running the
+  command on it registered 8 ATS boards (Grafana Labs, Malt, Mural,
+  Overstory, Cycloid, Everbridge, 360Learning, n8n), all scanned `ok`
+  for 315 offers.
+
+#### Changed
+- Greenhouse URL detection rejects `www.greenhouse.io` and
+  `my.greenhouse.io` (corporate site / candidate dashboard): they are
+  not job boards and previously produced a bogus board token from
+  `/dashboard`.
+- README documents the bulk file format, duplicate handling and the
+  three-group report; ARCHITECTURE describes the shared registration
+  path and the parser rules.
+
+#### Fixed
+- `add-source` and `add-sources` now share one validation path, so their
+  accepted URLs and derived names cannot drift apart.
 
 ### Changed
 - SPEC updated to match decisions made in Milestone 1: Ashby is fetched

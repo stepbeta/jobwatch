@@ -209,6 +209,8 @@ func TestDetect(t *testing.T) {
 		{"https://apply.workable.com/acme", model.SourceWorkable, Config{Account: "acme"}, true},
 		{"https://apply.workable.com/api/v1/widget/accounts/acme?details=true", model.SourceWorkable, Config{Account: "acme"}, true},
 		{"https://acme.workable.com/", model.SourceWorkable, Config{Account: "acme"}, true},
+		{"https://my.greenhouse.io/dashboard", "", Config{}, false},
+		{"https://www.greenhouse.io/careers", "", Config{}, false},
 		{"https://apply.workable.com/j/ABC123", "", Config{}, false},
 		{"https://careers.example.com/jobs", "", Config{}, false},
 		{"https://jobs.lever.co/", "", Config{}, false},

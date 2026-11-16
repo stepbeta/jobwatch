@@ -143,6 +143,38 @@ Done criteria (all met):
 | `golang.org/x/net/html` and `github.com/andybalholm/cascadia` are new module dependencies | the standard library has no HTML parser and writing a correct CSS-selector engine in-house would add avoidable risk; both are small, stable, pure-Go libraries |
 | `jobwatch backup` validates by reopening the copy read-only | `VACUUM INTO` is consistent, but an integrity/FK/schema check proves the copy is usable and catches truncated destinations |
 
+## Milestone 5a — Bulk source registration — DONE
+
+Done criteria (all met):
+- [x] `jobwatch add-sources <file>`: one URL per line; blank lines and
+      `#` comments ignored; inline `# comment` suffix stripped; URL
+      fragments preserved
+- [x] Every line uses the same detection, validation, config and name
+      derivation as `add-source`, through a shared `sourceFromURL`
+- [x] In-file duplicate URLs are refused; the remaining lines are still
+      processed
+- [x] Final report groups added / already registered / not detected and
+      prints the not-detected URLs as a plain list on stdout
+- [x] Table-driven tests over fixture files under
+      `cmd/jobwatch/testdata/source-lists/`, plus parser cases for
+      comments/fragments/line numbers
+- [x] Ran on `docs/REMOTE-SOURCES.txt` (committed): 65 URLs read,
+      8 recognized and registered, 0 already registered, 57 not
+      detected
+- [x] Scanned all 8 new sources: all `ok`, 315 offers (136, 27, 12, 6,
+      3, 24, 47, 60 per source)
+- [x] `go build`, `go vet`, `go test` green; no schema migration
+
+### Deviations (permanent decisions)
+
+| Deviation | Reason |
+|---|---|
+| An inline comment starts only at a `#` preceded by whitespace | most bookmark URLs carry a `#fragment` (`.../careers/#openings`); splitting at every `#` would register truncated URLs |
+| `www.greenhouse.io` and `my.greenhouse.io` are no longer detected as boards | the corporate site and the candidate dashboard are not job boards; without this, `https://my.greenhouse.io/dashboard` registers a bogus board token `dashboard` |
+| Duplicate lines are reported under "already registered" with a `duplicate of line N` reason; a duplicate of an undetected URL goes to "not detected" | the report keeps the requested three groups, and an unrecognized URL was never registered |
+| `add-sources` exits 0 when some URLs are not detected | the report is the result; failing the batch would hide the sources that were added. File read and database errors still fail |
+| `add-sources` also supports `--disabled` | keeps parity with `add-source`; the bulk list can be staged before enabling |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -160,4 +192,5 @@ Done criteria (all met):
 | No snapshot listing endpoint | §9 | Open. Detail returns the latest snapshot, the count and a diff of the two latest only |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
+| Most career-page bookmarks are not auto-detected | §7 | Open. `add-sources` recognized 8 of 65 URLs in `docs/REMOTE-SOURCES.txt`; the 57 plain career/aggregator pages need the next milestone's handling or a manual `--type html`/`--type rss` source |
 | No scheduled scans or notifications | §10 | Out of scope for v1 |
