@@ -14,6 +14,7 @@ require a table rebuild.
 | 0001 | `0001_init.sql` | All tables below, indexes, FTS5 tables and triggers |
 | 0002 | `0002_known_hard_sources.sql` | Data-only seed: four disabled source rows (Datadog/Cisco Workday, SAP SuccessFactors, WTTJ) with an explanatory `note`. `INSERT … WHERE NOT EXISTS` by URL, so it is safe to re-apply |
 | 0003 | `0003_seed_remote_sources.sql` | Data-only seed: the 65 sources decided in Milestones 5a/5b (37 enabled: 11 Greenhouse, 11 Ashby, 4 Lever, 1 Personio, 5 RSS, 5 HTML; 28 disabled not-trackable rows with a `note`). Reproduces each source's name, URL, type, enabled flag and full `config_json`. `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
+| 0004 | `0004_seed_5c_sources.sql` | Audit-only, data-only no-op: Milestone 5c introduced no new source rows. The We Work Remotely rss row, the Workable search note row and the aggregator rows were already seeded by 0003. Contains no INSERT or UPDATE, so applying it changes nothing and it cannot overwrite or restore user edits |
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -21,6 +22,8 @@ Opening a database that records a version unknown to the binary fails.
 Milestones 2 and 3 needed no schema change; Milestone 4 adds the
 disabled-source rows from 0002 and Milestone 5 ships the 65 registered
 sources from 5a/5b in 0003 (both data only, no table or column changes).
+Milestone 5c's source decisions were already part of 0003, so 0004 is an
+audit-only no-op and the seeded total stays 69 rows.
 
 ## Tables
 

@@ -199,6 +199,92 @@ func TestSeededRemoteSources(t *testing.T) {
 	}
 }
 
+func TestSeed5cAudit(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTest(t)
+
+	var applied int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 4 AND name = 'seed_5c_sources'`).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if applied != 1 {
+		t.Fatalf("migration 0004 recorded %d times, want 1", applied)
+	}
+
+	srcs, err := ListSources(ctx, sqlDB, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs) != 69 {
+		t.Fatalf("seeded sources = %d, want 69", len(srcs))
+	}
+	byURL := make(map[string]model.Source, len(srcs))
+	for _, src := range srcs {
+		byURL[src.URL] = src
+	}
+	rows := []struct {
+		url, name, typ, config string
+		enabled                bool
+	}{
+		{"https://weworkremotely.com/remote-jobs.rss", "We Work Remotely", "rss", `{"location_field":"region"}`, true},
+		{"https://jobs.workable.com/search?location=France&workplace=remote", "Workable (search)", "html", `{"note":"robots.txt disallows the Workable job search path."}`, false},
+		{"https://www.flexjobs.com/search", "FlexJobs", "html", `{"note":"FlexJobs requires a paid membership/login and its robots.txt was unreachable; not crawled."}`, false},
+		{"https://jobgether.com", "Jobgether", "html", `{"note":"Jobgether is an aggregator that requires an account and renders matches client-side."}`, false},
+		{"https://www.welcometothejungle.com/fr/jobs-matches", "Welcome to the Jungle (matches)", "wttj", `{"note":"WTTJ uses an internal API with no public contract. Manual import only."}`, false},
+		{"https://my.greenhouse.io/dashboard", "Greenhouse (candidate dashboard)", "html", `{"note":"Greenhouse candidate dashboard; requires a candidate login."}`, false},
+		{"https://app.theproductcrew.io/", "The Product Crew", "html", `{"note":"The Product Crew is a candidate-only platform; requires login."}`, false},
+		{"https://remotemore.com/candidates/", "RemoteMore", "html", `{"note":"RemoteMore is a candidate signup platform; no public job listing."}`, false},
+	}
+	for _, want := range rows {
+		src, ok := byURL[want.url]
+		if !ok {
+			t.Errorf("5c source %q missing", want.url)
+			continue
+		}
+		if src.Name != want.name || string(src.Type) != want.typ || src.Enabled != want.enabled || src.ConfigJSON != want.config {
+			t.Errorf("5c source %q = %+v, want name=%q type=%q enabled=%v config=%s",
+				want.url, src, want.name, want.typ, want.enabled, want.config)
+		}
+	}
+
+	// 0004 is an audit migration: it has no INSERT, so re-applying it
+	// (even after a user edit or deletion) must change nothing.
+	body, err := migrations.FS.ReadFile("0004_seed_5c_sources.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx,
+		`UPDATE sources SET name = 'Edited WWR', enabled = 0 WHERE url = 'https://weworkremotely.com/remote-jobs.rss'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, `DELETE FROM sources WHERE url = 'https://www.flexjobs.com/search'`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := sqlDB.ExecContext(ctx, string(body)); err != nil {
+			t.Fatalf("re-apply 0004: %v", err)
+		}
+	}
+	srcs, err = ListSources(ctx, sqlDB, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs) != 68 {
+		t.Errorf("sources after re-applying 0004 = %d, want 68 (edited row kept, deleted row not restored)", len(srcs))
+	}
+	for _, src := range srcs {
+		switch src.URL {
+		case "https://weworkremotely.com/remote-jobs.rss":
+			if src.Name != "Edited WWR" || src.Enabled {
+				t.Errorf("0004 modified a user-edited source: %+v", src)
+			}
+		case "https://www.flexjobs.com/search":
+			t.Error("0004 restored a deleted source; it must contain no INSERT")
+		}
+	}
+}
+
 func TestMigrateIdempotent(t *testing.T) {
 	sqlDB := openTest(t)
 	ctx := context.Background()

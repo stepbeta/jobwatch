@@ -281,6 +281,27 @@
 - No schema migration, adapter or API change; the Workable and
   aggregator rows stay disabled with their explanatory notes.
 
+### Seed 5c source decisions (migration 0004)
+
+#### Added
+- `0004_seed_5c_sources.sql`, an audit-only data migration recorded in
+  `schema_migrations`. It documents the 5c source decisions but contains
+  no INSERT: We Work Remotely, the Workable search row and all
+  account-required/JS-only aggregator rows were already seeded by 0003.
+  Re-declaring them would duplicate source URLs across seed migrations.
+- `TestSeed5cAudit` checks the exact 5c row set (WWR `rss` mapping,
+  Workable and aggregator disabled notes) and verifies that re-applying
+  0004 changes nothing, does not overwrite a user edit and does not
+  restore a deliberately deleted source.
+
+#### Changed
+- `docs/DATA-MODEL.md` migration table and `docs/ARCHITECTURE.md` record
+  0004; MILESTONES notes the audit and the unchanged seeded total of 69.
+- Verified on a fresh database: all four migrations apply in order,
+  `jobwatch list --sources` matches the live 69-row set field for field,
+  running the migrations twice changes nothing, and a real scan of the
+  We Work Remotely source returns `ok` (100 items, 99 offers).
+
 ### Changed
 - SPEC updated to match decisions made in Milestone 1: Ashby is fetched
   with GET, a few schema columns are NOT NULL with defaults, enum values

@@ -48,7 +48,9 @@ offers come from the import path. Disabled seeded rows are `html`/`wttj`
 sources with a `note` in `config_json`: the known-hard
 Workday/SuccessFactors/WTTJ rows from migration 0002 and the 28
 not-trackable decisions from 5b. Migration 0003 seeds the 65 sources
-registered in 5a/5b with their decided config.
+registered in 5a/5b with their decided config. Migration 0004 is an
+audit-only no-op: the 5c-decided rows (We Work Remotely, Workable search
+and the aggregator notes) were already in 0003, so it inserts nothing.
 
 `sources.Detect(url)` maps public board URLs (`boards.greenhouse.io/x`,
 `job-boards[.eu].greenhouse.io/x`, `jobs[.eu].lever.co/x`,

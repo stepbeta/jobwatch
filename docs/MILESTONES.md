@@ -267,6 +267,42 @@ Done criteria (all met):
 | Aggregator rows keep `source_type = html`, disabled, with the 5b `note` | they are documentation of why a URL is not tracked; the manual import path already exists and needs no new source type |
 | No data migration updates the Workable note | it already states the correct reason; migrations never update existing rows, so changing it would only affect fresh databases |
 
+## Source seeding — migration 0004 (5c audit) — DONE
+
+Done criteria (all met):
+- [x] `migrations/0003_seed_remote_sources.sql` already exists and was
+      left untouched
+- [x] The live database (69 rows) was compared with 0003: the 5c-decided
+      rows were already present (We Work Remotely `rss` with
+      `{"location_field":"region"}`, Workable search disabled note,
+      FlexJobs, Jobgether, WTTJ matches, Greenhouse candidate dashboard,
+      The Product Crew and RemoteMore disabled notes)
+- [x] `migrations/0004_seed_5c_sources.sql` added as an audit-only,
+      data-only no-op; it contains no INSERT or UPDATE and cannot
+      duplicate, overwrite or restore a row
+- [x] Fresh temp database: migrations 0001–0004 apply in order; all 69
+      sources match the live database field for field (name, URL, type,
+      enabled, full `config_json`); only migrations 0001–0004 are
+      recorded
+- [x] Applying `list --sources` twice and re-applying 0004 twice changes
+      nothing; the re-apply test leaves a user-edited row and a deleted
+      row as the user left them
+- [x] One real `jobwatch scan 36` on the fresh database returns `ok`
+      (100 feed items, 99 offers)
+- [x] `go build`, `go vet`, `go test` green; no adapter change
+
+Final seeded-source count: **69** (4 disabled known-hard rows from 0002
++ 65 rows from 0003). No source is intentionally left out: all 5c
+decisions are covered by the existing 0003 rows.
+
+### Deviations (permanent decisions)
+
+| Deviation | Reason |
+|---|---|
+| 0004 contains no INSERT even though the prompt expected new 5c rows | the audit showed that 5c introduced no new source rows; WWR, Workable and all aggregator rows were already shipped by 0003. Duplicating the URLs in 0004 would break the "only sources introduced by 5c" rule and create two sources of truth |
+| 0004 is still created and recorded in `schema_migrations` | it is the durable record that the 5c set was audited; a comment-only migration is accepted by the runner and makes the no-op explicit instead of silently skipping a migration number |
+| The test asserts 68 rows after deleting a 5c source and re-applying 0004 | proves the audit migration does not resurrect a row the user deliberately removed, unlike the seed migrations 0002/0003 |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |

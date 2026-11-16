@@ -1,0 +1,22 @@
+-- 0004_seed_5c_sources: audit of the Milestone 5c source decisions.
+--
+-- Milestone 5c did not introduce new source rows. The Aggregators review
+-- decided to keep these existing rows:
+--
+--   * We Work Remotely (rss, enabled) with
+--     {"location_field":"region"};
+--   * jobs.workable.com/search (html, disabled) with its robots.txt note;
+--   * FlexJobs, Jobgether, Welcome to the Jungle matches,
+--     my.greenhouse.io/dashboard, The Product Crew and RemoteMore
+--     (html/wttj, disabled) with their explanatory notes.
+--
+-- Every one of those rows is already shipped by
+-- 0003_seed_remote_sources.sql, which is immutable. Re-declaring the same
+-- URLs in a second seed would duplicate source definitions across
+-- migrations, so this file intentionally contains no INSERT and no
+-- UPDATE. It records that the 5c state was audited against the live
+-- database and needs no data change.
+--
+-- A fresh database still ends up with the complete 69-row set: 4 disabled
+-- known-hard rows from 0002 and 65 rows from 5a/5b in 0003. Applying this
+-- file twice, or opening an existing database, changes nothing.
