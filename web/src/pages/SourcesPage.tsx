@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
+import type { BatchScanOutcome, NoticeKind } from '../App'
 import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
+import { Modal } from '../components/Modal'
 import { SOURCE_TYPES, fmtDateTime, relativeTime, scanLabel } from '../format'
-import type { NoticeKind } from '../App'
 import type { ScanResponse, ScanResult, Source, SourceType } from '../types'
 
 const FETCHABLE: SourceType[] = [
@@ -75,12 +76,14 @@ export function SourcesPage({
   sources,
   onReload,
   onScan,
+  onScanBatch,
   onNotice,
   scanning,
 }: {
   sources: Source[]
   onReload: () => Promise<void>
   onScan: (id: number) => Promise<ScanResponse>
+  onScanBatch: (targets: Source[]) => Promise<BatchScanOutcome[]>
   onNotice: (kind: NoticeKind, text: string) => void
   scanning: boolean
 }) {
@@ -132,6 +135,35 @@ export function SourcesPage({
     }
   }
 
+  async function refreshAll() {
+    const targets = sources.filter(canScan)
+    if (targets.length === 0) {
+      onNotice('info', 'No enabled sources to scan.')
+      return
+    }
+    const outcomes = await onScanBatch(targets)
+    let added = 0
+    let changed = 0
+    let disappeared = 0
+    let failed = 0
+    for (const outcome of outcomes) {
+      const err = outcome.error ?? outcome.response?.result.error
+      if (err) {
+        failed++
+        onNotice('error', `${outcome.source.name}: ${err}`)
+        continue
+      }
+      added += outcome.response?.result.new ?? 0
+      changed += outcome.response?.result.changed ?? 0
+      disappeared += outcome.response?.result.disappeared ?? 0
+    }
+    onNotice(
+      failed > 0 ? 'error' : 'success',
+      `Refresh all: ${added} new, ${changed} changed, ${disappeared} disappeared` +
+        (failed > 0 ? `, ${failed} source(s) failed.` : '.'),
+    )
+  }
+
   function askRemove(source: Source) {
     setConfirm({
       title: 'Delete source',
@@ -155,9 +187,19 @@ export function SourcesPage({
       <section className="panel">
         <div className="section-head">
           <h2>Sources</h2>
-          <button type="button" className="primary" onClick={openNew}>
-            Add source
-          </button>
+          <div className="actions">
+            <button
+              type="button"
+              disabled={scanning || sources.filter(canScan).length === 0}
+              title="Scan every enabled source with a supported adapter"
+              onClick={() => void refreshAll()}
+            >
+              {scanning ? 'Scanning…' : 'Refresh all'}
+            </button>
+            <button type="button" className="primary" onClick={openNew}>
+              Add source
+            </button>
+          </div>
         </div>
         {error && <div className="error-box">{error}</div>}
         {sources.length === 0 ? (
@@ -360,13 +402,7 @@ function SourceForm({
   }
 
   return (
-    <section className="panel form-panel">
-      <div className="section-head">
-        <h2>{source ? `Edit source #${source.id}` : 'New source'}</h2>
-        <button type="button" onClick={onClose}>
-          Close
-        </button>
-      </div>
+    <Modal title={source ? `Edit source #${source.id}` : 'New source'} onClose={onClose} wide>
       <form className="form-grid" onSubmit={(e) => void submit(e)}>
         <label>
           Name
@@ -503,6 +539,6 @@ function SourceForm({
           </button>
         </div>
       </form>
-    </section>
+    </Modal>
   )
 }

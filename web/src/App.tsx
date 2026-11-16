@@ -3,11 +3,18 @@ import { api, errorMessage } from './api'
 import { CompanyPage } from './pages/CompanyPage'
 import { Dashboard } from './pages/Dashboard'
 import { OfferPage } from './pages/OfferPage'
+import { OffersPage } from './pages/OffersPage'
 import { SourcesPage } from './pages/SourcesPage'
 import { useRoute } from './router'
 import type { ScanResponse, Source } from './types'
 
 export type NoticeKind = 'info' | 'success' | 'error'
+
+export interface BatchScanOutcome {
+  source: Source
+  response?: ScanResponse
+  error?: string
+}
 
 interface Toast {
   id: number
@@ -63,43 +70,28 @@ export default function App() {
     return r
   }, [notify])
 
-  const scanAll = useCallback(async () => {
-    const targets = sources.filter(
-      (s) => s.enabled && s.source_type !== 'manual' && s.source_type !== 'wttj',
-    )
-    if (targets.length === 0) {
-      notify('info', 'No enabled sources to scan.')
-      return
-    }
+  // scanBatch runs one scan at a time (the per-host rate limiter is shared)
+  // and never aborts the remaining sources on a failure. Callers own the
+  // aggregate toast; this helper only records per-source outcomes.
+  const scanBatch = useCallback(async (targets: Source[]): Promise<BatchScanOutcome[]> => {
+    if (targets.length === 0) return []
+    const out: BatchScanOutcome[] = []
     setScanning({ active: true, done: 0, total: targets.length })
-    let failed = 0
-    let added = 0
-    let changed = 0
     for (const [i, s] of targets.entries()) {
       setScanning({ active: true, done: i, total: targets.length })
       try {
         const r = await api.scanSource(s.id)
         setSources((prev) => prev.map((x) => (x.id === s.id ? r.source : x)))
-        added += r.result.new
-        changed += r.result.changed
-        if (r.result.error) failed++
+        out.push({ source: r.source, response: r })
       } catch (e) {
-        failed++
-        notify('error', `${s.name}: ${errorMessage(e)}`)
+        out.push({ source: s, error: errorMessage(e) })
       }
     }
     setScanning({ active: false, done: targets.length, total: targets.length })
     await loadSources()
     setRefreshToken((t) => t + 1)
-    notify(
-      failed > 0 ? 'error' : 'success',
-      `Refresh all: ${added} new, ${changed} changed${failed ? `, ${failed} source(s) failed` : ''}.`,
-    )
-  }, [sources, loadSources, notify])
-
-  const attention = sources.filter(
-    (s) => s.last_scan_status === 'error' || s.last_scan_status === 'blocked',
-  ).length
+    return out
+  }, [loadSources])
 
   return (
     <>
@@ -109,47 +101,46 @@ export default function App() {
           <a href="#/" className={route.name === 'dashboard' ? 'active' : ''}>
             Dashboard
           </a>
+          <a
+            href="#/offers"
+            className={route.name === 'offers' || route.name === 'offer' ? 'active' : ''}
+          >
+            Offers
+          </a>
           <a href="#/sources" className={route.name === 'sources' ? 'active' : ''}>
             Sources
           </a>
         </nav>
         <span className="spacer" />
-        {scanning.active && (
-          <span className="muted small">
-            Scanning {scanning.done}/{scanning.total}…
-          </span>
-        )}
-        {attention > 0 && (
-          <a className="pill pill-warn" href="#/sources">
-            {attention} source{attention === 1 ? '' : 's'} need attention
-          </a>
-        )}
-        <button
-          type="button"
-          className="primary"
-          onClick={() => void scanAll()}
-          disabled={
-            scanning.active ||
-            sources.filter(
-              (s) => s.enabled && s.source_type !== 'manual' && s.source_type !== 'wttj',
-            ).length === 0
-          }
-        >
-          Refresh all
-        </button>
       </header>
 
       {loadError && <div className="error-box top-error">{loadError}</div>}
 
       <main>
         {route.name === 'dashboard' && (
-          <Dashboard refreshToken={refreshToken} onDataChanged={refreshData} onNotice={notify} />
+          <Dashboard
+            refreshToken={refreshToken}
+            onDataChanged={refreshData}
+            onNotice={notify}
+            sources={sources}
+            onScanBatch={scanBatch}
+            scanning={scanning.active}
+          />
+        )}
+        {route.name === 'offers' && (
+          <OffersPage
+            refreshToken={refreshToken}
+            onDataChanged={refreshData}
+            onNotice={notify}
+            initialSaved={route.saved}
+          />
         )}
         {route.name === 'sources' && (
           <SourcesPage
             sources={sources}
             onReload={loadSources}
             onScan={scanOne}
+            onScanBatch={scanBatch}
             onNotice={notify}
             scanning={scanning.active}
           />

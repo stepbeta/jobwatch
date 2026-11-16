@@ -42,18 +42,21 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
 # open http://127.0.0.1:8080
 ```
 
-1. **Sources → Add source.** Paste a public Greenhouse/Lever/Ashby,
-   Personio or Workable board URL. The type and board key are detected;
-   leave the form's defaults otherwise. Save.
+1. **Sources → Add source.** The form opens in a modal. Paste a public
+   Greenhouse/Lever/Ashby, Personio or Workable board URL. The type and
+   board key are detected; leave the form's defaults otherwise. Save.
 2. Click **Refresh** on that row. Wait for the scan to finish (the
    button shows “Scanning…”). A toast reports `N new, M changed, D
    disappeared`. The row's status becomes `OK`; failures show `Error`
    or `Blocked` with the reason in the last-result column.
-3. **Dashboard.** New offers appear. Hover the `T`/`L` badges to see the
+3. **Offers.** New offers appear. Hover the `T`/`L` badges to see the
    classifier's matched terms. Filter by `Title ≥ 80` and `Location ≥
-   80` to see the target roles; change the sort and page through.
+   80` to see the target roles; change the sort and page through. Click a
+   row's star to bookmark it; the Dashboard **Saved** section lists it.
 4. Open an offer. Set **Application** to `Applied`, leave **Offer** on
-   `active`, correct the location if needed, and click **Save**.
+   `active`, correct the location if needed, and click **Save**. The
+   bookmark stays until you clear it (Saved is independent of the
+   application state).
 5. In the **Timeline** panel add a `CV sent` event; set *Occurred at* to
    yesterday (leave the time empty to exercise date-only backdating); add
    an optional description. In the **Notes** panel add a note and pin it
@@ -64,12 +67,13 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
    backdate it) and the trash icon to delete it; after deleting a pinned
    event the note keeps its text and loses the badge.
 6. Go back to the Dashboard: the offer is in **Applications**, sorted by
-   recent activity. The **Company** link opens the company page (offers,
-   notes, possible duplicate companies).
-7. **Sources** → edit the source and disable it. “Refresh all” now skips
-   it. Re-enable it before deleting if you want to test deletion; the
-   confirm dialog explains that offers and links are kept.
-8. Import: open **Dashboard → Import an offer seen elsewhere**, paste a
+   recent activity. Its **Refresh** button scans only the enabled sources
+   behind applications. The **Company** link opens the company page
+   (notes above offers, possible duplicate companies).
+7. **Sources** → edit the source and disable it. The header “Refresh all”
+   now skips it. Re-enable it before deleting if you want to test
+   deletion; the confirm dialog explains that offers and links are kept.
+8. Import: open **Offers → Import an offer seen elsewhere**, paste a
    job URL, click **Fetch & import**. If metadata is incomplete the form
    is prefilled and asks for the missing company/title. Alternatively
    fill company+title yourself (no page fetch).

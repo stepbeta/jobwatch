@@ -80,6 +80,7 @@ export interface Offer {
   location_confidence: number | null
   match_reasons: MatchReasons | null
   last_event_at: string | null
+  saved_at: string | null
   raw_text?: string | null
 }
 

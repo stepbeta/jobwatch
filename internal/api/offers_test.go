@@ -202,6 +202,60 @@ func TestPatchOffer(t *testing.T) {
 	wantErrorCode(t, ts.do(t, "PATCH", "/api/offers/1", map[string]any{"bogus": 1}), 400, "invalid_json")
 }
 
+func TestOfferSaved(t *testing.T) {
+	ts := newTestServer(t)
+	seedOfferSet(t, ts)
+
+	rec := ts.do(t, "PATCH", "/api/offers/1", map[string]any{"saved": true})
+	wantCode(t, rec, 200)
+	got := decodeBody[struct {
+		Offer offerJSON `json:"offer"`
+	}](t, rec).Offer
+	want := model.FormatTime(ts.clock.now())
+	if got.SavedAt == nil || *got.SavedAt != want {
+		t.Errorf("saved_at = %v, want %q", got.SavedAt, want)
+	}
+
+	ts.clock.advance(time.Hour)
+	rec = ts.do(t, "PATCH", "/api/offers/2", map[string]any{"saved": true})
+	wantCode(t, rec, 200)
+
+	rec = ts.do(t, "GET", "/api/offers?saved=true&sort=saved", nil)
+	wantCode(t, rec, 200)
+	list := decodeBody[offerListResp](t, rec)
+	if list.Total != 2 || len(list.Offers) != 2 {
+		t.Fatalf("saved list = %d offers, total %d, want 2", len(list.Offers), list.Total)
+	}
+	if list.Offers[0].ID != 2 || list.Offers[1].ID != 1 {
+		t.Errorf("saved order = [%d %d], want [2 1] (newest bookmark first)",
+			list.Offers[0].ID, list.Offers[1].ID)
+	}
+
+	rec = ts.do(t, "GET", "/api/offers?saved=false", nil)
+	wantCode(t, rec, 200)
+	list = decodeBody[offerListResp](t, rec)
+	if list.Total != 2 {
+		t.Errorf("unsaved total = %d, want 2", list.Total)
+	}
+
+	rec = ts.do(t, "PATCH", "/api/offers/1", map[string]any{"saved": false})
+	wantCode(t, rec, 200)
+	got = decodeBody[struct {
+		Offer offerJSON `json:"offer"`
+	}](t, rec).Offer
+	if got.SavedAt != nil {
+		t.Errorf("saved_at after unbookmark = %v, want null", got.SavedAt)
+	}
+
+	rec = ts.do(t, "GET", "/api/offers?saved=true", nil)
+	list = decodeBody[offerListResp](t, rec)
+	if list.Total != 1 || list.Offers[0].ID != 2 {
+		t.Errorf("saved list after unbookmark = %+v", list)
+	}
+
+	wantErrorCode(t, ts.do(t, "GET", "/api/offers?saved=maybe", nil), 400, "validation_failed")
+}
+
 func TestPatchOfferDescription(t *testing.T) {
 	ts := newTestServer(t)
 	sre, _ := seedOfferSet(t, ts)

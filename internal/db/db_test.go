@@ -585,6 +585,100 @@ func TestMigrationAddsSnapshotOrigin(t *testing.T) {
 	}
 }
 
+// TestMigrationAddsOfferSavedAt upgrades a pre-0008 database: existing
+// offers keep their columns and read as not saved (saved_at NULL), and the
+// bookmark can be set and cleared afterwards.
+func TestMigrationAddsOfferSavedAt(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "saved.db")
+	sqlDB, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+
+	base := fstest.MapFS{}
+	for _, name := range []string{
+		"0001_init.sql",
+		"0002_known_hard_sources.sql",
+		"0003_seed_remote_sources.sql",
+		"0004_seed_5c_sources.sql",
+		"0005_seed_bamboohr_sources.sql",
+		"0006_event_message_types.sql",
+		"0007_snapshot_origin.sql",
+	} {
+		body, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base[name] = &fstest.MapFile{Data: body}
+	}
+	if err := Migrate(ctx, sqlDB, base); err != nil {
+		t.Fatalf("apply migrations 0001-0007: %v", err)
+	}
+
+	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
+	c, _, err := ResolveCompany(ctx, sqlDB, "Acme", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
+		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0008",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Migrate(ctx, sqlDB, migrations.FS); err != nil {
+		t.Fatalf("upgrade with embedded migrations: %v", err)
+	}
+
+	var recorded int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 8 AND name = 'offer_saved_at'`).
+		Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Errorf("migration 0008 recorded %d times, want 1", recorded)
+	}
+
+	got, err := GetOffer(ctx, sqlDB, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SavedAt != nil {
+		t.Errorf("pre-0008 offer saved_at = %v, want NULL", got.SavedAt)
+	}
+	if got.Title != "SRE" || got.Fingerprint != "pre-0008" {
+		t.Errorf("migration changed offer identity: %+v", got)
+	}
+
+	savedAt := now.Add(time.Hour)
+	if err := UpdateOfferFields(ctx, sqlDB, o.ID, OfferUpdate{Saved: boolPtr(true)}, savedAt); err != nil {
+		t.Fatal(err)
+	}
+	got, err = GetOffer(ctx, sqlDB, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SavedAt == nil || !got.SavedAt.Equal(savedAt) {
+		t.Errorf("saved_at = %v, want %v", got.SavedAt, savedAt)
+	}
+	if err := UpdateOfferFields(ctx, sqlDB, o.ID, OfferUpdate{Saved: boolPtr(false)}, savedAt.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	got, err = GetOffer(ctx, sqlDB, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SavedAt != nil {
+		t.Errorf("saved_at after clearing = %v, want NULL", got.SavedAt)
+	}
+}
+
+func boolPtr(v bool) *bool { return &v }
+
 func countSnapshotsByOrigin(t *testing.T, sqlDB *sql.DB, offerID int64) map[model.SnapshotOrigin]int {
 	t.Helper()
 	rows, err := sqlDB.Query(`SELECT origin, COUNT(*) FROM snapshots WHERE offer_id = ? GROUP BY origin`, offerID)

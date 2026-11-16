@@ -167,7 +167,7 @@ Offers found on these pages enter JobWatch manually:
   --company "Example" --title "Senior SRE" --location "Remote (France)"
 ```
 
-In the UI, the same workflow is **Dashboard → Import an offer seen
+In the UI, the same workflow is **Offers → Import an offer seen
 elsewhere**: paste the URL and click **Fetch & import**; the form
 pre-fills missing company/title fields for manual entry. A manual import
 is matched to an existing offer when company and title agree, and its

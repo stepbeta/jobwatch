@@ -18,6 +18,7 @@ require a table rebuild.
 | 0005 | `0005_seed_bamboohr_sources.sql` | Data-only seed: the Semble BambooHR source verified in Milestone 6a (`bamboohr`, `{"subdomain":"semble"}`, enabled). `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
 | 0006 | `0006_event_message_types.sql` | Data-only rename for Milestone 7b: `UPDATE events SET type = 'message_received' WHERE type = 'reply_received'`. No table or column change; the WHERE clause makes re-application match no rows |
 | 0007 | `0007_snapshot_origin.sql` | Additive schema change for Milestone 7c: `ALTER TABLE snapshots ADD COLUMN origin TEXT NOT NULL DEFAULT 'scan'`. Existing snapshots keep their text/timestamps and read as `scan`; new inserts record `scan` or `manual`. No row is deleted or rewritten |
+| 0008 | `0008_offer_saved_at.sql` | Additive schema change for Milestone 7e: `ALTER TABLE job_offers ADD COLUMN saved_at TEXT`. NULL means not bookmarked; a value is the UTC RFC3339 bookmark time. Existing offers keep every column and read as not saved. No row is deleted or rewritten |
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -32,6 +33,8 @@ renames the old `reply_received` event value in place in 0006; it changes
 no source row and no schema. Milestone 7c adds the snapshot `origin`
 column in 0007 (additive, default `scan`) so every future snapshot records
 whether it came from a scan/import or a manual description edit.
+Milestone 7e adds the nullable `job_offers.saved_at` bookmark in 0008;
+it is orthogonal to `offer_state` and `application_state`.
 
 ## Tables
 
@@ -118,9 +121,14 @@ re-applying them or keeping a user-edited source is safe.
 | title_confidence | INTEGER | 0..100 (CHECK), probability the title is a Platform/SRE/DevOps/Infra role; NULL only until classified |
 | location_confidence | INTEGER | 0..100 (CHECK), probability the offer is full remote and France-compatible; NULL only until classified |
 | match_reasons_json | TEXT | `{"title":["..."],"location":["..."]}`: human-readable matched terms and weights per score (see Classification below) |
+| saved_at | TEXT | NULL = not bookmarked; otherwise the UTC RFC3339 time the user bookmarked the offer (`PATCH /api/offers/:id` with `saved: true`). Independent of `offer_state` and `application_state` |
 | created_at, updated_at | TEXT | |
 
 Indexes: company_id, offer_state, application_state, last_seen_at.
+
+`saved_at` is a personal-interest bookmark, not a state. Saving never
+changes either state machine, and an offer that becomes an application
+keeps its bookmark until the user explicitly clears it.
 
 ### Classification columns
 

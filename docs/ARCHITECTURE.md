@@ -201,9 +201,9 @@ snapshot, the snapshot count and a line diff between the two latest
 snapshots (`snapshot_diff`) when two exist. `?snapshot_id=N` adds the full
 text of that version; `GET /api/offers/{id}/snapshot-diff?from=N&to=M`
 reuses `internal/diff` for any two versions (ordered older → newer).
-`PATCH /api/offers/{id}` applies state/location/description changes in
-one transaction; a description edit recomputes `text_hash` and appends a
-snapshot with `origin = manual`. Scan and manual-import snapshots use
+`PATCH /api/offers/{id}` applies state/location/description/bookmark
+changes in one transaction; a description edit recomputes `text_hash`
+and appends a snapshot with `origin = manual`. Scan and manual-import snapshots use
 `origin = scan`. Event types are validated in Go; `message_received`
 replaced `reply_received` (migration 0006) and `message_sent` was added.
 
@@ -254,16 +254,36 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 
 | Path | Content |
 |---|---|
-| `App.tsx` | top bar, global refresh-all loop, scan notices, routing |
-| `router.ts` | hash routing (`#/`, `#/sources`, `#/offers/:id`, `#/companies/:id`) |
+| `App.tsx` | top bar with navigation only, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
+| `router.ts` | hash routing (`#/`, `#/offers`, `#/offers?saved=true`, `#/sources`, `#/offers/:id`, `#/companies/:id`) |
 | `api.ts` | typed fetch wrapper and API error mapping |
-| `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`), filtered/paginated offers table, import form |
-| `pages/SourcesPage.tsx` | source list, enable toggle, scan status, per-source refresh, add/edit form with type-dependent config fields (personio/workable/rss/html included), explanatory notes on seeded sources |
-| `pages/OfferPage.tsx` | editable states/location, score badges with reason tooltips, collapsed provenance disclosure with explicit merge and split actions (open state stored per offer in localStorage), timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save) |
+| `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with a Refresh button that fans out over the enabled sources behind those applications, and a Saved section (bookmarks, `saved=true`, `sort=saved`) |
+| `pages/OffersPage.tsx` | full offers table: filters (including saved/unsaved), sorting, pagination, bookmark toggle per row, and the manual import form |
+| `pages/SourcesPage.tsx` | source list, enable toggle, scan status, per-source refresh, header Refresh all, and an add/edit modal with type-dependent config fields (personio/workable/rss/html included) and explanatory notes on seeded sources |
+| `pages/OfferPage.tsx` | bookmark toggle in the header, editable states/location, score badges with reason tooltips, collapsed provenance disclosure with explicit merge and split actions (open state stored per offer in localStorage), timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save) |
 | `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note) |
-| `pages/CompanyPage.tsx` | offers, company notes, rename/website edit, dismissible possible-duplicate banner and explicit keep-which-company merge dialog |
+| `pages/CompanyPage.tsx` | company notes above the offers list, rename/website edit, dismissible possible-duplicate banner and explicit keep-which-company merge dialog |
 | `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source/event/note/company) |
-| `App.tsx` | top bar, global refresh-all loop, auto-dismissing toast stack, routing |
+| `components/Modal.tsx` | shared dialog shell (fixed backdrop, titled head, Escape/backdrop close, wide variant) used by the source add/edit form |
+| `components/BookmarkButton.tsx` | dependency-free star toggle used in offer rows and the offer detail header |
+| `components/OfferTable.tsx` | reusable offers table with optional company/application columns and an optional bookmark toggle |
+
+The dashboard (`#/`) contains only Applications and Saved. The full
+filtered/paginated offers table and the import form live on `#/offers`;
+the Saved section's "Show all" link opens `#/offers?saved=true`. The
+bookmark (`saved_at`) is independent of both state machines: saving never
+changes `offer_state` or `application_state`, and a saved offer that
+becomes an application stays in Saved until the user un-bookmarks it.
+
+The Sources header owns "Refresh all"; the top bar only navigates. The
+Dashboard's Applications Refresh is a client-side fan-out over
+`POST /api/sources/:id/scan`: it reads every offer with
+`application_state != todo`, resolves their provenance `source_id`s via
+the offer detail endpoint, keeps the enabled sources, and scans them
+sequentially (one request at a time) so the per-host rate limiter is
+respected. Manual provenance rows (`source_id` NULL) contribute no
+source; partial failures are reported per source and never abort the
+batch.
 
 `vite.config.ts` proxies `/api` to `127.0.0.1:8080` in development.
 `vitest.config.ts` runs the component tests in jsdom; they mock `api.ts`

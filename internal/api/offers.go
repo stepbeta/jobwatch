@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/stepbeta/jobwatch/internal/db"
@@ -47,13 +48,20 @@ func parseOfferQuery(r *http.Request) (db.OfferQuery, error) {
 		return f, err
 	}
 	f.HasApplication = queryBool(r, "has_application")
+	if raw := strings.TrimSpace(r.URL.Query().Get("saved")); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return f, fmt.Errorf("saved must be true or false")
+		}
+		f.Saved = &v
+	}
 
 	f.Sort = strings.TrimSpace(r.URL.Query().Get("sort"))
 	if f.Sort == "" {
 		f.Sort = db.SortLastSeen
 	}
 	if !db.ValidOfferSort(f.Sort) {
-		return f, fmt.Errorf("sort must be one of last_seen, first_seen, recent_event, title, company")
+		return f, fmt.Errorf("sort must be one of last_seen, first_seen, recent_event, title, company, saved")
 	}
 	f.Limit = defaultOfferLimit
 	if v, err := queryInt(r, "limit", 1, maxOfferLimit); err != nil {
@@ -224,6 +232,7 @@ type offerPatch struct {
 	OfferState       *string         `json:"offer_state"`
 	Location         json.RawMessage `json:"location"`
 	Description      json.RawMessage `json:"description"`
+	Saved            *bool           `json:"saved"`
 }
 
 func (s *Server) patchOffer(w http.ResponseWriter, r *http.Request) {
@@ -279,9 +288,12 @@ func (s *Server) patchOffer(w http.ResponseWriter, r *http.Request) {
 		desc = strings.TrimSpace(desc)
 		u.Description = &desc
 	}
-	if u.ApplicationState == nil && u.OfferState == nil && u.Location == nil && u.Description == nil {
+	if in.Saved != nil {
+		u.Saved = in.Saved
+	}
+	if u.ApplicationState == nil && u.OfferState == nil && u.Location == nil && u.Description == nil && u.Saved == nil {
 		writeError(w, http.StatusBadRequest, "validation_failed",
-			"nothing to update: provide application_state, offer_state, location or description")
+			"nothing to update: provide application_state, offer_state, location, description or saved")
 		return
 	}
 

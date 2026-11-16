@@ -454,3 +454,43 @@
   the flow.
 - ARCHITECTURE, MILESTONES, SMOKE-TEST, README and this changelog are
   updated.
+
+### Milestone 7e — Dashboard/layout restructuring and saved offers
+
+#### Added
+- Persistent per-offer bookmark: migration 0008 adds nullable
+  `job_offers.saved_at` (NULL = not saved). `PATCH /api/offers/:id`
+  accepts `saved: true|false`, setting the current UTC time or clearing
+  it, and the offer payload returns `saved_at`. `GET /api/offers` accepts
+  `saved=true|false` and the `saved` sort (`saved_at DESC`).
+- Star bookmark toggles on every offers-table row and in the offer detail
+  header. Saved rows get a subtle highlight and a filled star.
+- Dashboard Saved section: every bookmarked offer regardless of
+  application state, most recently saved first, with an un-bookmark
+  toggle and a "Show all" link to `#/offers?saved=true`.
+- Dedicated Offers page (`#/offers`) holding the full filters, sorting,
+  pagination and manual import form. The dashboard (`#/`) now contains
+  only Applications and Saved.
+- Dashboard Applications Refresh: collects offers with
+  `application_state != todo`, resolves their provenance sources, and
+  scans the enabled ones sequentially through the existing per-source
+  endpoint. Partial failures are reported per source; manual links are
+  counted in the summary.
+- Sources header owns Refresh all; per-source Refresh is unchanged.
+
+#### Changed
+- The add/edit source form is now a modal dialog (shared `Modal` shell)
+  instead of an inline panel. All type-dependent fields, validation and
+  submit behavior are unchanged; the list state stays mounted.
+- Company notes render above the offers list; add/delete, rename/website
+  edit and the possible-duplicate banner are unchanged.
+- The top bar is navigation only. The global Refresh-all loop moved from
+  `App.tsx`'s top bar into a shared sequential batch helper used by the
+  Sources header and the Dashboard Applications section.
+- Component tests cover the add-source modal, Dashboard
+  Applications+Saved, un-bookmarking, the applications refresh fan-out
+  and the new hash routes. Backend tests cover the pre-0008 upgrade,
+  `saved` PATCH and the `saved` list filter.
+- ARCHITECTURE, DATA-MODEL, API, MILESTONES, README and this changelog
+  are updated. No classifier, adapter, scan-pipeline, notes-pinning or
+  event-type change.

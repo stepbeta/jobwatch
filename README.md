@@ -90,33 +90,48 @@ Run `./jobwatch <command> --help` for details.
 
 Built with React + TypeScript (Vite). The pages are:
 
-- **Dashboard** — the Applications section on top (offers whose
-  application state is not `todo`, most recent timeline activity first),
-  then the offers table with filters (application/offer state, remote
-  policy, score minima, company, full-text search), sorting and
-  pagination. Score badges show 0–100 title/location confidences; hover
-  one to see the matched keywords from the classifier. The import form
-  accepts a URL and pre-fills the manual fields when extraction is
-  incomplete.
+- **Dashboard** (`#/`) — the Applications section (offers whose
+  application state is not `todo`, most recent timeline activity first)
+  and the Saved section (bookmarked offers, most recently saved first).
+  Applications has a Refresh button that scans only the enabled sources
+  behind those applications: sources with only `todo` offers are not
+  scanned, and manual imports (`source_id` NULL) contribute no source.
+  The button fans out over the existing per-source scan endpoint
+  sequentially and reports per-source failures plus an aggregate summary.
+  Saved shows every bookmarked offer regardless of application state;
+  its "Show all" link opens the offers page with the saved filter preset.
+- **Offers** (`#/offers`) — the full table with filters (application/offer
+  state, remote policy, saved/unsaved, score minima, company, full-text
+  search), sorting and pagination, a star bookmark toggle on every row,
+  and the import form (URL or manual fields). Score badges show 0–100
+  title/location confidences; hover one to see the matched keywords from
+  the classifier.
 - **Sources** — enable/disable, scan status, per-source Refresh, a
-  global Refresh all in the top bar, and add/edit forms whose config
-  fields depend on the source type (Personio tenant, Workable account,
-  BambooHR subdomain, RSS field mapping, HTML CSS selectors). Disabled
-  seeded rows for the known-hard Workday/SuccessFactors/WTTJ links and
-  the not-trackable sources show their explanation.
-- **Offer detail** — editable application/offer state and location,
-  score badges, collapsed provenance links with explicit merge into
-  another offer and split (select links for a second offer), a vertical
-  timeline with backdating, notes optionally pinned to an event, and a
-  single-version description browser (prev/next, version dropdown,
+  header Refresh all, and an add/edit modal whose config fields depend on
+  the source type (Personio tenant, Workable account, BambooHR subdomain,
+  RSS field mapping, HTML CSS selectors). Disabled seeded rows for the
+  known-hard Workday/SuccessFactors/WTTJ links and the not-trackable
+  sources show their explanation.
+- **Offer detail** — a bookmark toggle, editable application/offer state
+  and location, score badges, collapsed provenance links with explicit
+  merge into another offer and split (select links for a second offer), a
+  vertical timeline with backdating, notes optionally pinned to an event,
+  and a single-version description browser (prev/next, version dropdown,
   Scan/Manual origin badge, diff against the previous version, Add/Edit
   manual description).
-- **Company detail** — offers, company notes, rename/website edit, a
-  dismissible possible-duplicate banner and a merge dialog that lets you
-  choose which company row to keep. Nothing is merged automatically.
+- **Company detail** — company notes above the offers list,
+  rename/website edit, a dismissible possible-duplicate banner and a merge
+  dialog that lets you choose which company row to keep. Nothing is
+  merged automatically.
+
+The bookmark is personal interest, not an application state. Saving an
+offer never changes its application or offer state, and if a saved offer
+later becomes an application it stays in Saved until you un-bookmark it.
 
 Success/error toasts, loading indicators and confirmation dialogs are
-shared across the pages; every destructive action asks first.
+shared across the pages; every destructive action asks first. The top bar
+only navigates; scan actions live on the Sources page and in the
+Dashboard Applications section.
 
 Development (two processes):
 
@@ -275,7 +290,7 @@ Aggregator and candidate-only pages are deliberately not scraped:
 FlexJobs, RemoteMore, the `my.greenhouse.io` dashboard, The Product
 Crew, Welcome to the Jungle matches and Jobgether either require a
 candidate account or render matches client-side. When you find an offer
-there, copy its public URL and paste it into **Dashboard → Import an
+there, copy its public URL and paste it into **Offers → Import an
 offer seen elsewhere** (click **Fetch & import**), or run `jobwatch
 import <url>`; if the page is login-gated or has no usable metadata,
 enter company and title manually in the same form or with

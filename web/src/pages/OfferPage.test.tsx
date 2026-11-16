@@ -56,6 +56,7 @@ function makeDetail(overrides: Partial<OfferDetail> = {}): OfferDetail {
       location_confidence: 80,
       match_reasons: null,
       last_event_at: null,
+      saved_at: null,
     },
     company: {
       id: 2,

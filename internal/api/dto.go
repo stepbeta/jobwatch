@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/stepbeta/jobwatch/internal/db"
 	"github.com/stepbeta/jobwatch/internal/model"
@@ -95,6 +96,7 @@ type offerJSON struct {
 	LocationConfidence *int            `json:"location_confidence"`
 	MatchReasons       json.RawMessage `json:"match_reasons"`
 	LastEventAt        *string         `json:"last_event_at"`
+	SavedAt            *string         `json:"saved_at"`
 	RawText            *string         `json:"raw_text,omitempty"`
 }
 
@@ -123,7 +125,17 @@ func offerModelToJSON(o model.JobOffer, companyName string) offerJSON {
 		TitleConfidence:    o.TitleConfidence,
 		LocationConfidence: o.LocationConfidence,
 		MatchReasons:       rawJSON(o.MatchReasonsJSON),
+		SavedAt:            timeStringPtr(o.SavedAt),
 	}
+}
+
+// timeStringPtr formats a nullable time, returning nil for nil or zero.
+func timeStringPtr(t *time.Time) *string {
+	if t == nil || t.IsZero() {
+		return nil
+	}
+	s := model.FormatTime(*t)
+	return &s
 }
 
 // rawJSON returns valid stored JSON or null.

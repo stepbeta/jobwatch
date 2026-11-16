@@ -488,6 +488,51 @@ Done criteria (all met):
 | Direction B expands the pinned notes inline under the event row | keeps the note text next to its event without moving the notes column or adding a second scroll target |
 | Frontend tests add Vitest, jsdom and Testing Library as dev dependencies | the repository had no browser test runner and the milestone requires UI-level tests; these are dev-only and do not affect the single-binary build |
 
+## Milestone 7e — Dashboard/layout restructuring and saved offers — DONE
+
+Done criteria (all met):
+- [x] Add source opens a modal dialog (shared `Modal`, same `.modal-*`
+      styling) instead of an inline panel. The list stays mounted, all
+      type-dependent config fields, validation and submit behavior are
+      unchanged. Edit source reuses the same modal.
+- [x] Migration 0008 adds nullable `job_offers.saved_at`; old databases
+      open with every offer unsaved. `PATCH /api/offers/:id` accepts
+      `saved`, and `GET /api/offers` accepts `saved=true|false`.
+- [x] Bookmark toggles on offers rows and the offer detail header; saved
+      rows are visually marked.
+- [x] Dashboard Saved section lists all bookmarked offers
+      (`saved_at DESC`, independent of application state) with an
+      un-bookmark toggle and a "Show all" link to
+      `#/offers?saved=true`.
+- [x] The full offers table moved to a dedicated `#/offers` route; `#/`
+      is Applications + Saved only. Hash routing stays in `router.ts`.
+- [x] Refresh all moved from the top bar to the Sources header; the top
+      bar is navigation only. Per-source Refresh remains.
+- [x] Company notes render above the offers list with unchanged
+      add/delete, rename/website edit and duplicate-banner behavior.
+- [x] Applications Refresh scans only enabled sources that own at least
+      one `application_state != todo` offer, sequentially through the
+      existing scan endpoint. Sources with only `todo` offers are not
+      scanned; manual provenance contributes nothing and is reported.
+- [x] Tests: migration upgrade, saved PATCH/filter, add-source modal,
+      Dashboard sections and un-bookmark, applications refresh fan-out,
+      and the new routes.
+- [x] `go build`, `go vet`, `go test`, `npm run build` and `npm test`
+      green; no classifier, adapter, scan-pipeline, notes-pinning or
+      event-type change.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| Edit source reuses the add-source modal | one form, one validation path and one visual language; the modal receives the existing source as its initial state |
+| The manual import form moved from the dashboard to `#/offers` | the dashboard is specified as Applications + Saved only, and import belongs with the full offers table |
+| Dedicated `#/offers` route rather than a collapsible dashboard section | keeps the dashboard short and gives the table a stable, linkable URL; `#/offers?saved=true` carries the Saved filter preset |
+| The top-bar Refresh-all loop was removed, not kept dormant | the same sequential batch helper now serves the Sources header and the Dashboard Applications refresh, so there is no dead code |
+| Applications refresh resolves provenance with one detail request per application | `GET /api/offers?has_application=true` has no provenance field and the milestone forbids a new endpoint; the detail payload already returns `source_id`s |
+| Applications refresh includes every enabled source behind an application, including `manual`/`wttj` types | the scope is defined by enabled + application ownership; those adapters report `skipped` through the existing scan endpoint |
+| `sort=saved` was added to the offers API | the Saved section needs a server-side `saved_at DESC` order that is complete before the UI cap |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -505,7 +550,8 @@ Done criteria (all met):
 | No FTS search over companies in the UI | §9 | Open. `GET /api/companies?q=` matches the name; no full-text company search |
 | Pre-7c snapshot origins are all `scan` | §9 | By design after 7c. The old schema had no reliable manual marker; only snapshots written from 7c onward carry an exact origin |
 | Manual description edits do not refresh classifier scores | §6 | Open. Scores keep their previous values until the next sighting or `jobwatch reclassify --all`; the edit itself is versioned normally |
-| Frontend component tests cover only the offer timeline/notes flows | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); other pages still rely on `tsc`/`vite build` and backend tests |
+| Offer merge does not carry the absorbed offer's bookmark | §9 | Open. The kept offer keeps its own `saved_at`; the absorbed bookmark is not copied. Merge semantics were left unchanged in 7e |
+| Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh and hash routing | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); the Offers page filters/import and Company page still rely on `tsc`/`vite build` and backend tests |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
 | Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |

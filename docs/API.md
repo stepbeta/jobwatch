@@ -153,13 +153,15 @@ Query parameters (all optional):
 | `min_location_confidence` | integer 0–100; same |
 | `company_id` | restrict to one company |
 | `has_application` | `true`/`1`: only `application_state != todo` |
-| `sort` | `last_seen` (default), `first_seen`, `recent_event`, `title`, `company` |
+| `saved` | `true`/`false`: only bookmarked (`saved_at` set) or only unbookmarked offers. Absent = no filter. Invalid values → `400 validation_failed` |
+| `sort` | `last_seen` (default), `first_seen`, `recent_event`, `title`, `company`, `saved` |
 | `limit` | default 50, maximum 200 |
 | `offset` | default 0 |
 
 `recent_event` orders by the latest timeline event, falling back to
 `updated_at` when an offer has no events (used by the dashboard's
-Applications section).
+Applications section). `saved` orders by `saved_at DESC` and is used by
+the dashboard's Saved section.
 
 ```json
 {
@@ -176,7 +178,8 @@ Applications section).
       "title": ["strong positive \"site reliability\" (+60)", "weak positive \"reliability\" (+25)"],
       "location": ["description \"remote\" (+25)", "location \"france\" (+35)", "remote policy: remote"]
     },
-    "last_event_at": "2026-11-15T17:30:00Z"
+    "last_event_at": "2026-11-15T17:30:00Z",
+    "saved_at": "2026-11-16T08:15:00Z"
   } ],
   "total": 1, "limit": 50, "offset": 0
 }
@@ -314,10 +317,14 @@ Body may contain any of:
 
 ```json
 { "application_state": "interview", "offer_state": "active",
-  "location": "Remote - France", "description": "manual description" }
+  "location": "Remote - France", "description": "manual description",
+  "saved": true }
 ```
 
 - `application_state`, `offer_state`: validated enum values.
+- `saved`: `true` sets `saved_at` to the server's current UTC time,
+  `false` clears it (NULL). The bookmark is independent of both states;
+  the response returns the current `saved_at`.
 - `location`: string to set, `null` to clear.
 - `description`: string that replaces `raw_text`. The server recomputes
   `text_hash` and appends a `snapshots` row with `origin = "manual"` in
@@ -329,8 +336,9 @@ Body may contain any of:
 - Setting `offer_state` to `active` is how a user acknowledges a
   `changed` offer.
 - Fingerprints are not recomputed on a location correction.
-- `200 { "offer": {...} }` (including the current `raw_text`);
-  `400 validation_failed` when no field is given or a value is invalid;
+- `200 { "offer": {...} }` (including the current `raw_text` and
+  `saved_at`); `400 validation_failed` when no field is given or a value
+  is invalid;
   `404 not_found`.
 - A later scan is not special-cased: a sighting whose description hash
   differs from the stored (including manual) hash marks the offer

@@ -256,18 +256,6 @@ export function CompanyPage({
 
       <section className="panel">
         <div className="section-head">
-          <h2>Offers</h2>
-          <span className="muted">{detail.offers.length} shown</span>
-        </div>
-        <OfferTable
-          offers={detail.offers}
-          showCompany={false}
-          emptyText="This company has no offers yet."
-        />
-      </section>
-
-      <section className="panel">
-        <div className="section-head">
           <h2>Company notes</h2>
           <span className="muted">{detail.notes.length} note(s)</span>
         </div>
@@ -302,6 +290,18 @@ export function CompanyPage({
             Add note
           </button>
         </form>
+      </section>
+
+      <section className="panel">
+        <div className="section-head">
+          <h2>Offers</h2>
+          <span className="muted">{detail.offers.length} shown</span>
+        </div>
+        <OfferTable
+          offers={detail.offers}
+          showCompany={false}
+          emptyText="This company has no offers yet."
+        />
       </section>
 
       {confirm && <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />}

@@ -203,6 +203,7 @@ type JobOffer struct {
 	TitleConfidence    *int
 	LocationConfidence *int
 	MatchReasonsJSON   *string
+	SavedAt            *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }

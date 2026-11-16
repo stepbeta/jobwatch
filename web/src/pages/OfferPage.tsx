@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
+import { BookmarkButton } from '../components/BookmarkButton'
 import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
 import { Link } from '../components/Link'
 import { ScoreBadge } from '../components/ScoreBadge'
@@ -80,6 +81,7 @@ export function OfferPage({
   const [offerState, setOfferState] = useState<OfferState>('active')
   const [location, setLocation] = useState('')
   const [saving, setSaving] = useState(false)
+  const [savedBusy, setSavedBusy] = useState(false)
 
   const [eventType, setEventType] = useState<EventType>('cv_sent')
   const [eventDate, setEventDate] = useState(() => splitLocalInput(toLocalInput(new Date())).date)
@@ -181,6 +183,22 @@ export function OfferPage({
       onNotice('error', text)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function toggleSaved() {
+    if (!detail) return
+    setSavedBusy(true)
+    try {
+      const r = await api.patchOffer(id, { saved: !detail.offer.saved_at })
+      setDetail({ ...detail, offer: { ...detail.offer, ...r.offer } })
+      onNotice('success', r.offer.saved_at ? 'Offer saved.' : 'Bookmark removed.')
+    } catch (err) {
+      const text = errorMessage(err)
+      setError(text)
+      onNotice('error', text)
+    } finally {
+      setSavedBusy(false)
     }
   }
 
@@ -579,6 +597,12 @@ export function OfferPage({
           </div>
         </div>
         <div className="badges">
+          <BookmarkButton
+            saved={Boolean(detail.offer.saved_at)}
+            disabled={savedBusy}
+            size="large"
+            onClick={() => void toggleSaved()}
+          />
           <ScoreBadge
             label="Title"
             value={detail.offer.title_confidence}

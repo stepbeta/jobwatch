@@ -25,7 +25,8 @@ type OfferQuery struct {
 	MinTitleConfidence    *int
 	MinLocationConfidence *int
 	CompanyID             *int64
-	HasApplication        bool // application_state != 'todo'
+	HasApplication        bool  // application_state != 'todo'
+	Saved                 *bool // nil = no filter; true/false = saved_at set/NULL
 	Sort                  string
 	Limit                 int
 	Offset                int
@@ -38,12 +39,13 @@ const (
 	SortRecentEvent = "recent_event"
 	SortTitle       = "title"
 	SortCompany     = "company"
+	SortSaved       = "saved"
 )
 
 // ValidOfferSort reports whether s is a supported offer sort.
 func ValidOfferSort(s string) bool {
 	switch s {
-	case SortLastSeen, SortFirstSeen, SortRecentEvent, SortTitle, SortCompany:
+	case SortLastSeen, SortFirstSeen, SortRecentEvent, SortTitle, SortCompany, SortSaved:
 		return true
 	}
 	return false
@@ -161,6 +163,13 @@ func offerWhere(ctx context.Context, q Querier, f OfferQuery) (string, []any, er
 	if f.HasApplication {
 		b.WriteString(` AND o.application_state != 'todo'`)
 	}
+	if f.Saved != nil {
+		if *f.Saved {
+			b.WriteString(` AND o.saved_at IS NOT NULL`)
+		} else {
+			b.WriteString(` AND o.saved_at IS NULL`)
+		}
+	}
 	return b.String(), args, nil
 }
 
@@ -174,6 +183,8 @@ func offerOrder(sortBy string) string {
 		return `o.title COLLATE NOCASE ASC, o.id ASC`
 	case SortCompany:
 		return `c.name COLLATE NOCASE ASC, o.title COLLATE NOCASE ASC, o.id ASC`
+	case SortSaved:
+		return `o.saved_at DESC, o.id DESC`
 	default:
 		return `o.last_seen_at DESC, o.id DESC`
 	}
@@ -195,6 +206,7 @@ type OfferUpdate struct {
 	OfferState       *model.OfferState
 	Location         *string
 	Description      *string
+	Saved            *bool
 }
 
 // UpdateOfferFields applies u atomically and bumps updated_at. Offer
@@ -220,6 +232,15 @@ func UpdateOfferFields(ctx context.Context, sqlDB *sql.DB, id int64, u OfferUpda
 			loc = u.Location
 		}
 		args = append(args, nullStr(loc))
+	}
+	if u.Saved != nil {
+		sets = append(sets, "saved_at = ?")
+		var savedAt *string
+		if *u.Saved {
+			ts := model.FormatTime(now)
+			savedAt = &ts
+		}
+		args = append(args, nullStr(savedAt))
 	}
 	if u.Description != nil {
 		sets = append(sets, "raw_text = ?", "text_hash = ?")

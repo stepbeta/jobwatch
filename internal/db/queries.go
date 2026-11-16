@@ -281,7 +281,7 @@ func DeleteSource(ctx context.Context, sqlDB *sql.DB, id int64) error {
 func offerColumns(prefix string) string {
 	cols := []string{"id", "company_id", "title", "title_normalized", "location", "remote_policy", "url", "fingerprint",
 		"first_seen_at", "last_seen_at", "offer_state", "application_state", "raw_text", "text_hash",
-		"title_confidence", "location_confidence", "match_reasons_json", "created_at", "updated_at"}
+		"title_confidence", "location_confidence", "match_reasons_json", "saved_at", "created_at", "updated_at"}
 	for i, c := range cols {
 		cols[i] = prefix + c
 	}
@@ -290,12 +290,12 @@ func offerColumns(prefix string) string {
 
 func scanOffer(row interface{ Scan(...any) error }) (model.JobOffer, error) {
 	var o model.JobOffer
-	var location, url, rawText, textHash, reasons, created, updated sql.NullString
+	var location, url, rawText, textHash, reasons, savedAt, created, updated sql.NullString
 	var remote, firstSeen, lastSeen, offerState, appState string
 	var titleConf, locConf sql.NullInt64
 	if err := row.Scan(&o.ID, &o.CompanyID, &o.Title, &o.TitleNormalized, &location, &remote, &url, &o.Fingerprint,
 		&firstSeen, &lastSeen, &offerState, &appState, &rawText, &textHash,
-		&titleConf, &locConf, &reasons, &created, &updated); err != nil {
+		&titleConf, &locConf, &reasons, &savedAt, &created, &updated); err != nil {
 		return model.JobOffer{}, err
 	}
 	o.Location = strPtr(location)
@@ -310,6 +310,10 @@ func scanOffer(row interface{ Scan(...any) error }) (model.JobOffer, error) {
 	o.TitleConfidence = intPtr(titleConf)
 	o.LocationConfidence = intPtr(locConf)
 	o.MatchReasonsJSON = strPtr(reasons)
+	if savedAt.Valid {
+		t := parseTime(savedAt.String)
+		o.SavedAt = &t
+	}
 	o.CreatedAt = parseNullTime(created)
 	o.UpdatedAt = parseNullTime(updated)
 	return o, nil

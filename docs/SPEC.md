@@ -237,8 +237,9 @@ Scan lifecycle (per source):
 4. capture snapshot if new or changed
 5. commit transaction; update `sources.last_scan_at/status`
 
-Scans are manual only: a "Refresh" button per source on the UI, plus a
-global "Refresh all". Optionally trigger via `jobwatch scan`.
+Scans are manual only: a "Refresh" button per source and a "Refresh all"
+on the Sources page, plus the applications-scoped Refresh on the
+dashboard. Optionally trigger via `jobwatch scan`.
 
 ## 8. REST API (JSON, under /api)
 
@@ -259,15 +260,20 @@ global "Refresh all". Optionally trigger via `jobwatch scan`.
 
 Local-only dashboard. Sections:
 
-- **Top bar**: global "Refresh all" + per-source refresh on the sources
-  list; scan status/error indicators.
-- **Applications section (top of dashboard)**: all offers with
-  `application_state != todo`, sorted by most recent timeline activity —
-  this is the "where did I send my CV" view.
-- **Offers list**: filterable/sortable table. Filters on
-  `application_state`, `offer_state`, `remote_policy`, `title_confidence`,
-  `location_confidence`, full-text search. Each row shows small score
-  badges with tooltip explanations (match_reasons) — no review queue.
+- **Top bar**: navigation only (Dashboard, Offers, Sources). Scan
+  actions live on the Sources page and in the dashboard Applications
+  section.
+- **Dashboard** (`#/`): the Applications section — all offers with
+  `application_state != todo`, sorted by most recent timeline activity
+  ("where did I send my CV") — with a Refresh button scoped to the
+  enabled sources behind those applications; and the Saved section —
+  every offer with `saved_at` set, independent of application state,
+  sorted by most recent bookmark, with an un-bookmark toggle.
+- **Offers** (`#/offers`): filterable/sortable table. Filters on
+  `application_state`, `offer_state`, `remote_policy`, saved/unsaved,
+  `title_confidence`, `location_confidence`, full-text search. Each row
+  shows small score badges with tooltip explanations (match_reasons) and
+  a bookmark star — no review queue.
 - **Offer detail page**:
   - header: company, title, states (editable dropdowns), scores
   - provenance block: ALL links where this offer was seen, side by side,
@@ -284,10 +290,11 @@ Local-only dashboard. Sections:
     version (the oldest version shows a hint). An Add/Edit action saves a
     manually pasted description through `PATCH /api/offers/:id`
     (versioned as a new `manual` snapshot and selected after saving).
-- **Company detail page**: all its offers + company-level notes +
-  possible-duplicate-company merge prompt.
+- **Company detail page**: company-level notes above the list of all its
+  offers + possible-duplicate-company merge prompt.
 - **Sources page**: list with type, last scan status/time, enable/disable,
-  add/edit (config form adapts to source_type).
+  per-source refresh, header "Refresh all", and add/edit in a modal
+  (config form adapts to source_type).
 
 Design goals: dense, fast, keyboard-friendly; no framework ceremony —
 plain React + a lightweight table component is fine.
@@ -374,3 +381,13 @@ plain React + a lightweight table component is fine.
   text with `?snapshot_id=N`; `GET /api/offers/:id/snapshot-diff` diffs
   any two versions on demand. The UI shows exactly one version at a time
   with origin badge, navigation and a diff against the previous version.
+- 2026-11-16 (after Milestone 7e): the top bar is navigation only; the
+  global Refresh all moved to the Sources header. The dashboard shows
+  Applications and Saved only; the full offers table and import form
+  live on `#/offers` (`#/offers?saved=true` presets the saved filter).
+  `job_offers.saved_at` (additive migration 0008) is a personal bookmark
+  orthogonal to both state machines: saving never changes
+  `offer_state`/`application_state`, and a saved offer that becomes an
+  application stays in Saved until un-bookmarked. The Applications
+  Refresh scans only the enabled sources behind non-`todo` applications,
+  sequentially through the existing per-source endpoint.

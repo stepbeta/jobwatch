@@ -1,5 +1,6 @@
 import { appLabel, fmtDateTime, relativeTime } from '../format'
 import type { Offer } from '../types'
+import { BookmarkButton } from './BookmarkButton'
 import { Link } from './Link'
 import { ScoreBadge } from './ScoreBadge'
 import { StatePill } from './StatePill'
@@ -9,11 +10,15 @@ export function OfferTable({
   showCompany = true,
   showApplication = true,
   emptyText = 'No offers match.',
+  onToggleSaved,
+  busyOfferId,
 }: {
   offers: Offer[]
   showCompany?: boolean
   showApplication?: boolean
   emptyText?: string
+  onToggleSaved?: (offer: Offer) => void
+  busyOfferId?: number | null
 }) {
   if (offers.length === 0) {
     return <p className="empty">{emptyText}</p>
@@ -23,6 +28,7 @@ export function OfferTable({
       <table className="grid">
         <thead>
           <tr>
+            {onToggleSaved && <th aria-label="Bookmark" />}
             {showCompany && <th>Company</th>}
             <th>Title</th>
             <th>Location</th>
@@ -35,7 +41,16 @@ export function OfferTable({
         </thead>
         <tbody>
           {offers.map((o) => (
-            <tr key={o.id}>
+            <tr key={o.id} className={o.saved_at ? 'row-saved' : undefined}>
+              {onToggleSaved && (
+                <td>
+                  <BookmarkButton
+                    saved={Boolean(o.saved_at)}
+                    disabled={busyOfferId === o.id}
+                    onClick={() => onToggleSaved(o)}
+                  />
+                </td>
+              )}
               {showCompany && (
                 <td>
                   <Link to={`/companies/${o.company_id}`}>{o.company_name}</Link>
