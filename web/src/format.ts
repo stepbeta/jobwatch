@@ -25,7 +25,8 @@ export const REMOTE_POLICIES: RemotePolicy[] = ['remote', 'hybrid', 'onsite', 'u
 
 export const EVENT_TYPES: EventType[] = [
   'cv_sent',
-  'reply_received',
+  'message_received',
+  'message_sent',
   'interview',
   'offer',
   'rejected',
@@ -48,7 +49,8 @@ export const SOURCE_TYPES: SourceType[] = [
 
 const EVENT_LABELS: Record<EventType, string> = {
   cv_sent: 'CV sent',
-  reply_received: 'Reply received',
+  message_received: 'Message received',
+  message_sent: 'Message sent',
   interview: 'Interview',
   offer: 'Offer',
   rejected: 'Rejected',

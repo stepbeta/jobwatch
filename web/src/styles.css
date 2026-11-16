@@ -517,6 +517,11 @@ details summary {
   font-weight: 600;
 }
 
+details.panel > summary {
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
 /* offer detail */
 .breadcrumb {
   font-size: 13px;

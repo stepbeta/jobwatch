@@ -241,6 +241,69 @@ func TestScanLifecycle(t *testing.T) {
 	}
 }
 
+func TestScanAgainstManualDescription(t *testing.T) {
+	sqlDB, sc, ff, clk := setup(t)
+	src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
+	ctx := context.Background()
+
+	ff.offers[src.ID] = []sources.RawOffer{rawSRE}
+	if got := sc.ScanSource(ctx, src); got.New != 1 {
+		t.Fatalf("first scan = %+v, want 1 new", got)
+	}
+	o := offerByTitle(t, sqlDB, rawSRE.Title)
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM snapshots WHERE offer_id = ?`, o.ID); n != 1 {
+		t.Fatalf("snapshots after first scan = %d, want 1", n)
+	}
+
+	// A manual edit replaces the text, recomputes the hash and versions it.
+	manual := "Manually pasted description."
+	clk.advance()
+	if err := db.UpdateOfferFields(ctx, sqlDB, o.ID, db.OfferUpdate{Description: &manual}, clk.now()); err != nil {
+		t.Fatal(err)
+	}
+	o = offerByTitle(t, sqlDB, rawSRE.Title)
+	if o.RawText == nil || *o.RawText != manual || o.TextHash == nil || *o.TextHash != model.TextHash(manual) {
+		t.Fatalf("after manual edit raw_text=%v text_hash=%v", o.RawText, o.TextHash)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM snapshots WHERE offer_id = ?`, o.ID); n != 2 {
+		t.Fatalf("snapshots after manual edit = %d, want 2", n)
+	}
+
+	// A sighting without a description keeps the manual text and state.
+	clk.advance()
+	noDesc := rawSRE
+	noDesc.Description = ""
+	ff.offers[src.ID] = []sources.RawOffer{noDesc}
+	if got := sc.ScanSource(ctx, src); got.Seen != 1 || got.Changed != 0 {
+		t.Fatalf("empty-description scan = %+v, want 1 seen/0 changed", got)
+	}
+	o = offerByTitle(t, sqlDB, rawSRE.Title)
+	if o.RawText == nil || *o.RawText != manual {
+		t.Errorf("sighting without description cleared manual text: %v", o.RawText)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM snapshots WHERE offer_id = ?`, o.ID); n != 2 {
+		t.Errorf("snapshots after empty-description scan = %d, want 2", n)
+	}
+
+	// A later source description that differs from the manual text is not
+	// special-cased: it marks the offer changed and appends a snapshot.
+	clk.advance()
+	ff.offers[src.ID] = []sources.RawOffer{rawSREChanged}
+	if got := sc.ScanSource(ctx, src); got.Changed != 1 {
+		t.Fatalf("differing-description scan = %+v, want 1 changed", got)
+	}
+	o = offerByTitle(t, sqlDB, rawSRE.Title)
+	if o.OfferState != model.OfferChanged {
+		t.Errorf("offer_state = %q, want changed", o.OfferState)
+	}
+	if o.RawText == nil || *o.RawText != rawSREChanged.Description {
+		t.Errorf("raw_text = %v, want the source description", o.RawText)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM snapshots WHERE offer_id = ?`, o.ID); n != 3 {
+		t.Errorf("snapshots after source change = %d, want 3", n)
+	}
+}
+
 func TestScanDedup(t *testing.T) {
 	tests := []struct {
 		name          string

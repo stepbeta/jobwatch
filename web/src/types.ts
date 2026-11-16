@@ -24,7 +24,8 @@ export type ApplicationState =
 export type RemotePolicy = 'remote' | 'hybrid' | 'onsite' | 'unknown'
 export type EventType =
   | 'cv_sent'
-  | 'reply_received'
+  | 'message_received'
+  | 'message_sent'
   | 'interview'
   | 'offer'
   | 'rejected'

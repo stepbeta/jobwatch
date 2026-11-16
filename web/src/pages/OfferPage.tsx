@@ -30,6 +30,26 @@ function diffPrefix(op: 'equal' | 'added' | 'removed'): string {
   return ' '
 }
 
+function provenanceStorageKey(offerId: number): string {
+  return `jobwatch:provenance-open:${offerId}`
+}
+
+function readProvenanceOpen(offerId: number): boolean {
+  try {
+    return window.localStorage.getItem(provenanceStorageKey(offerId)) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeProvenanceOpen(offerId: number, open: boolean): void {
+  try {
+    window.localStorage.setItem(provenanceStorageKey(offerId), open ? '1' : '0')
+  } catch {
+    // Private browsing or a disabled storage API: keep the in-memory state.
+  }
+}
+
 export function OfferPage({
   id,
   onNotice,
@@ -68,6 +88,11 @@ export function OfferPage({
   const [mergeError, setMergeError] = useState('')
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
 
+  const [provenanceOpen, setProvenanceOpen] = useState(false)
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [descriptionDraft, setDescriptionDraft] = useState('')
+  const [savingDescription, setSavingDescription] = useState(false)
+
   const load = useCallback(async () => {
     try {
       const d = await api.getOffer(id)
@@ -88,6 +113,8 @@ export function OfferPage({
     setSplitMode(false)
     setSplitIDs([])
     setMergeOpen(false)
+    setEditingDescription(false)
+    setProvenanceOpen(readProvenanceOpen(id))
     void load()
   }, [load])
 
@@ -109,6 +136,32 @@ export function OfferPage({
     } finally {
       setSaving(false)
     }
+  }
+
+  function startDescriptionEdit() {
+    setDescriptionDraft(detail?.latest_snapshot?.raw_text ?? '')
+    setEditingDescription(true)
+  }
+
+  async function saveDescription() {
+    setSavingDescription(true)
+    try {
+      await api.patchOffer(id, { description: descriptionDraft })
+      setEditingDescription(false)
+      await load()
+      onNotice('success', 'Description updated.')
+    } catch (err) {
+      const text = errorMessage(err)
+      setError(text)
+      onNotice('error', text)
+    } finally {
+      setSavingDescription(false)
+    }
+  }
+
+  function setProvenanceExpanded(open: boolean) {
+    setProvenanceOpen(open)
+    writeProvenanceOpen(id, open)
   }
 
   async function addEvent(e: FormEvent) {
@@ -356,24 +409,28 @@ export function OfferPage({
         </form>
       </section>
 
-      <section className="panel">
-        <div className="section-head">
-          <h2>Provenance</h2>
-          <div className="actions">
-            <button type="button" onClick={() => void openMerge()} disabled={mergeLoading}>
-              Merge into another offer…
-            </button>
-            {detail.provenance.length > 1 &&
-              (splitMode ? (
-                <button type="button" onClick={cancelSplit}>
-                  Cancel split
-                </button>
-              ) : (
-                <button type="button" onClick={startSplit}>
-                  Split offer…
-                </button>
-              ))}
-          </div>
+      <details
+        className="panel"
+        open={provenanceOpen}
+        onToggle={(e) => setProvenanceExpanded(e.currentTarget.open)}
+      >
+        <summary>
+          Provenance ({detail.provenance.length} link{detail.provenance.length === 1 ? '' : 's'})
+        </summary>
+        <div className="actions">
+          <button type="button" onClick={() => void openMerge()} disabled={mergeLoading}>
+            Merge into another offer…
+          </button>
+          {detail.provenance.length > 1 &&
+            (splitMode ? (
+              <button type="button" onClick={cancelSplit}>
+                Cancel split
+              </button>
+            ) : (
+              <button type="button" onClick={startSplit}>
+                Split offer…
+              </button>
+            ))}
         </div>
         <p className="muted small">
           Every link where this offer was seen. Open them side by side to decide whether they are really the
@@ -449,7 +506,7 @@ export function OfferPage({
             </button>
           </div>
         )}
-      </section>
+      </details>
 
       <div className="detail-columns">
         <section className="panel">
@@ -606,13 +663,50 @@ export function OfferPage({
             </div>
           </div>
         )}
-        {detail.latest_snapshot ? (
+        {editingDescription ? (
+          <div className="stack">
+            <textarea
+              value={descriptionDraft}
+              onChange={(e) => setDescriptionDraft(e.target.value)}
+              rows={12}
+              placeholder="paste or edit the description"
+            />
+            <div className="actions">
+              <button
+                type="button"
+                className="primary"
+                disabled={savingDescription}
+                onClick={() => void saveDescription()}
+              >
+                {savingDescription ? 'Saving…' : 'Save'}
+              </button>
+              <button type="button" disabled={savingDescription} onClick={() => setEditingDescription(false)}>
+                Cancel
+              </button>
+            </div>
+            <p className="muted small">
+              Saving appends a description snapshot. Clearing the text stores an empty description.
+            </p>
+          </div>
+        ) : detail.latest_snapshot ? (
           <>
             {detail.snapshot_diff && <h3 className="diff-heading">Latest description</h3>}
-            <pre>{detail.latest_snapshot.raw_text || '(empty description)'}</pre>
+            {detail.latest_snapshot.raw_text.trim() !== '' ? (
+              <pre>{detail.latest_snapshot.raw_text}</pre>
+            ) : (
+              <p className="muted">No description yet.</p>
+            )}
+            <button type="button" onClick={startDescriptionEdit}>
+              {detail.latest_snapshot.raw_text.trim() === '' ? 'Add description' : 'Edit description'}
+            </button>
           </>
         ) : (
-          <p className="muted">No snapshot captured.</p>
+          <>
+            <p className="muted">No description captured.</p>
+            <button type="button" onClick={startDescriptionEdit}>
+              Add description
+            </button>
+          </>
         )}
         {detail.snapshot_count > 1 && !detail.snapshot_diff && (
           <p className="muted small">Older versions are stored as snapshots.</p>

@@ -343,3 +343,42 @@
 - AGENTS.md layout lists `internal/scan` and the migrations embed file;
   its documentation duty now also covers README, SPEC revisions and the
   AGENTS.md layout itself.
+
+### Milestone 7b — Event vocabulary, manual description editing, collapsible provenance
+
+#### Added
+- `message_sent` timeline event type for user-initiated pings and
+  follow-ups. `message_received` now covers both a recruiter's inbound
+  first contact and a reply to an application, replacing the narrower
+  `reply_received` label. The offer-page dropdown shows "Message
+  received" and "Message sent".
+- Manual description editing on the offer detail page: an Add/Edit
+  action opens a textarea with Save/Cancel, works for empty and non-empty
+  descriptions, and shows a success toast. Saving calls
+  `PATCH /api/offers/:id` with a `description` string.
+- `PATCH /api/offers/:id` accepts `description`: it replaces `raw_text`,
+  recomputes `text_hash` and appends a snapshot in the same transaction,
+  so manually pasted text is versioned exactly like scan-captured text.
+  `null` is rejected with `400 validation_failed`.
+- The Provenance block is now a disclosure after the header, collapsed by
+  default as "Provenance (N links)". Its expanded state persists per
+  offer in `localStorage`; the explicit merge and split actions live
+  inside the expanded content.
+
+#### Changed
+- Data-only migration `0006_event_message_types.sql` renames existing
+  `reply_received` rows to `message_received` in place. It has no INSERT
+  and no schema change, and its `WHERE` clause makes re-application
+  harmless. The old event value is no longer accepted by the API.
+- A later source sighting with a differing description still marks the
+  offer `changed` and appends a snapshot, even when the stored text came
+  from a manual edit; a sighting without a description still never clears
+  the text. Documented in DATA-MODEL and API.
+- Tests cover the upgrade migration (old event renamed, other columns and
+  occurred_at preserved, idempotent re-apply), PATCH description
+  snapshot/hash/updated_at behavior, null rejection, both message event
+  types, ordering and rejection of the old value. A scan test proves that
+  a no-description sighting keeps manual text and a differing source
+  description marks the offer `changed` with another snapshot.
+- ARCHITECTURE, API, DATA-MODEL, SPEC, MILESTONES and this changelog are
+  updated; no command, adapter, classifier or application-state change.

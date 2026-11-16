@@ -16,6 +16,7 @@ require a table rebuild.
 | 0003 | `0003_seed_remote_sources.sql` | Data-only seed: the 65 sources decided in Milestones 5a/5b (37 enabled: 11 Greenhouse, 11 Ashby, 4 Lever, 1 Personio, 5 RSS, 5 HTML; 28 disabled not-trackable rows with a `note`). Reproduces each source's name, URL, type, enabled flag and full `config_json`. `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
 | 0004 | `0004_seed_5c_sources.sql` | Audit-only, data-only no-op: Milestone 5c introduced no new source rows. The We Work Remotely rss row, the Workable search note row and the aggregator rows were already seeded by 0003. Contains no INSERT or UPDATE, so applying it changes nothing and it cannot overwrite or restore user edits |
 | 0005 | `0005_seed_bamboohr_sources.sql` | Data-only seed: the Semble BambooHR source verified in Milestone 6a (`bamboohr`, `{"subdomain":"semble"}`, enabled). `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
+| 0006 | `0006_event_message_types.sql` | Data-only rename for Milestone 7b: `UPDATE events SET type = 'message_received' WHERE type = 'reply_received'`. No table or column change; the WHERE clause makes re-application match no rows |
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -25,7 +26,9 @@ disabled-source rows from 0002 and Milestone 5 ships the 65 registered
 sources from 5a/5b in 0003 (both data only, no table or column changes).
 Milestone 5c's source decisions were already part of 0003, so 0004 is an
 audit-only no-op. Milestone 6a adds one enabled BambooHR row in 0005, so
-the seeded total is 70 rows (38 enabled, 32 disabled).
+the seeded total is 70 rows (38 enabled, 32 disabled). Milestone 7b
+renames the old `reply_received` event value in place in 0006; it changes
+no source row and no schema.
 
 ## Tables
 
@@ -135,6 +138,23 @@ Indexes: company_id, offer_state, application_state, last_seen_at.
 - `jobwatch reclassify` fills missing scores; `--all` recomputes every
   offer after a keyword-table change. It does not change `updated_at`.
 
+### Manual description edits
+
+`PATCH /api/offers/:id` accepts `description` (string). It replaces
+`raw_text`, recomputes `text_hash` from the whitespace-collapsed text and
+appends a `snapshots` row in the same transaction; `updated_at` is bumped.
+`null` is rejected (`400 validation_failed`), so the version chain cannot
+be cleared through the API. An empty string is valid: it stores no
+description (`raw_text` and `text_hash` NULL) and appends an empty
+snapshot. A manual edit never changes `offer_state`.
+
+A manual description is not special to the scan diff/merge logic. A later
+sighting whose description hash differs from the stored (manual) hash
+marks the offer `changed` and appends another snapshot; a sighting
+without a description never clears the stored text. Manual and
+scan-captured text therefore share one snapshot chain, and the detail
+diff compares the two latest snapshots regardless of their origin.
+
 ### job_offer_provenance
 One row per (offer, link) sighting. `UNIQUE(offer_id, url)`.
 
@@ -154,13 +174,16 @@ Index: (source_id, external_uid).
 |---|---|---|
 | id | INTEGER PK | |
 | offer_id | INTEGER NOT NULL → job_offers ON DELETE CASCADE | |
-| type | TEXT NOT NULL | `cv_sent` `reply_received` `interview` `offer` `rejected` `ghosted` `other` |
+| type | TEXT NOT NULL | `cv_sent` `message_received` `message_sent` `interview` `offer` `rejected` `ghosted` `other`. `message_received` covers a recruiter's inbound first contact and a reply to an application; `message_sent` covers user-initiated pings and follow-ups |
 | description | TEXT | |
 | occurred_at | TEXT NOT NULL | user-editable |
 | created_at | TEXT | |
 
 Index: (offer_id, occurred_at). Written by the events API; `occurred_at`
-is user-editable and may be backdated.
+is user-editable and may be backdated. The type is validated in Go only
+(no CHECK constraint), so migration 0006 renamed existing
+`reply_received` rows to `message_received` in place and the new
+`message_sent` value needed no data change.
 
 ### notes
 | Column | Type | Notes |
@@ -194,10 +217,11 @@ extra metadata beyond the resulting offer/provenance/snapshot rows.
 | raw_text | TEXT NOT NULL | description at capture time (may be empty for offers created without one) |
 | captured_at | TEXT NOT NULL | |
 
-Index: (offer_id, captured_at). Every first description and every
-text-hash change appends a row. `GET /api/offers/:id` exposes the latest
-snapshot and, when at least two exist, a line diff between the two latest
-snapshots (oldest → newest) for the changed-offer view.
+Index: (offer_id, captured_at). Every first description, every
+text-hash change and every manual description save appends a row.
+`GET /api/offers/:id` exposes the latest snapshot and, when at least two
+exist, a line diff between the two latest snapshots (oldest → newest)
+for the changed-offer view.
 
 ### Full-text search
 - `job_offers_fts` — FTS5, external content `job_offers` (columns
@@ -237,6 +261,10 @@ sync by AFTER INSERT / DELETE / UPDATE OF triggers
 - A sighting without description never clears stored text. A first
   description on an offer that had none fills `raw_text` (+ snapshot)
   without becoming `changed`.
+- A manual description edit through `PATCH /api/offers/:id` does not
+  change the state: it replaces `raw_text`, recomputes `text_hash` and
+  appends a snapshot. Later scans compare against that manual hash
+  exactly like any other stored text (see Manual description edits).
 - The classifier re-runs on every sighting using the stored title,
   location and latest description; score columns and `remote_policy` are
   updated even when the offer state does not change.

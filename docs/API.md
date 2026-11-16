@@ -20,8 +20,10 @@ Base path `/api`, JSON in and out. Every endpoint is served by
 - Request bodies must be a single JSON object; unknown fields are
   rejected with `400 invalid_json`.
 - **Partial updates**: a field that is absent is left unchanged. For
-  nullable fields (`location`, `website`, `description`,
-  `pinned_event_id`), `null` clears the value.
+  nullable fields (`location`, `website`, event `description`,
+  `pinned_event_id`), `null` clears the value. The offer detail
+  `description` field is the exception: it accepts a string only and
+  rejects `null` (see `PATCH /api/offers/:id`).
 - Pagination: `limit` (bounded per endpoint) and `offset` (default 0).
   List responses include `total`, `limit` and `offset`.
 - `config` on sources is a JSON object; unknown keys are preserved.
@@ -35,8 +37,14 @@ Base path `/api`, JSON in and out. Every endpoint is served by
 | `offer_state` | `active` `changed` `disappeared` |
 | `application_state` | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
 | `remote_policy` | `remote` `hybrid` `onsite` `unknown` |
-| event `type` | `cv_sent` `reply_received` `interview` `offer` `rejected` `ghosted` `other` |
+| event `type` | `cv_sent` `message_received` `message_sent` `interview` `offer` `rejected` `ghosted` `other` |
 | note `entity_type` | `offer` `company` |
+
+Event `message_received` covers both a recruiter's inbound first contact
+and a reply to an application; `message_sent` covers user-initiated
+pings and follow-ups. Existing `reply_received` rows are renamed to
+`message_received` by migration 0006 and the old value is no longer
+accepted.
 
 ## GET /api/health
 
@@ -269,17 +277,28 @@ Body may contain any of:
 
 ```json
 { "application_state": "interview", "offer_state": "active",
-  "location": "Remote - France" }
+  "location": "Remote - France", "description": "manual description" }
 ```
 
 - `application_state`, `offer_state`: validated enum values.
 - `location`: string to set, `null` to clear.
+- `description`: string that replaces `raw_text`. The server recomputes
+  `text_hash` and appends a `snapshots` row in the same transaction, so a
+  manual edit is versioned like a scan-captured description. `null` is
+  rejected with `400 validation_failed`; an empty string stores no
+  description (NULL `raw_text`/`text_hash`) and appends an empty
+  snapshot. A description edit does not change `offer_state`.
 - The update bumps `updated_at`; that is the audit trail.
 - Setting `offer_state` to `active` is how a user acknowledges a
   `changed` offer.
 - Fingerprints are not recomputed on a location correction.
-- `200 { "offer": {...} }`; `400 validation_failed` when no field is
-  given or a value is invalid; `404 not_found`.
+- `200 { "offer": {...} }` (including the current `raw_text`);
+  `400 validation_failed` when no field is given or a value is invalid;
+  `404 not_found`.
+- A later scan is not special-cased: a sighting whose description hash
+  differs from the stored (including manual) hash marks the offer
+  `changed` and appends another snapshot; a sighting without a
+  description leaves the stored text untouched.
 
 ### POST /api/offers/:id/merge
 

@@ -358,6 +358,54 @@ Done criteria (all met):
 | Location parts are deduplicated with a substring rule | BambooHR can return city `London` plus state `London, City of`; joining both verbatim reads badly. The country is kept even when a province name contains it |
 | The Semble source ships in data-only migration 0005 | follows the 0002/0003 seed pattern; migrations are immutable, so 0005 is the next free number and a fresh database gets the verified source without `add-source` |
 
+## Milestone 7b — Event vocabulary, manual description editing, collapsible provenance — DONE
+
+Done criteria (all met):
+- [x] Data-only migration 0006 renames `reply_received` to
+      `message_received` in place (`UPDATE … WHERE type = 'reply_received'`);
+      no CHECK constraint or table rebuild is involved and re-applying the
+      file matches no rows.
+- [x] Event enum in `internal/model`, API validation and the API/docs enum
+      tables now list `cv_sent` `message_received` `message_sent`
+      `interview` `offer` `rejected` `ghosted` `other`; the old
+      `reply_received` value is rejected. `message_received` means either a
+      recruiter's inbound first contact or a reply to an application;
+      `message_sent` means a user-initiated ping/follow-up.
+- [x] UI event dropdown/labels use "Message received" and "Message sent";
+      the old label disappears.
+- [x] `PATCH /api/offers/:id` accepts an optional `description` string. In
+      one transaction it replaces `raw_text`, recomputes `text_hash`,
+      appends a snapshot and bumps `updated_at`. `description: null` is
+      rejected with `400 validation_failed`; the response still returns
+      the refreshed offer.
+- [x] The offer detail Description block has an Add/Edit action (textarea +
+      Save/Cancel) for empty and non-empty descriptions and shows a success
+      toast after saving.
+- [x] Provenance is a disclosure after the header, collapsed by default,
+      labelled "Provenance (N links)"; the expanded state persists per
+      offer in `localStorage` (`jobwatch:provenance-open:<offer id>`). The
+      explicit "Merge into another offer…" and split actions remain inside
+      the expanded content.
+- [x] Tests: fresh upgrade DB with a pre-0006 `reply_received` event reads
+      `message_received` and keeps its other columns; 0006 is idempotent;
+      API PATCH description appends snapshots and updates the hash; null,
+      numeric and empty-patch requests are rejected; event create/patch
+      accepts both message types and keeps occurred_at ordering; the
+      dropped old value is rejected; a scan test proves that a sighting
+      without a description keeps manual text while a differing source
+      description marks the offer `changed` and appends a snapshot.
+- [x] `go build`, `go vet`, `go test` and `npm run build` green; no note,
+      application-state, classifier or adapter change.
+
+### Deviations (permanent decisions)
+
+| Deviation | Reason |
+|---|---|
+| An empty `description` string stores no description (NULL `raw_text`/`text_hash`) and appends an empty snapshot | the prompt only forbids `null`; an empty string is a legitimate edit and follows the existing scan/import convention for offers without text |
+| A manual description edit does not re-run the classifier | the prompt keeps the classifier unchanged; scores refresh on the next sighting or `jobwatch reclassify --all`, just like any other text change outside the scan loop |
+| Provenance expansion persists per offer in `localStorage` instead of per session | the user usually revisits the same offer; remembering the choice per offer is the least noisy option and survives reloads |
+| The description editor lives inside the existing Description `<details>` block rather than a separate panel | keeps the diff, snapshot count and manual edit in one place without changing the established detail layout |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -374,6 +422,8 @@ Done criteria (all met):
 | `notes_fts` not exposed | §4 | Open. The index is maintained but `GET /api/offers?q=` searches offers only |
 | No FTS search over companies in the UI | §9 | Open. `GET /api/companies?q=` matches the name; no full-text company search |
 | No snapshot listing endpoint | §9 | Open. Detail returns the latest snapshot, the count and a diff of the two latest only |
+| Manual description edits do not refresh classifier scores | §6 | Open. Scores keep their previous values until the next sighting or `jobwatch reclassify --all`; the edit itself is versioned normally |
+| No frontend component tests | §9 | Open. UI changes are validated by `tsc`/`vite build` and backend tests; the event-label rename has no browser test runner |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
 | Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |

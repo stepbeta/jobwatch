@@ -199,6 +199,103 @@ func TestPatchOffer(t *testing.T) {
 	wantErrorCode(t, ts.do(t, "PATCH", "/api/offers/1", map[string]any{"bogus": 1}), 400, "invalid_json")
 }
 
+func TestPatchOfferDescription(t *testing.T) {
+	ts := newTestServer(t)
+	sre, _ := seedOfferSet(t, ts)
+	ctx := context.Background()
+
+	const oldText = "Kubernetes and Terraform"
+	oldHash := model.TextHash(oldText)
+	if _, err := ts.db.ExecContext(ctx,
+		`UPDATE job_offers SET raw_text = ?, text_hash = ? WHERE id = ?`, oldText, oldHash, sre.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.InsertSnapshot(ctx, ts.db, sre.ID, oldText, ts.clock.now()); err != nil {
+		t.Fatal(err)
+	}
+	before, err := db.GetOffer(ctx, ts.db, sre.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts.clock.advance(5 * time.Minute)
+
+	const newText = "Kubernetes, Terraform and Nomad\nRemote-first team."
+	rec := ts.do(t, "PATCH", "/api/offers/1", map[string]any{"description": newText})
+	wantCode(t, rec, 200)
+	patched := decodeBody[struct {
+		Offer offerJSON `json:"offer"`
+	}](t, rec).Offer
+	if patched.RawText == nil || *patched.RawText != newText {
+		t.Errorf("patched offer raw_text = %v, want %q", patched.RawText, newText)
+	}
+
+	// The stored text and hash are replaced, updated_at is bumped and the
+	// manual edit becomes the latest versioned snapshot.
+	after, err := db.GetOffer(ctx, ts.db, sre.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.RawText == nil || *after.RawText != newText {
+		t.Errorf("raw_text = %v, want %q", after.RawText, newText)
+	}
+	if after.TextHash == nil || *after.TextHash != model.TextHash(newText) {
+		t.Errorf("text_hash = %v, want %q", after.TextHash, model.TextHash(newText))
+	}
+	if !after.UpdatedAt.Equal(ts.clock.now()) || after.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Errorf("updated_at = %v, want %v (was %v)", after.UpdatedAt, ts.clock.now(), before.UpdatedAt)
+	}
+	if after.OfferState != before.OfferState {
+		t.Errorf("description edit changed offer_state to %q", after.OfferState)
+	}
+
+	rec = ts.do(t, "GET", "/api/offers/1", nil)
+	wantCode(t, rec, 200)
+	detail := decodeBody[offerDetailResp](t, rec)
+	if detail.SnapshotCount != 2 || detail.LatestSnapshot == nil || detail.LatestSnapshot.RawText != newText {
+		t.Fatalf("snapshot_count = %d latest = %+v, want 2 and the new text", detail.SnapshotCount, detail.LatestSnapshot)
+	}
+	if detail.SnapshotDiff == nil || detail.SnapshotDiff.From.ID == detail.SnapshotDiff.To.ID {
+		t.Errorf("snapshot_diff = %+v, want old -> new", detail.SnapshotDiff)
+	}
+	if detail.Offer.RawText == nil || *detail.Offer.RawText != newText {
+		t.Errorf("detail raw_text = %v, want %q", detail.Offer.RawText, newText)
+	}
+
+	// A second edit appends another snapshot rather than replacing one.
+	rec = ts.do(t, "PATCH", "/api/offers/1", map[string]any{"description": "Third version"})
+	wantCode(t, rec, 200)
+	if n, err := db.CountSnapshots(ctx, ts.db, sre.ID); err != nil || n != 3 {
+		t.Errorf("snapshots after second edit = %d (err=%v), want 3", n, err)
+	}
+
+	// null is rejected: the snapshot invariant has no "cleared" revision.
+	wantErrorCode(t, ts.do(t, "PATCH", "/api/offers/1", map[string]any{"description": nil}),
+		400, "validation_failed")
+	// Wrong JSON type and empty patch are rejected too.
+	wantErrorCode(t, ts.do(t, "PATCH", "/api/offers/1", map[string]any{"description": 42}),
+		400, "validation_failed")
+	wantErrorCode(t, ts.do(t, "PATCH", "/api/offers/1", map[string]any{}), 400, "validation_failed")
+	if n, err := db.CountSnapshots(ctx, ts.db, sre.ID); err != nil || n != 3 {
+		t.Errorf("rejected patches changed snapshots: %d (err=%v)", n, err)
+	}
+
+	// Description can be combined with the other editable fields in one
+	// atomic update.
+	rec = ts.do(t, "PATCH", "/api/offers/1", map[string]any{
+		"application_state": "interview", "description": "Fourth version",
+	})
+	wantCode(t, rec, 200)
+	got := decodeBody[struct {
+		Offer offerJSON `json:"offer"`
+	}](t, rec).Offer
+	if got.ApplicationState != "interview" {
+		t.Errorf("application_state = %q, want interview", got.ApplicationState)
+	}
+
+	wantErrorCode(t, ts.do(t, "PATCH", "/api/offers/99", map[string]any{"description": "x"}),
+		404, "not_found")
+}
+
 func TestImportOffer(t *testing.T) {
 	ts := newTestServer(t)
 

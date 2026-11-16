@@ -121,7 +121,12 @@ export const api = {
   getOffer: (id: number) => request<OfferDetail>(`/offers/${id}`),
   patchOffer: (
     id: number,
-    patch: { application_state?: string; offer_state?: string; location?: string | null },
+    patch: {
+      application_state?: string
+      offer_state?: string
+      location?: string | null
+      description?: string
+    },
   ) => request<{ offer: OfferDetail['offer'] }>(`/offers/${id}`, body('PATCH', patch)),
   mergeOffer: (id: number, intoId: number) =>
     request<{

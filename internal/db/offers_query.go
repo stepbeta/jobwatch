@@ -187,17 +187,22 @@ func placeholders(n int) string {
 }
 
 // OfferUpdate is a partial update of an offer. nil fields are left
-// unchanged; an empty Location clears the column.
+// unchanged; an empty Location clears the column. A non-nil Description
+// replaces raw_text (empty stores no description), recomputes text_hash
+// and appends a snapshot in the same transaction.
 type OfferUpdate struct {
 	ApplicationState *model.ApplicationState
 	OfferState       *model.OfferState
 	Location         *string
+	Description      *string
 }
 
-// UpdateOfferFields applies u and bumps updated_at. Offer fingerprints
-// are not recomputed: location is a display/collision-bucket field, and
-// the fingerprint stays stable for dedup.
-func UpdateOfferFields(ctx context.Context, q Querier, id int64, u OfferUpdate, now time.Time) error {
+// UpdateOfferFields applies u atomically and bumps updated_at. Offer
+// fingerprints are not recomputed: location is a display/collision-bucket
+// field, and the fingerprint stays stable for dedup. A description edit
+// is versioned with a new snapshot row, exactly like a scan-captured
+// description.
+func UpdateOfferFields(ctx context.Context, sqlDB *sql.DB, id int64, u OfferUpdate, now time.Time) error {
 	var sets []string
 	var args []any
 	if u.ApplicationState != nil {
@@ -216,18 +221,43 @@ func UpdateOfferFields(ctx context.Context, q Querier, id int64, u OfferUpdate, 
 		}
 		args = append(args, nullStr(loc))
 	}
+	if u.Description != nil {
+		sets = append(sets, "raw_text = ?", "text_hash = ?")
+		desc := strings.TrimSpace(*u.Description)
+		var rawText, textHash *string
+		if desc != "" {
+			h := model.TextHash(desc)
+			rawText, textHash = &desc, &h
+		}
+		args = append(args, nullStr(rawText), nullStr(textHash))
+	}
 	if len(sets) == 0 {
 		return nil
 	}
+
+	tx, err := sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin offer %d update: %w", id, err)
+	}
+	defer tx.Rollback()
+
 	sets = append(sets, "updated_at = ?")
 	args = append(args, model.FormatTime(now), id)
-	res, err := q.ExecContext(ctx,
+	res, err := tx.ExecContext(ctx,
 		`UPDATE job_offers SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...)
 	if err != nil {
 		return fmt.Errorf("update offer %d: %w", id, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
+	}
+	if u.Description != nil {
+		if err := InsertSnapshot(ctx, tx, id, strings.TrimSpace(*u.Description), now); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit offer %d update: %w", id, err)
 	}
 	return nil
 }

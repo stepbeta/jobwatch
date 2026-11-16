@@ -109,7 +109,7 @@ job_offer_provenance (           -- one row per (source, offer sighting)
 events (                          -- timeline, per offer
   id INTEGER PK,
   offer_id INTEGER NOT NULL REFERENCES job_offers(id) ON DELETE CASCADE,
-  type TEXT NOT NULL,             -- cv_sent | reply_received | interview | offer | rejected | ghosted | other
+  type TEXT NOT NULL,             -- cv_sent | message_received | message_sent | interview | offer | rejected | ghosted | other
   description TEXT,               -- optional free text
   occurred_at TEXT NOT NULL,      -- user-editable (backdating is normal)
   created_at TEXT
@@ -244,7 +244,8 @@ global "Refresh all". Optionally trigger via `jobwatch scan`.
 - CRUD `/api/sources`, `POST /api/sources/:id/scan`
 - `GET /api/offers?filters...` (state, scores, remote policy, company,
   full-text query), `GET /api/offers/:id`
-- `PATCH /api/offers/:id` (states, location edit, manual merge/split)
+- `PATCH /api/offers/:id` (states, location edit, description edit,
+  manual merge/split)
 - CRUD `/api/offers/:id/events`, CRUD `/api/notes`
 - CRUD `/api/companies`, `GET /api/companies/:id` (offers + notes)
 - `POST /api/offers/import`, `POST /api/companies/:id/merge`
@@ -266,12 +267,15 @@ Local-only dashboard. Sections:
 - **Offer detail page**:
   - header: company, title, states (editable dropdowns), scores
   - provenance block: ALL links where this offer was seen, side by side,
-    so the user can open them and decide whether they are really the
+    collapsed by default behind a "Provenance (N links)" disclosure, so
+    the user can open them and decide whether they are really the
     same offer (with "split offer" action)
   - left column: vertical **timeline** of events, add/backdate/delete
   - right column: stacked **notes**, each optionally pinned to a
     timeline event
-  - full description text with snapshots/diff view when `changed`
+  - full description text with snapshots/diff view when `changed`, plus
+    an Add/Edit action that saves a manually pasted description through
+    `PATCH /api/offers/:id` (versioned as a new snapshot)
 - **Company detail page**: all its offers + company-level notes +
   possible-duplicate-company merge prompt.
 - **Sources page**: list with type, last scan status/time, enable/disable,
@@ -341,3 +345,15 @@ plain React + a lightweight table component is fine.
   only the JSON listing and leave `RawOffer.Description` empty rather
   than fetching one page per posting. Migration 0005 seeds the Semble
   source (data only, schema unchanged).
+- 2026-11-16 (after Milestone 7b): the event vocabulary is `cv_sent`,
+  `message_received`, `message_sent`, `interview`, `offer`, `rejected`,
+  `ghosted`, `other`. `message_received` covers both a recruiter's
+  inbound first contact and a reply to an application; `message_sent`
+  covers user-initiated pings and follow-ups. Migration 0006 renames
+  existing `reply_received` rows in place (data only, no schema change).
+  `PATCH /api/offers/:id` may replace the description; it recomputes the
+  text hash and appends a snapshot, and rejects `null`. A manual
+  description follows the same changed-detection rules as a scan: a
+  later differing source description marks the offer `changed` and
+  appends a snapshot, while a sighting without a description never
+  clears the stored text.

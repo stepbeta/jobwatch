@@ -104,19 +104,24 @@ func (p RemotePolicy) Valid() bool {
 type EventType string
 
 const (
-	EventCVSent        EventType = "cv_sent"
-	EventReplyReceived EventType = "reply_received"
-	EventInterview     EventType = "interview"
-	EventOffer         EventType = "offer"
-	EventRejected      EventType = "rejected"
-	EventGhosted       EventType = "ghosted"
-	EventOther         EventType = "other"
+	EventCVSent EventType = "cv_sent"
+	// EventMessageReceived is either a recruiter's inbound first contact
+	// or a reply to an application.
+	EventMessageReceived EventType = "message_received"
+	// EventMessageSent is a user-initiated ping or follow-up.
+	EventMessageSent EventType = "message_sent"
+	EventInterview   EventType = "interview"
+	EventOffer       EventType = "offer"
+	EventRejected    EventType = "rejected"
+	EventGhosted     EventType = "ghosted"
+	EventOther       EventType = "other"
 )
 
 // Valid reports whether t is a known event type.
 func (t EventType) Valid() bool {
 	switch t {
-	case EventCVSent, EventReplyReceived, EventInterview, EventOffer, EventRejected, EventGhosted, EventOther:
+	case EventCVSent, EventMessageReceived, EventMessageSent, EventInterview,
+		EventOffer, EventRejected, EventGhosted, EventOther:
 		return true
 	}
 	return false

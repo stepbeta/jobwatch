@@ -53,7 +53,9 @@ registered in 5a/5b with their decided config. Migration 0004 is an
 audit-only no-op: the 5c-decided rows (We Work Remotely, Workable search
 and the aggregator notes) were already in 0003, so it inserts nothing.
 Migration 0005 is a data-only seed for the BambooHR source added in 6a
-(Semble, `bamboohr`, `{"subdomain":"semble"}`).
+(Semble, `bamboohr`, `{"subdomain":"semble"}`). Migration 0006 is a
+data-only, in-place rename of the old `reply_received` event value to
+`message_received`; no schema or source rows change.
 
 `sources.Detect(url)` maps public board URLs (`boards.greenhouse.io/x`,
 `job-boards[.eu].greenhouse.io/x`, `jobs[.eu].lever.co/x`,
@@ -196,6 +198,10 @@ front so a syntax error is a 400), enum lists, score minima,
 fallback. Detail responses join provenance with source names, events,
 offer notes, the latest snapshot, the snapshot count and a line diff
 between the two latest snapshots (`snapshot_diff`) when two exist.
+`PATCH /api/offers/{id}` applies state/location/description changes in
+one transaction; a description edit also recomputes `text_hash` and
+appends a snapshot. Event types are validated in Go; `message_received`
+replaced `reply_received` (migration 0006) and `message_sent` was added.
 
 ## Offer merge and split (`internal/db`)
 
@@ -249,7 +255,7 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`), filtered/paginated offers table, import form |
 | `pages/SourcesPage.tsx` | source list, enable toggle, scan status, per-source refresh, add/edit form with type-dependent config fields (personio/workable/rss/html included), explanatory notes on seeded sources |
-| `pages/OfferPage.tsx` | editable states/location, score badges with reason tooltips, provenance links with explicit merge and split actions, timeline with backdating, notes with event pin, snapshot diff and full description |
+| `pages/OfferPage.tsx` | editable states/location, score badges with reason tooltips, collapsed provenance disclosure with explicit merge and split actions (open state stored per offer in localStorage), timeline with backdating and message event labels, notes with event pin, snapshot diff, and full description with Add/Edit save |
 | `pages/CompanyPage.tsx` | offers, company notes, rename/website edit, dismissible possible-duplicate banner and explicit keep-which-company merge dialog |
 | `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source/event/note/company) |
 | `App.tsx` | top bar, global refresh-all loop, auto-dismissing toast stack, routing |

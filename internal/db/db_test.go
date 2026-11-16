@@ -363,6 +363,112 @@ func TestSeedBambooHRSource(t *testing.T) {
 	}
 }
 
+// TestMigrationRenamesReplyReceived applies the first five migrations,
+// seeds an event with the old type and then upgrades with the real
+// embedded set, proving the data-only 0006 rename fixes existing
+// timelines without touching other columns.
+func TestMigrationRenamesReplyReceived(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "upgrade.db")
+	sqlDB, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+
+	base := fstest.MapFS{}
+	for _, name := range []string{
+		"0001_init.sql",
+		"0002_known_hard_sources.sql",
+		"0003_seed_remote_sources.sql",
+		"0004_seed_5c_sources.sql",
+		"0005_seed_bamboohr_sources.sql",
+	} {
+		body, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base[name] = &fstest.MapFile{Data: body}
+	}
+	if err := Migrate(ctx, sqlDB, base); err != nil {
+		t.Fatalf("apply migrations 0001-0005: %v", err)
+	}
+
+	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
+	c, _, err := ResolveCompany(ctx, sqlDB, "Acme", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
+		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0006",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstContact := "first contact"
+	oldEvent, err := InsertEvent(ctx, sqlDB, model.Event{
+		OfferID: o.ID, Type: model.EventType("reply_received"),
+		Description: &firstContact, OccurredAt: now.AddDate(0, 0, -2),
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Migrate(ctx, sqlDB, migrations.FS); err != nil {
+		t.Fatalf("upgrade with embedded migrations: %v", err)
+	}
+
+	var typ, occurred string
+	var description sql.NullString
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT type, occurred_at, description FROM events WHERE id = ?`, oldEvent.ID).
+		Scan(&typ, &occurred, &description); err != nil {
+		t.Fatal(err)
+	}
+	if typ != string(model.EventMessageReceived) {
+		t.Errorf("event type after migration = %q, want %q", typ, model.EventMessageReceived)
+	}
+	if occurred != model.FormatTime(oldEvent.OccurredAt) || !description.Valid || description.String != "first contact" {
+		t.Errorf("migration changed other event fields: occurred=%q description=%v", occurred, description)
+	}
+	var old int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM events WHERE type = 'reply_received'`).Scan(&old); err != nil {
+		t.Fatal(err)
+	}
+	if old != 0 {
+		t.Errorf("reply_received rows after migration = %d, want 0", old)
+	}
+	var recorded int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 6 AND name = 'event_message_types'`).
+		Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Errorf("migration 0006 recorded %d times, want 1", recorded)
+	}
+
+	// The rename is data-only and idempotent: re-applying 0006 changes no
+	// row and cannot recreate reply_received.
+	body, err := migrations.FS.ReadFile("0006_event_message_types.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := sqlDB.ExecContext(ctx, string(body)); err != nil {
+			t.Fatalf("re-apply 0006: %v", err)
+		}
+	}
+	events, err := ListEvents(ctx, sqlDB, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Type != model.EventMessageReceived {
+		t.Errorf("events after re-applying 0006 = %+v", events)
+	}
+}
+
 func TestMigrateIdempotent(t *testing.T) {
 	sqlDB := openTest(t)
 	ctx := context.Background()

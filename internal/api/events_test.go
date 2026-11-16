@@ -61,6 +61,55 @@ func TestEventsCRUD(t *testing.T) {
 	}
 }
 
+func TestEventMessageTypes(t *testing.T) {
+	ts := newTestServer(t)
+	seedOfferSet(t, ts)
+
+	create := func(body map[string]any) eventJSON {
+		t.Helper()
+		rec := ts.do(t, "POST", "/api/offers/1/events", body)
+		wantCode(t, rec, 201)
+		return decodeBody[eventResp](t, rec).Event
+	}
+	// The two message types are accepted and the old reply_received value
+	// is gone. Ordering still follows occurred_at, then id.
+	create(map[string]any{"type": "message_received", "occurred_at": "2026-11-02T10:00:00Z"})
+	create(map[string]any{"type": "message_sent", "occurred_at": "2026-11-01T10:00:00Z"})
+	create(map[string]any{"type": "message_received", "occurred_at": "2026-11-03T10:00:00Z"})
+
+	rec := ts.do(t, "GET", "/api/offers/1/events", nil)
+	wantCode(t, rec, 200)
+	events := decodeBody[eventListResp](t, rec).Events
+	if len(events) != 3 {
+		t.Fatalf("events = %+v", events)
+	}
+	wantOrder := []struct {
+		typ  string
+		date string
+	}{
+		{"message_sent", "2026-11-01T10:00:00Z"},
+		{"message_received", "2026-11-02T10:00:00Z"},
+		{"message_received", "2026-11-03T10:00:00Z"},
+	}
+	for i, want := range wantOrder {
+		if events[i].Type != want.typ || events[i].OccurredAt != want.date {
+			t.Errorf("event %d = %+v, want %s at %s", i, events[i], want.typ, want.date)
+		}
+	}
+
+	wantErrorCode(t, ts.do(t, "POST", "/api/offers/1/events", map[string]any{"type": "reply_received"}),
+		400, "validation_failed")
+
+	// PATCH accepts the new values as well.
+	rec = ts.do(t, "PATCH", "/api/offers/1/events/2", map[string]any{"type": "message_received"})
+	wantCode(t, rec, 200)
+	if e := decodeBody[eventResp](t, rec).Event; e.Type != "message_received" {
+		t.Errorf("patched event type = %q, want message_received", e.Type)
+	}
+	wantErrorCode(t, ts.do(t, "PATCH", "/api/offers/1/events/2", map[string]any{"type": "reply_received"}),
+		400, "validation_failed")
+}
+
 func TestEventValidation(t *testing.T) {
 	ts := newTestServer(t)
 	seedOfferSet(t, ts)

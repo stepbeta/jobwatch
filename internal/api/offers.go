@@ -190,6 +190,7 @@ type offerPatch struct {
 	ApplicationState *string         `json:"application_state"`
 	OfferState       *string         `json:"offer_state"`
 	Location         json.RawMessage `json:"location"`
+	Description      json.RawMessage `json:"description"`
 }
 
 func (s *Server) patchOffer(w http.ResponseWriter, r *http.Request) {
@@ -231,9 +232,23 @@ func (s *Server) patchOffer(w http.ResponseWriter, r *http.Request) {
 		loc = strings.TrimSpace(loc)
 		u.Location = &loc
 	}
-	if u.ApplicationState == nil && u.OfferState == nil && u.Location == nil {
+	if len(in.Description) > 0 {
+		if string(in.Description) == "null" {
+			writeError(w, http.StatusBadRequest, "validation_failed",
+				"description cannot be null; send a string to replace it")
+			return
+		}
+		var desc string
+		if err := json.Unmarshal(in.Description, &desc); err != nil {
+			writeError(w, http.StatusBadRequest, "validation_failed", "description must be a string")
+			return
+		}
+		desc = strings.TrimSpace(desc)
+		u.Description = &desc
+	}
+	if u.ApplicationState == nil && u.OfferState == nil && u.Location == nil && u.Description == nil {
 		writeError(w, http.StatusBadRequest, "validation_failed",
-			"nothing to update: provide application_state, offer_state or location")
+			"nothing to update: provide application_state, offer_state, location or description")
 		return
 	}
 
@@ -255,7 +270,9 @@ func (s *Server) patchOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"offer": offerModelToJSON(o, company.Name)})
+	offerOut := offerModelToJSON(o, company.Name)
+	offerOut.RawText = o.RawText
+	writeJSON(w, http.StatusOK, map[string]any{"offer": offerOut})
 }
 
 func diffToJSON(from, to model.Snapshot) snapshotDiffJSON {
