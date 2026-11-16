@@ -66,13 +66,10 @@ func TestSeededKnownSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcs) != 4 {
-		t.Fatalf("seeded sources = %d, want 4", len(srcs))
-	}
 	want := map[string]bool{"Datadog (Workday)": true, "Cisco (Workday)": true, "SAP (SuccessFactors)": true, "Welcome to the Jungle (search)": true}
 	for _, src := range srcs {
 		if !want[src.Name] {
-			t.Errorf("unexpected seeded source %q", src.Name)
+			continue
 		}
 		delete(want, src.Name)
 		if src.Enabled {
@@ -87,6 +84,7 @@ func TestSeededKnownSources(t *testing.T) {
 	}
 
 	// Re-applying the migration file is harmless.
+	before := len(srcs)
 	if _, err := sqlDB.ExecContext(ctx, `DELETE FROM sources WHERE name = 'SAP (SuccessFactors)'`); err != nil {
 		t.Fatal(err)
 	}
@@ -101,8 +99,103 @@ func TestSeededKnownSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcs) != 4 {
-		t.Errorf("sources after re-apply = %d, want 4", len(srcs))
+	if len(srcs) != before {
+		t.Errorf("sources after re-apply = %d, want %d", len(srcs), before)
+	}
+	found := false
+	for _, src := range srcs {
+		if src.Name == "SAP (SuccessFactors)" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("SAP (SuccessFactors) was not restored by re-applying 0002")
+	}
+}
+
+func TestSeededRemoteSources(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTest(t)
+	srcs, err := ListSources(ctx, sqlDB, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs) != 69 {
+		t.Fatalf("seeded sources = %d, want 69 (4 known-hard + 65 from 5a/5b)", len(srcs))
+	}
+	byURL := make(map[string]model.Source, len(srcs))
+	enabled := 0
+	for _, src := range srcs {
+		if _, dup := byURL[src.URL]; dup {
+			t.Errorf("duplicate seeded source URL %q", src.URL)
+		}
+		byURL[src.URL] = src
+		if src.Enabled {
+			enabled++
+		}
+	}
+	if enabled != 37 {
+		t.Errorf("enabled seeded sources = %d, want 37", enabled)
+	}
+
+	check := func(url, typ, configPart string, wantEnabled bool) {
+		t.Helper()
+		src, ok := byURL[url]
+		if !ok {
+			t.Fatalf("seeded source %q missing", url)
+		}
+		if string(src.Type) != typ {
+			t.Errorf("%s type = %q, want %q", url, src.Type, typ)
+		}
+		if src.Enabled != wantEnabled {
+			t.Errorf("%s enabled = %v, want %v", url, src.Enabled, wantEnabled)
+		}
+		if !strings.Contains(src.ConfigJSON, configPart) {
+			t.Errorf("%s config = %s, want it to contain %s", url, src.ConfigJSON, configPart)
+		}
+	}
+	check("https://job-boards.greenhouse.io/grafanalabs/", "greenhouse", `"board_token":"grafanalabs"`, true)
+	check("https://careers.epicompany.eu/jobs.rss", "rss", `"location_field":"locations/location/name"`, true)
+	check("https://murena.com/jobs/", "html", `"item_selector":"table#jobs_table`, true)
+	check("https://careers.achievetestprep.com/jobs/Careers", "html", `"note"`, false)
+	check("https://www.welcometothejungle.com/fr/jobs-matches", "wttj", `"note"`, false)
+
+	// Re-applying the data migration must neither duplicate rows nor
+	// overwrite a user edit; a deleted seed row comes back.
+	body, err := migrations.FS.ReadFile("0003_seed_remote_sources.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	editedURL := "https://job-boards.greenhouse.io/grafanalabs/"
+	deletedURL := "https://jobs.lever.co/malt"
+	if _, err := sqlDB.ExecContext(ctx,
+		`UPDATE sources SET name = 'Edited Grafana', config_json = '{"edited":true}', enabled = 0 WHERE url = ?`, editedURL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, `DELETE FROM sources WHERE url = ?`, deletedURL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, string(body)); err != nil {
+		t.Fatalf("re-apply remote seed migration: %v", err)
+	}
+	srcs, err = ListSources(ctx, sqlDB, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs) != 69 {
+		t.Errorf("sources after re-apply = %d, want 69", len(srcs))
+	}
+	for _, src := range srcs {
+		switch src.URL {
+		case editedURL:
+			if src.Name != "Edited Grafana" || src.ConfigJSON != `{"edited":true}` || src.Enabled {
+				t.Errorf("user-edited source was overwritten: %+v", src)
+			}
+		case deletedURL:
+			if !src.Enabled {
+				t.Errorf("deleted seed source not restored enabled: %+v", src)
+			}
+		}
 	}
 }
 
@@ -337,7 +430,7 @@ func TestBackup(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(t.TempDir(), "missing.db")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("stat missing file: %v", err)
 	}
-	if _, err := GetSource(ctx, sqlDB, 42); !errors.Is(err, ErrNotFound) {
+	if _, err := GetSource(ctx, sqlDB, 9999); !errors.Is(err, ErrNotFound) {
 		t.Errorf("GetSource missing = %v, want ErrNotFound", err)
 	}
 }

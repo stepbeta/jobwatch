@@ -43,6 +43,10 @@ func setup(t *testing.T) (*sql.DB, *Scanner, *fakeFetcher, *clock) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { sqlDB.Close() })
+	// Isolate each test from the sources seeded by migrations 0002/0003.
+	if _, err := sqlDB.ExecContext(context.Background(), `DELETE FROM sources`); err != nil {
+		t.Fatalf("clear sources: %v", err)
+	}
 	ff := &fakeFetcher{offers: map[int64][]sources.RawOffer{}, errs: map[int64]error{}}
 	c := &clock{t: time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)}
 	return sqlDB, &Scanner{DB: sqlDB, Fetcher: ff, Now: c.now}, ff, c

@@ -236,6 +236,27 @@
   container without matching every ancestor; the Murena source uses it
   to skip the separate "Other positions" table.
 
+### Seed remote sources with the binary
+
+#### Added
+- Data-only migration 0003 seeds the 65 sources decided in Milestones
+  5a/5b: 37 enabled sources (11 Greenhouse, 11 Ashby, 4 Lever, 1
+  Personio, 5 RSS and 5 HTML listings) and the 28 disabled
+  not-trackable rows, each with its exact `config_json` (board tokens,
+  feed mappings, HTML selectors and explanatory notes). The four
+  disabled known-hard rows from 0002 are not repeated.
+- Tests cover the seeded count, types, enabled flags, representative
+  configs, URL uniqueness, re-application without duplicates, restoration
+  of a deleted seed row and preservation of user edits.
+
+#### Changed
+- A fresh database, or a deleted `jobwatch.db`, now contains every remote
+  source without re-running `add-sources` or repeating the 5b
+  investigation. Existing rows are never updated, so user edits survive
+  upgrades.
+- README, API, DATA-MODEL and SMOKE-TEST document the seeded source set
+  and migration 0003.
+
 ### Changed
 - SPEC updated to match decisions made in Milestone 1: Ashby is fetched
   with GET, a few schema columns are NOT NULL with defaults, enum values

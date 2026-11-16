@@ -44,8 +44,11 @@ Adapters (`sources.NewRegistry`):
 | html | `GET <source url>` | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); cascadia supports `:has()` and `:haschild()` for row containers; one request per scan, no per-offer page fetches; minimum interval 5 s |
 
 `wttj` and `manual` have no fetcher; `wttj` scans are skipped and manual
-offers come from the import path. The seeded Workday/SuccessFactors rows
-are disabled `html`/`wttj` sources with a `note` in `config_json`.
+offers come from the import path. Disabled seeded rows are `html`/`wttj`
+sources with a `note` in `config_json`: the known-hard
+Workday/SuccessFactors/WTTJ rows from migration 0002 and the 28
+not-trackable decisions from 5b. Migration 0003 seeds the 65 sources
+registered in 5a/5b with their decided config.
 
 `sources.Detect(url)` maps public board URLs (`boards.greenhouse.io/x`,
 `job-boards[.eu].greenhouse.io/x`, `jobs[.eu].lever.co/x`,

@@ -80,9 +80,13 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
   faster than every 5 s. Only the configured listing page is fetched.
 - A failing source never blocks the others. Failed scans change no offer.
 
-### Known-hard rows
+### Seeded rows
 
-A fresh database seeds four disabled rows (Datadog/Cisco Workday, SAP
-SuccessFactors, WTTJ). They are present only as reminders: no adapter
-reads them. Their `note` explains why. Do not enable them expecting a
-scan; use manual import or an RSS/HTML source instead.
+A fresh database seeds every source decided in Milestones 5a/5b: 37
+enabled ATS/RSS/HTML sources and 28 disabled not-trackable rows with a
+`note`, plus the four disabled known-hard rows from 0002
+(Datadog/Cisco Workday, SAP SuccessFactors, WTTJ). The known-hard rows
+are present only as reminders: no adapter reads them. Do not enable
+them expecting a scan; use manual import or an RSS/HTML source instead.
+Deleting `jobwatch.db` and reopening it recreates the same 69 rows
+without re-running `add-sources`.

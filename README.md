@@ -44,14 +44,15 @@ The database defaults to `./jobwatch.db` and is created on first use.
 Use the global `--db <path>` flag to choose another file.
 
 ```sh
-# 1. Register sources (type and board name are detected from the URL)
+# 1. A fresh database already seeds the 69 sources decided in Milestones
+#    5a/5b (37 enabled ATS/RSS/HTML, 32 disabled with a note). Add extras:
 ./jobwatch add-source https://boards.greenhouse.io/gitlab --name GitLab
 ./jobwatch add-source https://jobs.lever.co/spotify --name Spotify
 ./jobwatch add-source https://jobs.ashbyhq.com/linear --name Linear
 ./jobwatch add-source https://acme.jobs.personio.de --name Acme
 ./jobwatch add-source https://apply.workable.com/acme --name Acme
 
-# or register every recognized URL from a bookmark list
+# or register every recognized URL from another bookmark list
 ./jobwatch add-sources docs/REMOTE-SOURCES.txt
 
 # 2. Start the web UI (or scan headlessly with ./jobwatch scan)
@@ -62,7 +63,7 @@ Use the global `--db <path>` flag to choose another file.
 ./jobwatch scan
 ./jobwatch list                  # ID, company, title, location, remote, T/L scores, states
 ./jobwatch list --offer-state changed
-./jobwatch list --sources        # includes the note on disabled known-hard sources
+./jobwatch list --sources        # includes notes on disabled seeded sources
 ./jobwatch reclassify            # backfill scores of older offers
 ./jobwatch reclassify --all      # recompute every score after keyword changes
 ./jobwatch backup ~/jobwatch-$(date +%F).db   # validated copy
@@ -99,7 +100,8 @@ Built with React + TypeScript (Vite). The pages are:
   global Refresh all in the top bar, and add/edit forms whose config
   fields depend on the source type (Personio tenant, Workable account,
   RSS field mapping, HTML CSS selectors). Disabled seeded rows for the
-  known-hard Workday/SuccessFactors/WTTJ links show their explanation.
+  known-hard Workday/SuccessFactors/WTTJ links and the not-trackable
+  sources show their explanation.
 - **Offer detail** — editable application/offer state and location,
   score badges, all provenance links side by side, explicit merge into
   another offer and split (select links for a second offer), a vertical

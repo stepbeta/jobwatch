@@ -52,10 +52,12 @@ Pings the database. `200`:
 
 ### GET /api/sources
 
-All sources, ordered by ID. A fresh database includes four disabled,
-seeded rows (Datadog/Cisco Workday, SAP SuccessFactors, WTTJ); their
-`config.note` explains why they are disabled. Their IDs sit before any
-source you add.
+All sources, ordered by ID. A fresh database includes 69 seeded rows:
+the 37 sources decided in Milestones 5a/5b (ATS boards, RSS feeds and
+HTML listings) and 32 disabled rows (four known-hard Workday/
+SuccessFactors/WTTJ rows plus 28 not-trackable URLs). Every disabled
+row has a `config.note` explaining why. Their IDs sit before any source
+you add; migrations only insert missing URLs and never overwrite edits.
 
 ```json
 { "sources": [ {

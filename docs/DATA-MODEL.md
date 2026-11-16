@@ -13,12 +13,14 @@ require a table rebuild.
 |---|---|---|
 | 0001 | `0001_init.sql` | All tables below, indexes, FTS5 tables and triggers |
 | 0002 | `0002_known_hard_sources.sql` | Data-only seed: four disabled source rows (Datadog/Cisco Workday, SAP SuccessFactors, WTTJ) with an explanatory `note`. `INSERT … WHERE NOT EXISTS` by URL, so it is safe to re-apply |
+| 0003 | `0003_seed_remote_sources.sql` | Data-only seed: the 65 sources decided in Milestones 5a/5b (37 enabled: 11 Greenhouse, 11 Ashby, 4 Lever, 1 Personio, 5 RSS, 5 HTML; 28 disabled not-trackable rows with a `note`). Reproduces each source's name, URL, type, enabled flag and full `config_json`. `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
 Opening a database that records a version unknown to the binary fails.
-Milestone 2 and 3 needed no schema change; Milestone 4 only adds the
-disabled-source rows from 0002 (no table or column changes).
+Milestones 2 and 3 needed no schema change; Milestone 4 adds the
+disabled-source rows from 0002 and Milestone 5 ships the 65 registered
+sources from 5a/5b in 0003 (both data only, no table or column changes).
 
 ## Tables
 
@@ -77,7 +79,13 @@ supported by cascadia; only the listing page is fetched, once per scan.
 
 Seeded source rows from migration 0002 are disabled and carry a `note`.
 They exist so the known-hard Workday/SuccessFactors links and WTTJ are
-visible without pretending an adapter can read them.
+visible without pretending an adapter can read them. Migration 0003
+seeds the 65 sources registered in Milestones 5a/5b with the exact
+configuration decided there: the enabled ATS boards and RSS/HTML
+listings keep their board tokens, field mappings and selectors, while
+the 28 not-trackable rows are disabled and carry their explanatory
+`note`. Both seeds only insert missing URLs and never update an existing
+row, so re-applying them or keeping a user-edited source is safe.
 
 ### job_offers
 | Column | Type | Notes |

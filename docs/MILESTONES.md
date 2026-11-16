@@ -206,6 +206,35 @@ Done criteria (all met):
 | We Work Remotely keeps the source name as the company | the feed has no company element and titles are "Company: Role"; splitting titles is the existing RSS known gap, not a 5b change |
 | The 28 not-trackable rows are `html`/`wttj` sources with a `note` | consistent with the seeded Workday/SuccessFactors/WTTJ rows; they are never scanned and offers enter through manual import |
 
+## Source seeding — migration 0003 — DONE
+
+Done criteria (all met):
+- [x] Exported the 69 sources from the working database (4 known-hard
+      from 0002 + 65 registered in 5a/5b) instead of guessing any row
+- [x] Data-only migration 0003 reproduces all 65 5a/5b rows with their
+      name, URL, `source_type`, enabled flag and full `config_json`:
+      37 enabled (11 Greenhouse, 11 Ashby, 4 Lever, 1 Personio, 5 RSS,
+      5 HTML) and 28 disabled not-trackable rows with their notes
+- [x] The four disabled known-hard rows from 0002 are left untouched and
+      not duplicated
+- [x] Every INSERT uses `WHERE NOT EXISTS` by URL; no row is ever
+      updated, so re-applying the file and user-edited sources are safe
+- [x] Tests assert the seed count/types/flags/configs, URL uniqueness,
+      duplicate-free re-application, restoration of a deleted row and
+      preservation of an edited row
+- [x] Fresh temp database migrations apply and `jobwatch list --sources`
+      shows all 69 rows with the expected type/config/enabled state;
+      a real scan of enabled sources still works
+- [x] `go build`, `go vet`, `go test` green; no adapter change
+
+### Deviations (permanent decisions)
+
+| Deviation | Reason |
+|---|---|
+| Seeding is a data-only migration rather than a built-in source registry | migrations already ship with the binary and run on first open; this keeps a single source of truth in SQLite and needs no new code path |
+| The seed never updates a row with the same URL | the user may have changed the name, config or enabled flag; the seed must only fill a fresh or partially populated database |
+| The 28 not-trackable rows are shipped disabled with their notes | they were decided as manual-import-only in 5b; re-enabling them would make scans fail repeatedly |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |

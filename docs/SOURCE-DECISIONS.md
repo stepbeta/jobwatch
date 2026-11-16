@@ -5,6 +5,12 @@ classify was investigated with exactly one polite fetch through the
 shared client (robots.txt, rate limit, no retries, no anti-bot
 bypassing). Each row records the single action taken.
 
+The decided rows are now shipped by data-only migration
+`0003_seed_remote_sources.sql`, alongside the 8 boards registered in 5a:
+a fresh database contains all 65 sources with the same type, enabled
+flag and config (or disabled with the same `note`). This document remains
+the record of why each URL is tracked or not.
+
 Actions:
 
 - **underlying-board** — a direct Greenhouse/Lever/Ashby board was found
