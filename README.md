@@ -4,23 +4,37 @@ JobWatch is a local, single-user tool that tracks job offers from
 company job boards (Greenhouse, Lever, Ashby), detects new, changed and
 disappeared offers, and keeps everything in a single SQLite file.
 
-Status: Milestone 1 (core + CLI). There is no web UI yet; `serve` only
-exposes a health endpoint. See [docs/MILESTONES.md](docs/MILESTONES.md)
-for what is done and the known gaps.
+Status: Milestone 2 (REST API + web UI). The Go server exposes the full
+API and, when built with the `ui` tag, embeds the React SPA. See
+[docs/MILESTONES.md](docs/MILESTONES.md) for what is done and the known
+gaps.
 
 ## Requirements
 
-- Go 1.27 or newer. No other dependencies: SQLite is a pure-Go driver
-  compiled into the binary.
+- Go 1.27 or newer. No other backend dependencies: SQLite is a pure-Go
+  driver compiled into the binary.
+- Node.js 20+ (with npm) only to build the web UI.
 - Linux (developed on WSL2 / Ubuntu 24.04); other platforms should work.
 
 ## Build
 
 ```sh
+# Backend only: the binary serves the API and a placeholder page.
 go build -o jobwatch ./cmd/jobwatch
+
+# With the embedded web UI.
+cd web
+npm ci
+npm run build
+cd ..
+go build -tags ui -o jobwatch ./cmd/jobwatch
+
 # optional: embed a version string
-go build -ldflags "-X main.version=0.1.0" -o jobwatch ./cmd/jobwatch
+go build -tags ui -ldflags "-X main.version=0.2.0" -o jobwatch ./cmd/jobwatch
 ```
+
+`web/dist` is a build artifact (gitignored). Plain `go build ./...`
+works without it; `-tags ui` requires `npm run build` first.
 
 ## Quick start
 
@@ -33,10 +47,12 @@ Use the global `--db <path>` flag to choose another file.
 ./jobwatch add-source https://jobs.lever.co/spotify --name Spotify
 ./jobwatch add-source https://jobs.ashbyhq.com/linear --name Linear
 
-# 2. Scan all enabled sources (or one: ./jobwatch scan 2)
-./jobwatch scan
+# 2. Start the web UI (or scan headlessly with ./jobwatch scan)
+./jobwatch serve
+# → http://127.0.0.1:8080
 
-# 3. Look at the results
+# 3. Headless usage still works
+./jobwatch scan
 ./jobwatch list
 ./jobwatch list --offer-state changed
 ./jobwatch list --sources
@@ -46,7 +62,7 @@ Use the global `--db <path>` flag to choose another file.
 
 | Command | Description |
 |---|---|
-| `serve [--port 8080] [--addr 127.0.0.1]` | Start the local server. Only `GET /api/health` exists so far |
+| `serve [--port 8080] [--addr 127.0.0.1]` | Start the local server: REST API under `/api` and the SPA at `/` |
 | `scan [all\|<source-id>]` | Scan all enabled sources (default) or one source by ID. Exits non-zero if a source failed |
 | `add-source <url> [--name N] [--type T] [--config JSON] [--disabled]` | Register a source |
 | `list [--offer-state S] [--app-state S] [--limit N] [--sources]` | List offers (most recently seen first) or sources |
@@ -54,6 +70,43 @@ Use the global `--db <path>` flag to choose another file.
 | `backup <dest>` | Write a consistent copy of the database to `dest` (must not exist) |
 
 Run `./jobwatch <command> --help` for details.
+
+## Web UI
+
+Built with React + TypeScript (Vite). The pages are:
+
+- **Dashboard** — the Applications section on top (offers whose
+  application state is not `todo`, most recent timeline activity first),
+  then the offers table with filters (application/offer state, remote
+  policy, score minima, company, full-text search), sorting and
+  pagination. Score badges show `—` until the classifier is wired in.
+- **Sources** — enable/disable, scan status, per-source Refresh, a
+  global Refresh all in the top bar, and add/edit forms whose config
+  fields depend on the source type.
+- **Offer detail** — editable application/offer state and location,
+  all provenance links side by side (with a split placeholder), a
+  vertical timeline with backdating, notes optionally pinned to an
+  event, and the latest description snapshot.
+- **Company detail** — offers, company notes, rename/website edit and a
+  merge prompt when a possible duplicate company is detected.
+
+Development (two processes):
+
+```sh
+./jobwatch serve                 # API on 127.0.0.1:8080
+cd web && npm install && npm run dev
+# open http://127.0.0.1:5173 — Vite proxies /api to the Go server
+```
+
+The production build (`npm run build`) writes `web/dist`, which is
+embedded by `go build -tags ui`.
+
+## REST API
+
+All endpoints are under `/api` and documented in
+[docs/API.md](docs/API.md). Errors use
+`{"error":{"code":"...","message":"..."}}`. `GET /api/health` is the
+liveness check.
 
 ### Sources
 
@@ -121,10 +174,12 @@ point `--db` at it to use it.
 
 ```sh
 go build ./... && go vet ./... && go test ./...
+cd web && npm run build        # type-check + production bundle
 ```
 
 Tests use recorded fixtures (`internal/sources/testdata`) and never hit
-the network.
+the network. The API integration tests use a temporary SQLite file per
+handler group.
 
 ## Documentation
 

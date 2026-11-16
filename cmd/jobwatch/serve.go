@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/stepbeta/jobwatch/internal/api"
+	"github.com/stepbeta/jobwatch/web"
 )
 
 func newServeCmd(opts *rootOptions) *cobra.Command {
@@ -31,13 +32,7 @@ func newServeCmd(opts *rootOptions) *cobra.Command {
 
 			mux := http.NewServeMux()
 			mux.Handle("/api/", (&api.Server{DB: sqlDB, Version: version}).Handler())
-			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/" {
-					http.NotFound(w, r)
-					return
-				}
-				fmt.Fprintln(w, "JobWatch is running. The web UI is not built yet; see /api/health.")
-			})
+			mux.Handle("/", web.Handler())
 
 			srv := &http.Server{
 				Addr:              net.JoinHostPort(addr, strconv.Itoa(port)),

@@ -29,6 +29,46 @@
 - Documentation: ARCHITECTURE, DATA-MODEL, API, MILESTONES.
 - README with build, quick-start and command reference.
 
+### Milestone 2 — REST API and web UI
+
+#### Added
+- REST API under `/api`: sources CRUD with a synchronous per-source
+  scan endpoint, offers list with enum/score/company/FTS5 filters,
+  sorting and pagination, offer detail (provenance, timeline, notes,
+  latest snapshot), offer state/location updates, nested event CRUD
+  with backdating, polymorphic note CRUD with optional event pinning,
+  companies CRUD with detail and an explicit merge endpoint, and manual
+  offer import. All errors use `{"error":{"code","message"}}`.
+- Conservative possible-duplicate company detection (token containment
+  or small edit distance) shown as a merge prompt in the UI. Merging is
+  always an explicit user action; it moves offers and notes, rewrites
+  offer fingerprints and refuses on collisions.
+- React + TypeScript SPA (Vite): dashboard with an Applications section
+  sorted by recent activity, filtered/paginated offers table with score
+  badge placeholders, sources page with type-dependent add/edit forms
+  and scan indicators, offer detail with editable states, provenance
+  cards, backdatable timeline and pinned notes, and company detail with
+  offers, notes and the merge prompt. English, dense layout, no i18n.
+- Integration tests for every API handler group over a temporary
+  SQLite database with `httptest`, plus DB tests for offer filtering,
+  FTS search, event/note lifecycle, company rename/merge conflicts and
+  source deletion.
+- The SPA is embedded with `go:embed` when built with `-tags ui`; a
+  placeholder page explains the build otherwise. Vite proxies `/api` to
+  the Go server in development.
+
+#### Changed
+- `serve` now serves the SPA at `/` (embedded or placeholder) instead
+  of a plain-text message.
+- The API and UI require no schema change; migration 0001 is unchanged.
+- Clearing an offer's location stores SQL `NULL`, not an empty string.
+- README documents building the UI, the `ui` build tag, the API and the
+  development workflow.
+
+#### Fixed
+- Deleting a non-existent company now returns `404` instead of `204`.
+
+
 ### Changed
 - SPEC updated to match decisions made in Milestone 1: Ashby is fetched
   with GET, a few schema columns are NOT NULL with defaults, enum values

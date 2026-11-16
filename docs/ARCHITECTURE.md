@@ -12,10 +12,10 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 | `internal/db` | `Open` (DSN pragmas: WAL, foreign_keys, busy_timeout 5s, `_txlock=immediate`), migration runner, `Backup` (`VACUUM INTO`), queries over a `Querier` (`*sql.DB` or `*sql.Tx`) |
 | `internal/model` | Table structs, enum constants, `normalize.go` (company/title normalization, location bucket, fingerprint, text hash), time helpers |
 | `internal/sources` | `Fetcher` interface, `RawOffer`, `Config` (config_json), `Registry`, polite HTTP `Client`, robots.txt parser, URL type detection, adapters |
-| `internal/scan` | Scan pipeline and manual import; depends on both `db` and `sources`, shared by CLI and (later) API |
-| `internal/api` | REST handlers under `/api` (only `GET /api/health` so far) |
+| `internal/scan` | Scan pipeline and manual import; depends on both `db` and `sources`, shared by CLI and API |
+| `internal/api` | REST handlers under `/api`: sources, offers, events, notes, companies, import, health |
 | `internal/classify` | Placeholder for the scoring engine |
-| `web/` | Placeholder for the SPA |
+| `web/` | React + TypeScript SPA source and its Go embedding (`Handler`) |
 
 ## Fetching
 
@@ -85,7 +85,88 @@ Input: `{company, title, location?, url?, description?}`. Runs the same
 sighting logic in one transaction with `source_id = NULL`; a matching
 fingerprint adds a provenance row to the existing offer. Never fetches.
 
+## REST API (`internal/api`)
+
+`api.Server{DB, Version, Fetcher, Now}` mounts Go 1.22 `ServeMux`
+patterns under `/api/`. The fallback `/api/` pattern answers unknown
+methods and paths with `404 not_found`. Bodies are decoded strictly
+(unknown fields rejected, 1 MiB cap); responses use snake_case DTOs
+defined in `internal/api/dto.go`, independent of the `model` structs.
+Errors always use `{"error":{"code","message"}}`.
+
+| Group | Routes |
+|---|---|
+| health | `GET /api/health` |
+| sources | `GET/POST /api/sources`, `GET/PATCH/DELETE /api/sources/{id}`, `POST /api/sources/{id}/scan` |
+| offers | `GET /api/offers`, `POST /api/offers/import`, `GET/PATCH /api/offers/{id}` |
+| events | `GET/POST /api/offers/{id}/events`, `PATCH/DELETE /api/offers/{id}/events/{eventID}` |
+| notes | `GET/POST /api/notes`, `GET/PATCH/DELETE /api/notes/{id}` |
+| companies | `GET/POST /api/companies`, `GET/PATCH/DELETE /api/companies/{id}`, `POST /api/companies/{id}/merge` |
+
+`POST /api/sources/{id}/scan` builds a `scan.Scanner` from the server's
+fetcher and runs one source synchronously, returning the `scan.Result`
+plus the refreshed source row. A fetch failure is part of the summary
+(HTTP 200) and is recorded in `last_scan_status`; an unimplemented
+adapter is reported as `skipped` without touching the status. The
+default fetcher is one `sources.Registry` with one shared
+`sources.Client`, created lazily per server so the robots cache and
+per-host rate limiter survive across requests.
+
+Offer listing is `db.QueryOffers`: a shared WHERE builder for the count
+and page queries, FTS5 `MATCH` against `job_offers_fts` (validated up
+front so a syntax error is a 400), enum lists, score minima,
+`has_application`, company filter, five sort orders, `limit`/`offset`.
+`recent_event` sorts by `MAX(events.occurred_at)` with `updated_at` as
+fallback. Detail responses join provenance with source names, events,
+offer notes, the latest snapshot and the snapshot count.
+
+## Company matching, rename and merge (`internal/db`)
+
+`model.SimilarCompanyNames` is a conservative pure function used for
+the UI's "possible duplicate" prompt: token containment (`qonto` /
+`qonto france`, at most two extra tokens) or edit distance ≤ 2 on names
+of 5+ characters with ≤ 20% changes. Scores below
+`model.MinCompanyCandidateScore` (60) are dropped. Nothing merges
+automatically.
+
+`db.MergeCompanies` and `db.UpdateCompany` (rename) share
+`planFingerprintUpdates`: for every offer of the source company it
+rebuilds the fingerprint with the target normalized name, preserving
+whether the offer used the base or the location-bucketed form. If any
+new fingerprint already exists outside the company (or twice in the
+plan), the whole operation is rejected with `db.ConflictError` and
+nothing is written. Merge moves offers and company notes, copies the
+website when the target has none, and deletes the emptied company.
+Rename changes `name`/`name_normalized` and rewrites fingerprints in
+the same transaction. Deleting a company is refused while it owns
+offers; deleting a source detaches its provenance rows (`source_id`
+becomes NULL) instead of deleting offers.
+
+## Web UI (`web/`)
+
+React 19 + TypeScript built by Vite. Source in `web/src`:
+
+| Path | Content |
+|---|---|
+| `App.tsx` | top bar, global refresh-all loop, scan notices, routing |
+| `router.ts` | hash routing (`#/`, `#/sources`, `#/offers/:id`, `#/companies/:id`) |
+| `api.ts` | typed fetch wrapper and API error mapping |
+| `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`), filtered/paginated offers table, import form |
+| `pages/SourcesPage.tsx` | source list, enable toggle, scan status, per-source refresh, add/edit form with type-dependent config fields |
+| `pages/OfferPage.tsx` | editable states/location, provenance cards with split placeholder, timeline with backdating, notes with event pin, snapshot block |
+| `pages/CompanyPage.tsx` | offers, company notes, rename/website edit, possible-duplicate merge prompt |
+
+`vite.config.ts` proxies `/api` to `127.0.0.1:8080` in development.
+
+In production the built `web/dist` is embedded by `web/embed.go`
+(`//go:build ui`, `//go:embed all:dist`). `web/spa.go` serves the files
+with immutable caching for `assets/` and an `index.html` fallback for
+client-side routes. Without the `ui` build tag, `web/noui.go` serves a
+placeholder page explaining how to build the SPA, so plain
+`go build ./...` works on a fresh checkout.
+
 ## Server
 
-`jobwatch serve` binds `127.0.0.1:8080` by default and mounts the API
-under `/api/`; `/` returns a plain-text placeholder until the SPA exists.
+`jobwatch serve` binds `127.0.0.1:8080` by default. `/api/` is the REST
+API; everything else is the SPA (embedded when built with `-tags ui`,
+placeholder otherwise).

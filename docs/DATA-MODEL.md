@@ -16,6 +16,8 @@ require a table rebuild.
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
 Opening a database that records a version unknown to the binary fails.
+Milestone 2 (REST API + web UI) needs no schema change; it uses the
+tables, indexes and FTS5 triggers created by 0001.
 
 ## Tables
 
@@ -29,7 +31,14 @@ Opening a database that records a version unknown to the binary fails.
 | created_at | TEXT | |
 
 Companies are resolved by exact `name_normalized` match and created if
-missing. No fuzzy matching or merging yet.
+missing. `model.SimilarCompanyNames` proposes possible duplicates for
+the UI (token containment or small edit distance); nothing is merged
+without an explicit `POST /api/companies/:id/merge`. A merge moves
+offers and company notes to the target, rewrites offer fingerprints
+with the target's normalized name, and deletes the emptied company. A
+rename through the API also rewrites fingerprints in the same
+transaction. Both operations are rejected (`merge_conflict`) when a new
+fingerprint would collide.
 
 ### sources
 | Column | Type | Notes |
@@ -96,7 +105,8 @@ Index: (source_id, external_uid).
 | occurred_at | TEXT NOT NULL | user-editable |
 | created_at | TEXT | |
 
-Index: (offer_id, occurred_at). Not yet written by any code path.
+Index: (offer_id, occurred_at). Written by the events API; `occurred_at`
+is user-editable and may be backdated.
 
 ### notes
 | Column | Type | Notes |
@@ -108,8 +118,10 @@ Index: (offer_id, occurred_at). Not yet written by any code path.
 | pinned_event_id | INTEGER → events ON DELETE SET NULL | |
 | created_at, updated_at | TEXT | |
 
-Indexes: (entity_type, entity_id), pinned_event_id. Not yet written by
-any code path.
+Indexes: (entity_type, entity_id), pinned_event_id. Written by the notes
+API; a note can be pinned to a timeline event (`ON DELETE SET NULL`
+when that event is deleted). The pin must belong to the note's entity
+(the offer itself, or an offer of the company).
 
 ### snapshots
 | Column | Type | Notes |
@@ -165,9 +177,35 @@ sync by AFTER INSERT / DELETE / UPDATE OF triggers
   first one updates the offer; the others only add provenance.
 
 ### application_state
-Column exists with default `todo`; no transitions implemented yet.
+Default `todo`. Transitions are user-driven through
+`PATCH /api/offers/:id`; the API validates the enum and bumps
+`updated_at` (the audit field). No automatic transition is derived from
+timeline events.
 
 ### last_scan_status
 `ok` after a committed scan; `blocked` when robots.txt disallows the URL
 or the server answers 401/403/429; `error` for any other failure.
 Sources whose type has no adapter are skipped and keep their status.
+`POST /api/sources/:id/scan` returns the summary; the same values are
+surfaced on `GET /api/sources`.
+
+## Company merge and rename
+
+- Rename (`PATCH /api/companies/:id`): changes `name` and
+  `name_normalized`; every offer of the company gets a new fingerprint
+  with the new normalized name. Base fingerprints stay base,
+  location-bucketed fingerprints keep their bucket.
+- Merge (`POST /api/companies/:id/merge`): offers and company notes of
+  the source company move to the target, fingerprints are rewritten the
+  same way, the target inherits the source website when it has none,
+  and the source company row is deleted. Offers are never deleted.
+- Both operations are transactional. If a rewritten fingerprint already
+  exists (same company + title [+ location bucket]) the operation is
+  rejected with `409 merge_conflict` and nothing changes.
+- Deleting a company is refused while it owns offers. Deleting a source
+  keeps its provenance rows but sets their `source_id` to NULL.
+
+## Full-text search exposure
+
+`job_offers_fts` backs `GET /api/offers?q=`. `notes_fts` is maintained by
+the triggers but is not exposed through a search endpoint yet.

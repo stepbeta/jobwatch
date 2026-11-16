@@ -1,22 +1,390 @@
 # REST API
 
-Base path `/api`, JSON. Errors use:
+Base path `/api`, JSON in and out. Every endpoint is served by
+`jobwatch serve` on localhost. The SPA uses the same API.
 
-```json
-{ "error": { "code": "string", "message": "string" } }
-```
+## Conventions
 
-Any unknown method/path under `/api/` returns `404` with code `not_found`.
+- **Errors** always use one shape:
+
+  ```json
+  { "error": { "code": "string", "message": "string" } }
+  ```
+
+- Unknown method/path under `/api/` returns `404` with code `not_found`.
+- IDs are SQLite autoincrement integers, positive.
+- Timestamps are RFC3339 strings in UTC (`2026-11-16T09:00:00Z`).
+  Nullable timestamps are `null`.
+- Enum-like fields are strings; unknown values are rejected with
+  `400 validation_failed`.
+- Request bodies must be a single JSON object; unknown fields are
+  rejected with `400 invalid_json`.
+- **Partial updates**: a field that is absent is left unchanged. For
+  nullable fields (`location`, `website`, `description`,
+  `pinned_event_id`), `null` clears the value.
+- Pagination: `limit` (bounded per endpoint) and `offset` (default 0).
+  List responses include `total`, `limit` and `offset`.
+- `config` on sources is a JSON object; unknown keys are preserved.
+
+## Enumerations
+
+| Field | Values |
+|---|---|
+| `source_type` | `greenhouse` `lever` `ashby` `personio` `workable` `wttj` `rss` `html` `manual` |
+| `last_scan_status` | `ok` `error` `blocked`; `null` = never scanned |
+| `offer_state` | `active` `changed` `disappeared` |
+| `application_state` | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
+| `remote_policy` | `remote` `hybrid` `onsite` `unknown` |
+| event `type` | `cv_sent` `reply_received` `interview` `offer` `rejected` `ghosted` `other` |
+| note `entity_type` | `offer` `company` |
 
 ## GET /api/health
 
-Liveness check; pings the database.
-
-Response `200`:
+Pings the database. `200`:
 
 ```json
 { "status": "ok", "version": "dev", "db": "ok" }
 ```
 
-Response `503` when the database ping fails: `status` = `"degraded"`,
-`db` = the error message.
+`503` when the ping fails: `status` = `"degraded"`, `db` = the error.
+
+## Sources
+
+### GET /api/sources
+
+All sources, ordered by ID.
+
+```json
+{ "sources": [ {
+  "id": 1, "name": "Acme", "url": "https://boards.greenhouse.io/acme",
+  "source_type": "greenhouse", "config": {}, "enabled": true,
+  "last_scan_at": "2026-11-16T09:00:00Z", "last_scan_status": "ok",
+  "created_at": "2026-11-15T10:00:00Z"
+} ] }
+```
+
+### POST /api/sources
+
+Body:
+
+```json
+{ "name": "Acme", "url": "https://boards.greenhouse.io/acme",
+  "source_type": "greenhouse", "config": { "company": "Acme SAS" }, "enabled": true }
+```
+
+- `name` required.
+- `source_type` optional; when omitted it is detected from the URL
+  (Greenhouse, Lever, Ashby board URLs). A URL whose type cannot be
+  detected requires an explicit `source_type`.
+- `url` must be `http(s)` except for `manual`.
+- `enabled` defaults to `true`; `config` defaults to `{}`.
+- `201` with `{ "source": {...} }`.
+- `409 duplicate_source` when another source has the same URL.
+- `400 validation_failed` for invalid fields.
+
+### GET /api/sources/:id
+
+`200 { "source": {...} }`, `404 not_found`.
+
+### PATCH /api/sources/:id
+
+Any of `name`, `url`, `source_type`, `config`, `enabled`. Same
+validation as POST, including the duplicate-URL check. Returns
+`200 { "source": {...} }`.
+
+### DELETE /api/sources/:id
+
+`204`. The source row is removed; its provenance rows are kept (offers
+and links are never deleted) and lose their `source_id` (they become
+`null`, like manual imports).
+
+### POST /api/sources/:id/scan
+
+Runs the scan pipeline for one source **synchronously** and returns its
+summary. Fetch failures are reported in the body with HTTP `200`; the
+source's `last_scan_status` is updated to `error` or `blocked`. A source
+type without an adapter is `skipped` and its status is left untouched.
+
+```json
+{
+  "result": {
+    "source_id": 1, "source_name": "Acme", "status": "ok",
+    "fetched": 12, "skipped": 0, "new": 2, "seen": 9,
+    "changed": 1, "reappeared": 0, "disappeared": 1,
+    "error": ""
+  },
+  "source": { "id": 1, "last_scan_status": "ok", "...": "..." }
+}
+```
+
+`status` is `ok`, `error`, `blocked` or `skipped`. `error` is omitted
+when empty. `404 not_found` for an unknown source.
+
+## Offers
+
+### GET /api/offers
+
+Query parameters (all optional):
+
+| Param | Meaning |
+|---|---|
+| `q` | FTS5 query over offer title and description. Invalid FTS syntax → `400 invalid_query` |
+| `application_state` | one value or comma-separated list |
+| `offer_state` | one value or comma-separated list |
+| `remote_policy` | one value or comma-separated list |
+| `min_title_confidence` | integer 0–100; offers with a NULL score are excluded |
+| `min_location_confidence` | integer 0–100; same |
+| `company_id` | restrict to one company |
+| `has_application` | `true`/`1`: only `application_state != todo` |
+| `sort` | `last_seen` (default), `first_seen`, `recent_event`, `title`, `company` |
+| `limit` | default 50, maximum 200 |
+| `offset` | default 0 |
+
+`recent_event` orders by the latest timeline event, falling back to
+`updated_at` when an offer has no events (used by the dashboard's
+Applications section).
+
+```json
+{
+  "offers": [ {
+    "id": 7, "company_id": 2, "company_name": "Acme",
+    "title": "Site Reliability Engineer", "location": "Paris, France",
+    "remote_policy": "unknown", "url": "https://boards.greenhouse.io/acme/jobs/7",
+    "offer_state": "active", "application_state": "applied",
+    "first_seen_at": "2026-11-10T08:00:00Z",
+    "last_seen_at": "2026-11-16T09:00:00Z",
+    "updated_at": "2026-11-16T09:00:00Z",
+    "title_confidence": null, "location_confidence": null,
+    "match_reasons": null, "last_event_at": "2026-11-15T17:30:00Z"
+  } ],
+  "total": 1, "limit": 50, "offset": 0
+}
+```
+
+`match_reasons` is the classifier's stored JSON (array of strings) or
+`null` until classification runs. Scores are `null` until classified.
+
+### POST /api/offers/import
+
+Manually add an offer seen elsewhere. Runs the same dedup path as scans
+in one transaction; a matching fingerprint adds a provenance row to the
+existing offer instead of creating a duplicate.
+
+```json
+{ "company": "Qonto", "title": "SRE (H/F)", "location": "Paris",
+  "url": "https://example.com/job/1", "description": "optional" }
+```
+
+`company` and `title` required; `url` must be `http(s)` when present.
+`201 { "offer_id": 3, "created": true }` for a new offer, `200` with
+`created: false` when an existing offer matched.
+
+### GET /api/offers/:id
+
+Full detail: offer, company, every provenance link (with source name),
+the timeline, the offer's notes, the latest snapshot and the snapshot
+count.
+
+```json
+{
+  "offer": { "...": "...", "raw_text": "latest description" },
+  "company": { "id": 2, "name": "Acme", "name_normalized": "acme",
+               "website": null, "created_at": "...", "offer_count": 3, "note_count": 0 },
+  "provenance": [ {
+    "id": 1, "source_id": 1, "source_name": "Acme",
+    "external_uid": "gh-123", "url": "https://...",
+    "first_seen_at": "...", "last_seen_at": "..."
+  } ],
+  "events": [ { "id": 4, "offer_id": 7, "type": "cv_sent",
+                "description": "sent", "occurred_at": "...", "created_at": "..." } ],
+  "notes": [ { "id": 2, "entity_type": "offer", "entity_id": 7,
+               "body": "...", "pinned_event_id": 4,
+               "created_at": "...", "updated_at": "..." } ],
+  "latest_snapshot": { "id": 9, "raw_text": "...", "captured_at": "..." },
+  "snapshot_count": 3
+}
+```
+
+`source_id`/`source_name` are `null` for manual imports. Events are
+ordered chronologically. `latest_snapshot` is `null` when no snapshot
+exists. `404 not_found` for an unknown offer.
+
+### PATCH /api/offers/:id
+
+Body may contain any of:
+
+```json
+{ "application_state": "interview", "offer_state": "active",
+  "location": "Remote - France" }
+```
+
+- `application_state`, `offer_state`: validated enum values.
+- `location`: string to set, `null` to clear.
+- The update bumps `updated_at`; that is the audit trail.
+- Setting `offer_state` to `active` is how a user acknowledges a
+  `changed` offer.
+- Fingerprints are not recomputed on a location correction.
+- `200 { "offer": {...} }`; `400 validation_failed` when no field is
+  given or a value is invalid; `404 not_found`.
+
+## Events (offer timeline)
+
+### GET /api/offers/:id/events
+
+`200 { "events": [...] }`, chronological (`occurred_at`, then id).
+`404` when the offer does not exist.
+
+### POST /api/offers/:id/events
+
+```json
+{ "type": "cv_sent", "description": "optional",
+  "occurred_at": "2026-11-01T10:30:00Z" }
+```
+
+`type` is required. `occurred_at` is optional (defaults to now) and may
+be backdated; it accepts RFC3339, `YYYY-MM-DDTHH:MM` and `YYYY-MM-DD`
+(interpreted as UTC). `201 { "event": {...} }`.
+
+### PATCH /api/offers/:id/events/:eventID
+
+Any of `type`, `description`, `occurred_at`. `description: null` clears
+it. The event must belong to `:id`, otherwise `404 not_found`.
+
+### DELETE /api/offers/:id/events/:eventID
+
+`204`. Notes pinned to the event keep their text; `pinned_event_id`
+becomes `null` (`ON DELETE SET NULL`).
+
+## Notes
+
+Notes are polymorphic: `entity_type` is `offer` or `company` and
+`entity_id` points at that entity.
+
+### GET /api/notes?entity_type=offer&entity_id=7
+
+Both parameters are required. `200 { "notes": [...] }`, oldest first.
+`404` when the entity does not exist.
+
+### POST /api/notes
+
+```json
+{ "entity_type": "offer", "entity_id": 7, "body": "call back Monday",
+  "pinned_event_id": 4 }
+```
+
+`body` required; `pinned_event_id` optional. The event must belong to
+the offer, or (for a company note) to an offer of that company.
+`201 { "note": {...} }`.
+
+### GET /api/notes/:id
+
+`200 { "note": {...} }`, `404 not_found`.
+
+### PATCH /api/notes/:id
+
+`body` and/or `pinned_event_id` (`null` removes the pin). Pinning is
+validated against the note's entity. `200 { "note": {...} }`.
+
+### DELETE /api/notes/:id
+
+`204`.
+
+## Companies
+
+### GET /api/companies
+
+Parameters: `q` (matches the display or normalized name), `limit`
+(default 100, max 500), `offset`.
+
+```json
+{ "companies": [ { "id": 2, "name": "Acme", "name_normalized": "acme",
+                   "website": null, "created_at": "...",
+                   "offer_count": 3, "note_count": 1 } ],
+  "total": 1, "limit": 100, "offset": 0 }
+```
+
+### POST /api/companies
+
+```json
+{ "name": "Acme", "website": "https://acme.example" }
+```
+
+`201 { "company": {...} }`. `409 duplicate_company` when the normalized
+name already exists.
+
+### GET /api/companies/:id
+
+Company, its offers (up to 200, most recently seen first), its
+company-level notes, and conservative possible-duplicate candidates
+that the UI may propose for merging:
+
+```json
+{
+  "company": { "...": "..." },
+  "offers": [ { "...": "..." } ],
+  "notes": [ { "...": "..." } ],
+  "possible_duplicates": [ { "id": 9, "name": "Acme France",
+                             "name_normalized": "acme france",
+                             "score": 75, "reason": "one name extends the other" } ]
+}
+```
+
+Candidates are proposals only; nothing is merged automatically.
+
+### PATCH /api/companies/:id
+
+`name` and/or `website` (`null` clears the website). Renaming changes
+the normalized name and therefore rewrites the fingerprints of the
+company's offers so future scans keep deduplicating correctly.
+`200 { "company": {...} }`.
+
+- `409 duplicate_company` when the new normalized name is taken.
+- `409 merge_conflict` when a rewritten fingerprint would collide with
+  an existing offer; the message lists the offer IDs and nothing is
+  written.
+
+### DELETE /api/companies/:id
+
+`204`. Refused with `409 company_has_offers` when the company still has
+offers (offers are never deleted; merge the company instead). Company
+notes of the deleted company are removed.
+
+### POST /api/companies/:id/merge
+
+Merges company `:id` **into** `into_id`; this is only ever called after
+an explicit user confirmation.
+
+```json
+{ "into_id": 2 }
+```
+
+In one transaction: offers and company-level notes move to the target,
+offer fingerprints are rewritten with the target's normalized name
+(keeping their location bucket), the target inherits the source website
+when it has none, and the emptied company row is deleted.
+
+```json
+{ "company": { "id": 2, "...": "..." },
+  "merged_company_id": 1, "moved_offers": 4, "moved_notes": 1 }
+```
+
+- `400 validation_failed` when merging a company into itself.
+- `404 not_found` when either company does not exist.
+- `409 merge_conflict` when a moved offer's new fingerprint already
+  exists in the target (same company + title + location bucket). The
+  merge is rolled back; the user must resolve the offers first.
+
+## Error codes
+
+| HTTP | `code` | When |
+|---|---|---|
+| 400 | `invalid_json` | body is not one JSON object, or has unknown fields |
+| 400 | `invalid_id` | path ID is not a positive integer |
+| 400 | `validation_failed` | missing/invalid field, empty patch, self-merge |
+| 400 | `invalid_query` | invalid FTS5 search expression |
+| 404 | `not_found` | unknown endpoint, entity or child entity |
+| 409 | `duplicate_source` | another source uses the URL |
+| 409 | `duplicate_company` | normalized company name already exists |
+| 409 | `company_has_offers` | deleting a company that still owns offers |
+| 409 | `merge_conflict` | offer fingerprints would collide during rename/merge |
+| 500 | `internal` | unexpected storage error |

@@ -90,6 +90,15 @@ const (
 	RemoteUnknown RemotePolicy = "unknown"
 )
 
+// Valid reports whether p is a known remote policy.
+func (p RemotePolicy) Valid() bool {
+	switch p {
+	case RemoteFull, RemoteHybrid, RemoteOnsite, RemoteUnknown:
+		return true
+	}
+	return false
+}
+
 // EventType is the kind of a timeline event.
 type EventType string
 
@@ -103,6 +112,15 @@ const (
 	EventOther         EventType = "other"
 )
 
+// Valid reports whether t is a known event type.
+func (t EventType) Valid() bool {
+	switch t {
+	case EventCVSent, EventReplyReceived, EventInterview, EventOffer, EventRejected, EventGhosted, EventOther:
+		return true
+	}
+	return false
+}
+
 // EntityType is the kind of entity a note is attached to.
 type EntityType string
 
@@ -110,6 +128,15 @@ const (
 	EntityOffer   EntityType = "offer"
 	EntityCompany EntityType = "company"
 )
+
+// Valid reports whether t is a known note entity type.
+func (t EntityType) Valid() bool {
+	switch t {
+	case EntityOffer, EntityCompany:
+		return true
+	}
+	return false
+}
 
 type Company struct {
 	ID             int64

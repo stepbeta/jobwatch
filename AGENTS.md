@@ -58,7 +58,7 @@ internal/scan/       scan pipeline + manual import (uses db + sources)
 internal/classify/   scoring engine + keyword tables
 internal/api/        REST handlers
 internal/model/      types shared across packages
-web/                 React SPA source
+web/                 React SPA source (src/) + Go embed (embed.go, noui.go, spa.go)
 migrations/          numbered .sql files + embed.FS (migrations.go)
 docs/                living documentation (see below)
 ```

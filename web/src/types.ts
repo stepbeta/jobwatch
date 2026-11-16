@@ -1,0 +1,167 @@
+export type SourceType =
+  | 'greenhouse'
+  | 'lever'
+  | 'ashby'
+  | 'personio'
+  | 'workable'
+  | 'wttj'
+  | 'rss'
+  | 'html'
+  | 'manual'
+
+export type ScanStatus = 'ok' | 'error' | 'blocked'
+export type OfferState = 'active' | 'changed' | 'disappeared'
+export type ApplicationState =
+  | 'todo'
+  | 'applied'
+  | 'responded'
+  | 'interview'
+  | 'offer'
+  | 'negative'
+  | 'maybe'
+  | 'positive'
+export type RemotePolicy = 'remote' | 'hybrid' | 'onsite' | 'unknown'
+export type EventType =
+  | 'cv_sent'
+  | 'reply_received'
+  | 'interview'
+  | 'offer'
+  | 'rejected'
+  | 'ghosted'
+  | 'other'
+export type EntityType = 'offer' | 'company'
+
+export interface Source {
+  id: number
+  name: string
+  url: string
+  source_type: SourceType
+  config: Record<string, unknown>
+  enabled: boolean
+  last_scan_at: string | null
+  last_scan_status: ScanStatus | null
+  created_at: string | null
+}
+
+export interface Company {
+  id: number
+  name: string
+  name_normalized: string
+  website: string | null
+  created_at: string | null
+  offer_count: number
+  note_count: number
+}
+
+export interface CompanyCandidate {
+  id: number
+  name: string
+  name_normalized: string
+  score: number
+  reason: string
+}
+
+export interface Offer {
+  id: number
+  company_id: number
+  company_name: string
+  title: string
+  location: string | null
+  remote_policy: RemotePolicy
+  url: string | null
+  offer_state: OfferState
+  application_state: ApplicationState
+  first_seen_at: string
+  last_seen_at: string
+  updated_at: string
+  title_confidence: number | null
+  location_confidence: number | null
+  match_reasons: unknown
+  last_event_at: string | null
+  raw_text?: string | null
+}
+
+export interface Provenance {
+  id: number
+  source_id: number | null
+  source_name: string | null
+  external_uid: string | null
+  url: string
+  first_seen_at: string | null
+  last_seen_at: string | null
+}
+
+export interface Event {
+  id: number
+  offer_id: number
+  type: EventType
+  description: string | null
+  occurred_at: string
+  created_at: string | null
+}
+
+export interface Note {
+  id: number
+  entity_type: EntityType
+  entity_id: number
+  body: string
+  pinned_event_id: number | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface Snapshot {
+  id: number
+  raw_text: string
+  captured_at: string
+}
+
+export interface OfferDetail {
+  offer: Offer
+  company: Company
+  provenance: Provenance[]
+  events: Event[]
+  notes: Note[]
+  latest_snapshot: Snapshot | null
+  snapshot_count: number
+}
+
+export interface CompanyDetail {
+  company: Company
+  offers: Offer[]
+  notes: Note[]
+  possible_duplicates: CompanyCandidate[]
+}
+
+export interface OfferList {
+  offers: Offer[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface CompanyList {
+  companies: Company[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface ScanResult {
+  source_id: number
+  source_name: string
+  status: ScanStatus | 'skipped'
+  fetched: number
+  skipped: number
+  new: number
+  seen: number
+  changed: number
+  reappeared: number
+  disappeared: number
+  error?: string
+}
+
+export interface ScanResponse {
+  result: ScanResult
+  source: Source
+}

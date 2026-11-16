@@ -228,6 +228,45 @@ func UpdateSourceScan(ctx context.Context, q Querier, id int64, at time.Time, st
 	return nil
 }
 
+// UpdateSource replaces the editable fields of a source. Scan status
+// columns are left untouched.
+func UpdateSource(ctx context.Context, q Querier, s model.Source) error {
+	if !s.Type.Valid() {
+		return fmt.Errorf("update source %d: invalid source_type %q", s.ID, s.Type)
+	}
+	if s.ConfigJSON == "" {
+		s.ConfigJSON = "{}"
+	}
+	if _, err := q.ExecContext(ctx,
+		`UPDATE sources SET name = ?, url = ?, source_type = ?, config_json = ?, enabled = ? WHERE id = ?`,
+		s.Name, s.URL, string(s.Type), s.ConfigJSON, s.Enabled, s.ID); err != nil {
+		return fmt.Errorf("update source %d: %w", s.ID, err)
+	}
+	return nil
+}
+
+// DeleteSource removes a source. Its provenance rows are kept (the
+// offers and their links are never deleted) but lose their source
+// reference.
+func DeleteSource(ctx context.Context, sqlDB *sql.DB, id int64) error {
+	tx, err := sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin source delete: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE job_offer_provenance SET source_id = NULL WHERE source_id = ?`, id); err != nil {
+		return fmt.Errorf("detach provenance of source %d: %w", id, err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sources WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("delete source %d: %w", id, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit source delete: %w", err)
+	}
+	return nil
+}
+
 // ---------- offers ----------
 
 // offerColumns returns the job_offers column list in scanOffer order,
@@ -398,6 +437,7 @@ func MarkDisappeared(ctx context.Context, q Querier, sourceID int64, scanAt time
 type OfferListItem struct {
 	model.JobOffer
 	CompanyName string
+	LastEventAt *time.Time
 }
 
 // OfferFilter narrows ListOffers. Zero values mean "no filter".

@@ -296,3 +296,12 @@ plain React + a lightweight table component is fine.
   disappearance) specified; per-source rate limit clarified as enforced
   per host. Open gaps against this spec are tracked in
   `docs/MILESTONES.md`.
+- 2026-11-16 (after Milestone 2): the REST API is implemented with the
+  parameters documented in `docs/API.md` (including `has_application`,
+  `sort` and `limit`/`offset`, which the spec only described as
+  "filters" and "pagination"). Company rename and explicit merge
+  rewrite the offers' fingerprints and are rejected with a conflict
+  when that would duplicate an existing offer; deleting a source keeps
+  its provenance rows but clears their source reference. The SPA is
+  embedded only when the binary is built with `-tags ui`; without it a
+  placeholder page is served. Milestone 2 needs no schema change.
