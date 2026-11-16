@@ -12,6 +12,9 @@ Fixtures recorded from the public APIs/sites on 2026-11-15/16 and trimmed
 - `workable_jobs.json`: apply.workable.com/api/v1/widget/accounts/huggingface?details=true
   (first three jobs kept; a second location added to job 1 by hand to
   exercise multi-location grouping)
+- `bamboohr_careers.json`: semble.bamboohr.com/careers/list (recorded
+  verbatim on 2026-11-16, all 9 postings including one with no location
+  and several with null departments; no hand edits)
 - `rss_feed.xml`: weworkremotely.com/remote-jobs.rss (first three items,
   descriptions replaced with a short excerpt). Keeps the non-standard
   `<region>` element; the registered source maps `location_field: region`

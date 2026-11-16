@@ -14,6 +14,7 @@ const (
 	SourceAshby      SourceType = "ashby"
 	SourcePersonio   SourceType = "personio"
 	SourceWorkable   SourceType = "workable"
+	SourceBambooHR   SourceType = "bamboohr"
 	SourceWTTJ       SourceType = "wttj"
 	SourceRSS        SourceType = "rss"
 	SourceHTML       SourceType = "html"
@@ -24,7 +25,7 @@ const (
 func (t SourceType) Valid() bool {
 	switch t {
 	case SourceGreenhouse, SourceLever, SourceAshby, SourcePersonio, SourceWorkable,
-		SourceWTTJ, SourceRSS, SourceHTML, SourceManual:
+		SourceBambooHR, SourceWTTJ, SourceRSS, SourceHTML, SourceManual:
 		return true
 	}
 	return false

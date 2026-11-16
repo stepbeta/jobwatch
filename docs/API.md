@@ -30,7 +30,7 @@ Base path `/api`, JSON in and out. Every endpoint is served by
 
 | Field | Values |
 |---|---|
-| `source_type` | `greenhouse` `lever` `ashby` `personio` `workable` `wttj` `rss` `html` `manual` |
+| `source_type` | `greenhouse` `lever` `ashby` `personio` `workable` `bamboohr` `wttj` `rss` `html` `manual` |
 | `last_scan_status` | `ok` `error` `blocked`; `null` = never scanned |
 | `offer_state` | `active` `changed` `disappeared` |
 | `application_state` | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
@@ -52,12 +52,13 @@ Pings the database. `200`:
 
 ### GET /api/sources
 
-All sources, ordered by ID. A fresh database includes 69 seeded rows:
-the 37 sources decided in Milestones 5a/5b (ATS boards, RSS feeds and
-HTML listings) and 32 disabled rows (four known-hard Workday/
-SuccessFactors/WTTJ rows plus 28 not-trackable URLs). Every disabled
-row has a `config.note` explaining why. Their IDs sit before any source
-you add; migrations only insert missing URLs and never overwrite edits.
+All sources, ordered by ID. A fresh database includes 70 seeded rows:
+the 38 sources decided in Milestones 5a/5b/6a (ATS boards including
+Semble on BambooHR, RSS feeds and HTML listings) and 32 disabled rows
+(four known-hard Workday/SuccessFactors/WTTJ rows plus 28 not-trackable
+URLs). Every disabled row has a `config.note` explaining why. Their IDs
+sit before any source you add; migrations only insert missing URLs and
+never overwrite edits.
 
 ```json
 { "sources": [ {

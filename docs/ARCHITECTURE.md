@@ -40,6 +40,7 @@ Adapters (`sources.NewRegistry`):
 | ashby | `GET https://api.ashbyhq.com/posting-api/job-board/{org}` | `isListed=false` skipped; secondary locations joined with `; ` |
 | personio | `GET https://{tenant}.jobs.personio.{de,com}/xml` | `position` elements; office is the location, `id` builds `{tenant}/job/{id}`, `jobDescriptions` joined as titled HTML→text blocks; optional `language` query |
 | workable | `GET https://apply.workable.com/api/v1/widget/accounts/{account}?details=true` | keyless widget API; entries with the same `shortcode` are grouped, all `locations` joined, `telecommuting` adds a remote marker; `name` is the company |
+| bamboohr | `GET https://{subdomain}.bamboohr.com/careers/list` | public JSON listing; `id` is the external UID and builds `/careers/{id}`, `jobOpeningName` the title, `location`/`atsLocation` fields joined (empty parts and repeated city/state dropped), `isRemote` adds a remote marker; no per-offer description fetch, so `Description` stays empty |
 | rss | `GET <source url>` | RSS 2.0 and Atom; item/field mapping in config (`item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field`); paths are child local names joined with `/` (e.g. `locations/location/name`) with `@attr` and `#text`; Atom alternate links and HTML descriptions handled |
 | html | `GET <source url>` | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); cascadia supports `:has()` and `:haschild()` for row containers; one request per scan, no per-offer page fetches; minimum interval 5 s |
 
@@ -51,12 +52,15 @@ not-trackable decisions from 5b. Migration 0003 seeds the 65 sources
 registered in 5a/5b with their decided config. Migration 0004 is an
 audit-only no-op: the 5c-decided rows (We Work Remotely, Workable search
 and the aggregator notes) were already in 0003, so it inserts nothing.
+Migration 0005 is a data-only seed for the BambooHR source added in 6a
+(Semble, `bamboohr`, `{"subdomain":"semble"}`).
 
 `sources.Detect(url)` maps public board URLs (`boards.greenhouse.io/x`,
 `job-boards[.eu].greenhouse.io/x`, `jobs[.eu].lever.co/x`,
 `jobs.ashbyhq.com/x`, `{tenant}.jobs.personio.{de,com}`,
-`apply.workable.com/{account}`, `{account}.workable.com`, and the API
-URLs) to a type + config. Adapters use config keys first, then fall back
+`apply.workable.com/{account}`, `{account}.workable.com`,
+`{subdomain}.bamboohr.com/careers[/list|/{id}]`, and the API URLs) to a
+type + config. Adapters use config keys first, then fall back
 to detection on the source URL. The Greenhouse corporate site and the
 candidate dashboard (`www.greenhouse.io`, `my.greenhouse.io`) are not
 boards and are rejected.

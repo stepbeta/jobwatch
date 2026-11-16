@@ -63,7 +63,7 @@ sources (
   id INTEGER PK,
   name TEXT NOT NULL,
   url TEXT NOT NULL,
-  source_type TEXT NOT NULL,      -- greenhouse | lever | ashby | personio | workable | wttj | rss | html | manual
+  source_type TEXT NOT NULL,      -- greenhouse | lever | ashby | personio | workable | bamboohr | wttj | rss | html | manual
   config_json TEXT NOT NULL DEFAULT '{}',  -- per-type config: board token, tenant, selectors, etc.
   enabled INTEGER NOT NULL DEFAULT 1,      -- boolean (SQLite has no BOOLEAN type)
   last_scan_at TEXT,
@@ -215,9 +215,10 @@ Priority of implementations for v1:
 3. `ashby`       — GET `https://api.ashbyhq.com/posting-api/job-board/{org}`
 4. `personio`    — XML feed at `{tenant}.jobs.personio.de/xml`
 5. `workable`    — public widget API
-6. `rss`         — generic RSS/Atom
-7. `html`        — last resort, CSS-selector config per source
-8. `manual`      — no fetch; user-entered offers only
+6. `bamboohr`    — JSON listing at `{subdomain}.bamboohr.com/careers/list`
+7. `rss`         — generic RSS/Atom
+8. `html`        — last resort, CSS-selector config per source
+9. `manual`      — no fetch; user-entered offers only
 
 Notes on known sources:
 - Datadog & Cisco run on Workday, SAP on SuccessFactors: skip in v1
@@ -333,3 +334,10 @@ plain React + a lightweight table component is fine.
   validates its copy (integrity, foreign keys, applied migrations).
   `jobwatch list` shows both confidence scores. Migration 0002 is
   data-only (seed rows), so the schema is unchanged.
+- 2026-11-16 (after Milestone 6a): `bamboohr` is added as a source type.
+  Its listing endpoint `GET https://{subdomain}.bamboohr.com/careers/list`
+  returns the posting id, title, department and structured location but
+  no description; the XML feed variant answers 404. Scans therefore use
+  only the JSON listing and leave `RawOffer.Description` empty rather
+  than fetching one page per posting. Migration 0005 seeds the Semble
+  source (data only, schema unchanged).

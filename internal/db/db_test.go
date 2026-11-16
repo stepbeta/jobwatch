@@ -120,8 +120,8 @@ func TestSeededRemoteSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcs) != 69 {
-		t.Fatalf("seeded sources = %d, want 69 (4 known-hard + 65 from 5a/5b)", len(srcs))
+	if len(srcs) != 70 {
+		t.Fatalf("seeded sources = %d, want 70 (4 known-hard + 65 from 5a/5b + BambooHR)", len(srcs))
 	}
 	byURL := make(map[string]model.Source, len(srcs))
 	enabled := 0
@@ -134,8 +134,8 @@ func TestSeededRemoteSources(t *testing.T) {
 			enabled++
 		}
 	}
-	if enabled != 37 {
-		t.Errorf("enabled seeded sources = %d, want 37", enabled)
+	if enabled != 38 {
+		t.Errorf("enabled seeded sources = %d, want 38", enabled)
 	}
 
 	check := func(url, typ, configPart string, wantEnabled bool) {
@@ -182,8 +182,8 @@ func TestSeededRemoteSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcs) != 69 {
-		t.Errorf("sources after re-apply = %d, want 69", len(srcs))
+	if len(srcs) != 70 {
+		t.Errorf("sources after re-apply = %d, want 70", len(srcs))
 	}
 	for _, src := range srcs {
 		switch src.URL {
@@ -216,8 +216,8 @@ func TestSeed5cAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcs) != 69 {
-		t.Fatalf("seeded sources = %d, want 69", len(srcs))
+	if len(srcs) != 70 {
+		t.Fatalf("seeded sources = %d, want 70", len(srcs))
 	}
 	byURL := make(map[string]model.Source, len(srcs))
 	for _, src := range srcs {
@@ -270,8 +270,8 @@ func TestSeed5cAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcs) != 68 {
-		t.Errorf("sources after re-applying 0004 = %d, want 68 (edited row kept, deleted row not restored)", len(srcs))
+	if len(srcs) != 69 {
+		t.Errorf("sources after re-applying 0004 = %d, want 69 (edited row kept, deleted row not restored)", len(srcs))
 	}
 	for _, src := range srcs {
 		switch src.URL {
@@ -282,6 +282,84 @@ func TestSeed5cAudit(t *testing.T) {
 		case "https://www.flexjobs.com/search":
 			t.Error("0004 restored a deleted source; it must contain no INSERT")
 		}
+	}
+}
+
+func TestSeedBambooHRSource(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTest(t)
+
+	var recorded int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 5 AND name = 'seed_bamboohr_sources'`).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Fatalf("migration 0005 recorded %d times, want 1", recorded)
+	}
+
+	const url = "https://semble.bamboohr.com/careers"
+	byURL := func() (model.Source, int) {
+		t.Helper()
+		srcs, err := ListSources(ctx, sqlDB, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var found model.Source
+		n := 0
+		for _, src := range srcs {
+			if src.URL == url {
+				found = src
+				n++
+			}
+		}
+		return found, n
+	}
+
+	src, n := byURL()
+	if n != 1 {
+		t.Fatalf("Semble source rows = %d, want 1", n)
+	}
+	if src.Name != "Semble" || string(src.Type) != "bamboohr" || !src.Enabled {
+		t.Errorf("Semble row = %+v, want name/type/enabled Semble/bamboohr/true", src)
+	}
+	if src.ConfigJSON != `{"subdomain":"semble"}` {
+		t.Errorf("Semble config = %s, want {\"subdomain\":\"semble\"}", src.ConfigJSON)
+	}
+
+	body, err := migrations.FS.ReadFile("0005_seed_bamboohr_sources.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-applying the migration twice neither duplicates the row nor
+	// overwrites a user edit.
+	if _, err := sqlDB.ExecContext(ctx,
+		`UPDATE sources SET name = 'Edited Semble', config_json = '{"edited":true}', enabled = 0 WHERE url = ?`, url); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := sqlDB.ExecContext(ctx, string(body)); err != nil {
+			t.Fatalf("re-apply seed migration: %v", err)
+		}
+	}
+	src, n = byURL()
+	if n != 1 || src.Name != "Edited Semble" || src.ConfigJSON != `{"edited":true}` || src.Enabled {
+		t.Errorf("re-applying 0005 changed a user-edited row: %+v (rows=%d)", src, n)
+	}
+
+	// A deliberately deleted seed row is restored on the next application
+	// (the seed only fills missing URLs).
+	if _, err := sqlDB.ExecContext(ctx, `DELETE FROM sources WHERE url = ?`, url); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, string(body)); err != nil {
+		t.Fatalf("re-apply 0005 after delete: %v", err)
+	}
+	src, n = byURL()
+	if n != 1 || src.Name != "Semble" || string(src.Type) != "bamboohr" || !src.Enabled ||
+		src.ConfigJSON != `{"subdomain":"semble"}` {
+		t.Errorf("deleted Semble row not restored: %+v (rows=%d)", src, n)
 	}
 }
 

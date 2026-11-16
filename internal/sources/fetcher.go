@@ -51,9 +51,10 @@ type Config struct {
 	Region     string `json:"region,omitempty"`      // lever: "" (global) or "eu"
 	Org        string `json:"org,omitempty"`         // ashby job board name
 
-	Tenant   string `json:"tenant,omitempty"`   // personio subdomain
-	Language string `json:"language,omitempty"` // personio feed language (optional)
-	Account  string `json:"account,omitempty"`  // workable account slug
+	Tenant    string `json:"tenant,omitempty"`    // personio subdomain
+	Language  string `json:"language,omitempty"`  // personio feed language (optional)
+	Account   string `json:"account,omitempty"`   // workable account slug
+	Subdomain string `json:"subdomain,omitempty"` // bamboohr tenant subdomain
 
 	// rss: item element and field paths. A path is a chain of child
 	// element local names; "@name" reads an attribute.
@@ -124,6 +125,7 @@ func NewRegistry(client *Client) Registry {
 		model.SourceAshby:      &Ashby{Client: client},
 		model.SourcePersonio:   &Personio{Client: client},
 		model.SourceWorkable:   &Workable{Client: client},
+		model.SourceBambooHR:   &BambooHR{Client: client},
 		model.SourceRSS:        &RSS{Client: client},
 		model.SourceHTML:       &HTML{Client: client},
 	}

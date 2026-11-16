@@ -5,7 +5,16 @@ import { SOURCE_TYPES, fmtDateTime, relativeTime, scanLabel } from '../format'
 import type { NoticeKind } from '../App'
 import type { ScanResponse, ScanResult, Source, SourceType } from '../types'
 
-const FETCHABLE: SourceType[] = ['greenhouse', 'lever', 'ashby', 'personio', 'workable', 'rss', 'html']
+const FETCHABLE: SourceType[] = [
+  'greenhouse',
+  'lever',
+  'ashby',
+  'personio',
+  'workable',
+  'bamboohr',
+  'rss',
+  'html',
+]
 
 interface ExtraField {
   key: string
@@ -19,6 +28,9 @@ const EXTRA_FIELDS: Partial<Record<SourceType, ExtraField[]>> = {
     { key: 'language', label: 'Feed language', placeholder: 'de or en (optional)' },
   ],
   workable: [{ key: 'account', label: 'Account', placeholder: 'acme (from apply.workable.com/acme)' }],
+  bamboohr: [
+    { key: 'subdomain', label: 'Subdomain', placeholder: 'acme (from acme.bamboohr.com/careers)' },
+  ],
   rss: [
     { key: 'item', label: 'Item element', placeholder: 'item / entry (auto-detected)' },
     { key: 'title_field', label: 'Title field', placeholder: 'title' },
@@ -152,8 +164,8 @@ export function SourcesPage({
           <div className="empty-state">
             <p>No sources yet.</p>
             <p className="muted">
-              Add a Greenhouse, Lever, Ashby, Personio or Workable board URL, an RSS/Atom feed, or a
-              careers page with CSS selectors.
+              Add a Greenhouse, Lever, Ashby, Personio, Workable or BambooHR board URL, an RSS/Atom
+              feed, or a careers page with CSS selectors.
             </p>
           </div>
         ) : (

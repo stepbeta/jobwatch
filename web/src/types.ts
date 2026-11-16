@@ -4,6 +4,7 @@ export type SourceType =
   | 'ashby'
   | 'personio'
   | 'workable'
+  | 'bamboohr'
   | 'wttj'
   | 'rss'
   | 'html'

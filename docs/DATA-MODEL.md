@@ -15,6 +15,7 @@ require a table rebuild.
 | 0002 | `0002_known_hard_sources.sql` | Data-only seed: four disabled source rows (Datadog/Cisco Workday, SAP SuccessFactors, WTTJ) with an explanatory `note`. `INSERT … WHERE NOT EXISTS` by URL, so it is safe to re-apply |
 | 0003 | `0003_seed_remote_sources.sql` | Data-only seed: the 65 sources decided in Milestones 5a/5b (37 enabled: 11 Greenhouse, 11 Ashby, 4 Lever, 1 Personio, 5 RSS, 5 HTML; 28 disabled not-trackable rows with a `note`). Reproduces each source's name, URL, type, enabled flag and full `config_json`. `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
 | 0004 | `0004_seed_5c_sources.sql` | Audit-only, data-only no-op: Milestone 5c introduced no new source rows. The We Work Remotely rss row, the Workable search note row and the aggregator rows were already seeded by 0003. Contains no INSERT or UPDATE, so applying it changes nothing and it cannot overwrite or restore user edits |
+| 0005 | `0005_seed_bamboohr_sources.sql` | Data-only seed: the Semble BambooHR source verified in Milestone 6a (`bamboohr`, `{"subdomain":"semble"}`, enabled). `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -23,7 +24,8 @@ Milestones 2 and 3 needed no schema change; Milestone 4 adds the
 disabled-source rows from 0002 and Milestone 5 ships the 65 registered
 sources from 5a/5b in 0003 (both data only, no table or column changes).
 Milestone 5c's source decisions were already part of 0003, so 0004 is an
-audit-only no-op and the seeded total stays 69 rows.
+audit-only no-op. Milestone 6a adds one enabled BambooHR row in 0005, so
+the seeded total is 70 rows (38 enabled, 32 disabled).
 
 ## Tables
 
@@ -52,7 +54,7 @@ fingerprint would collide.
 | id | INTEGER PK | |
 | name | TEXT NOT NULL | also the default company name of its offers |
 | url | TEXT NOT NULL | indexed (not unique; the CLI refuses duplicates) |
-| source_type | TEXT NOT NULL | `greenhouse` `lever` `ashby` `personio` `workable` `wttj` `rss` `html` `manual` |
+| source_type | TEXT NOT NULL | `greenhouse` `lever` `ashby` `personio` `workable` `bamboohr` `wttj` `rss` `html` `manual` |
 | config_json | TEXT NOT NULL DEFAULT '{}' | see below |
 | enabled | INTEGER NOT NULL DEFAULT 1 | boolean |
 | last_scan_at | TEXT | start time of the last scan attempt |
@@ -64,8 +66,8 @@ company), `rate_limit_ms` (min interval between requests, default 2000;
 HTML sources are capped at a 5 s minimum), `note` (human-readable
 explanation shown in the UI), `board_token` (greenhouse), `site` +
 `region` (`""`/`"eu"`, lever), `org` (ashby), `tenant` + `language`
-(personio), `account` (workable). Board keys are derived from the source
-URL when absent.
+(personio), `account` (workable), `subdomain` (bamboohr). Board keys are
+derived from the source URL when absent.
 
 RSS mapping keys: `item` (item element; auto-detects `item`/`entry`),
 `title_field`, `link_field`, `description_field`, `location_field`,
@@ -87,8 +89,9 @@ seeds the 65 sources registered in Milestones 5a/5b with the exact
 configuration decided there: the enabled ATS boards and RSS/HTML
 listings keep their board tokens, field mappings and selectors, while
 the 28 not-trackable rows are disabled and carry their explanatory
-`note`. Both seeds only insert missing URLs and never update an existing
-row, so re-applying them or keeping a user-edited source is safe.
+`note`. Migration 0005 adds the enabled Semble BambooHR source. All seeds
+only insert missing URLs and never update an existing row, so
+re-applying them or keeping a user-edited source is safe.
 
 ### job_offers
 | Column | Type | Notes |

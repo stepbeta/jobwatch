@@ -302,6 +302,37 @@
   running the migrations twice changes nothing, and a real scan of the
   We Work Remotely source returns `ok` (100 items, 99 offers).
 
+### Milestone 6a — BambooHR adapter
+
+#### Added
+- `bamboohr` source type and adapter for the public JSON listing
+  `https://{subdomain}.bamboohr.com/careers/list`: posting id becomes the
+  external UID and `https://{subdomain}.bamboohr.com/careers/{id}` the
+  detail link, `jobOpeningName` is the title, and the populated
+  `location`/`atsLocation` fields are joined (repeated city/state parts
+  dropped, `isRemote` adds a remote marker). The XML feed variant
+  `careers/jobs_feed.xml` returns 404, so the JSON listing is the
+  implemented surface. The listing has no description, so scans make one
+  request per source and leave descriptions empty.
+- URL detection for `{subdomain}.bamboohr.com/careers` (also `/list` and
+  `/{id}`), a `subdomain` config key, the `add-source` type help and
+  example, and the sources-page form field.
+- Recorded fixture `internal/sources/testdata/bamboohr_careers.json`
+  (Semble board, 9 postings) and table-driven tests for the happy path,
+  empty/null listings, missing id/title/location/department, the remote
+  flag and malformed JSON.
+- Data-only migration `0005_seed_bamboohr_sources.sql` seeds the Semble
+  source (`bamboohr`, `{"subdomain":"semble"}`, enabled) with an
+  idempotent `INSERT … WHERE NOT EXISTS` by URL. `TestSeedBambooHRSource`
+  covers the row, double application, user edits and restoration of a
+  deleted row.
+
+#### Changed
+- The seeded source total is now 70 (38 enabled, 32 disabled); README,
+  ARCHITECTURE, DATA-MODEL, API, SMOKE-TEST and MILESTONES are updated.
+- SPEC records `bamboohr` in the source types and the 6a endpoint choice;
+  no schema or table change.
+
 ### Changed
 - SPEC updated to match decisions made in Milestone 1: Ashby is fetched
   with GET, a few schema columns are NOT NULL with defaults, enum values

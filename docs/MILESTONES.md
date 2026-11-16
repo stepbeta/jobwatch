@@ -303,11 +303,67 @@ decisions are covered by the existing 0003 rows.
 | 0004 is still created and recorded in `schema_migrations` | it is the durable record that the 5c set was audited; a comment-only migration is accepted by the runner and makes the no-op explicit instead of silently skipping a migration number |
 | The test asserts 68 rows after deleting a 5c source and re-applying 0004 | proves the audit migration does not resurrect a row the user deliberately removed, unlike the seed migrations 0002/0003 |
 
+## Milestone 6a — BambooHR adapter — DONE
+
+Done criteria (all met):
+- [x] Endpoint investigation with one polite fetch per candidate through
+      the shared client: `https://semble.bamboohr.com/careers/list`
+      returns the public JSON listing (9 postings, `meta.totalCount` 9);
+      `https://semble.bamboohr.com/careers/jobs_feed.xml` returns
+      HTTP 404. The JSON listing is implemented.
+- [x] `bamboohr` added to the source types (model constant + validation,
+      API enum, UI type), without touching existing rows.
+- [x] Adapter reads `{subdomain}.bamboohr.com/careers/list`: posting `id`
+      → `ExternalUID`, detail URL `/careers/{id}`, `jobOpeningName` →
+      title, `location`/`atsLocation` parts joined into the location
+      (empty and repeated parts dropped), `isRemote` adds a remote
+      marker; the company stays empty so the source name applies.
+- [x] Missing/null location, department, `atsLocation` or `isRemote`
+      never fails a scan; entries without an id or title are skipped.
+      No per-offer request is made, so `Description` is empty.
+- [x] Fixture `internal/sources/testdata/bamboohr_careers.json` recorded
+      from the Semble board (no hand edits) and documented in the
+      testdata README. No test hits the network.
+- [x] Table-driven tests cover the fixture happy path, empty and null
+      listings, missing optional fields, the remote flag and malformed
+      JSON (error wraps a decode failure; the source is marked `error`
+      by the scan pipeline without crashing).
+- [x] URL detection for `{sub}.bamboohr.com/careers` (and `/list` or
+      `/{id}`), `subdomain` config key, `add-source` help/example, and a
+      Subdomain field in the sources-page form.
+- [x] One real scan of source 70 (Semble): `ok`, 9 fetched, 9 new,
+      0 changed, 0 disappeared; all offers belong to company `Semble`.
+      Samples: “Senior Platform Engineer” (Paris, France) title score
+      85; “Senior Platform Engineer” (London, United Kingdom) title
+      score 85; “Senior Product Designer I” (Paris, ile de France,
+      France) location score 60.
+- [x] Data-only migration `0005_seed_bamboohr_sources.sql` inserts the
+      Semble row (`bamboohr`, `{"subdomain":"semble"}`, enabled 1) with
+      `INSERT … WHERE NOT EXISTS` by URL; no other source is added and
+      existing rows are never updated.
+- [x] Fresh temp database: migrations 0001–0005 apply in order;
+      `jobwatch list --sources` shows Semble as row 70 with the right
+      type/config/enabled state. `TestSeedBambooHRSource` re-applies the
+      migration twice (no duplicate, user edit preserved) and restores a
+      deleted seed row.
+- [x] `go build`, `go vet`, `go test` green; no schema change.
+
+### Deviations (permanent decisions)
+
+| Deviation | Reason |
+|---|---|
+| The JSON `/careers/list` endpoint is implemented; the XML `jobs_feed.xml` variant is not | the XML endpoint answers 404 for the Semble tenant (and BambooHR's public careers pages use the JSON listing), so an XML adapter would have no working target |
+| Descriptions stay empty and no per-offer detail page is fetched | the listing has no description; fetching one page per posting would multiply requests and break the one-listing-fetch-per-scan rule |
+| `departmentLabel` is parsed but not stored | `RawOffer` has no department field, and mixing it into the description would pollute `raw_text`; the value is available if a later milestone adds a column |
+| Location parts are deduplicated with a substring rule | BambooHR can return city `London` plus state `London, City of`; joining both verbatim reads badly. The country is kept even when a province name contains it |
+| The Semble source ships in data-only migration 0005 | follows the 0002/0003 seed pattern; migrations are immutable, so 0005 is the next free number and a fresh database gets the verified source without `add-source` |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
 |---|---|---|
-| ATS workplace hints discarded | §6 | Open. Lever/Ashby `workplaceType` is not carried in `RawOffer`; Workable's `telecommuting` is used, and `remote_policy` is otherwise derived from location and description text |
+| ATS workplace hints discarded | §6 | Open. Lever/Ashby `workplaceType` is not carried in `RawOffer`; Workable's `telecommuting` and BambooHR's `isRemote` are used, and `remote_policy` is otherwise derived from location and description text |
+| BambooHR offers have no description | §7 | Open. The public listing has no description and per-offer pages are not fetched; `raw_text` stays empty unless the offer is imported from its detail URL |
 | Title change of a posting creates a new offer | §5 | Open. Identity is the fingerprint only (external UID not used) |
 | WTTJ adapter missing | §7 | By design. A disabled seeded row exists; scans report `skipped` and leave its status unchanged |
 | Workday/SuccessFactors adapters missing | §7 | By design for v1. Disabled seeded rows carry an explanation |

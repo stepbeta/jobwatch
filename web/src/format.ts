@@ -39,6 +39,7 @@ export const SOURCE_TYPES: SourceType[] = [
   'ashby',
   'personio',
   'workable',
+  'bamboohr',
   'wttj',
   'rss',
   'html',

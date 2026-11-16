@@ -71,6 +71,9 @@ func Detect(rawURL string) (typ model.SourceType, cfg Config, ok bool) {
 		}
 	case strings.HasSuffix(host, ".workable.com") && host != "www.workable.com" && host != "jobs.workable.com":
 		return model.SourceWorkable, Config{Account: strings.TrimSuffix(host, ".workable.com")}, true
+	case strings.HasSuffix(host, ".bamboohr.com") && host != "www.bamboohr.com" && len(segs) >= 1 && segs[0] == "careers":
+		// /careers, /careers/list and /careers/{id} are all the tenant board.
+		return model.SourceBambooHR, Config{Subdomain: strings.TrimSuffix(host, ".bamboohr.com")}, true
 	}
 	return "", Config{}, false
 }

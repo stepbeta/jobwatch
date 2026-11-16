@@ -1,13 +1,13 @@
 # jobwatch
 
 JobWatch is a local, single-user tool that tracks job offers from
-company job boards (Greenhouse, Lever, Ashby, Personio, Workable), RSS /
-Atom feeds and CSS-selector career pages. It detects new, changed and
-disappeared offers and keeps everything in a single SQLite file.
+company job boards (Greenhouse, Lever, Ashby, Personio, Workable,
+BambooHR), RSS / Atom feeds and CSS-selector career pages. It detects
+new, changed and disappeared offers and keeps everything in a single
+SQLite file.
 
-Status: Milestone 5c (aggregator follow-ups). The Go server
-exposes the full API and, when built with the `ui` tag, embeds the React
-SPA. See [docs/MILESTONES.md](docs/MILESTONES.md) for what is done and
+Status: Milestone 6a (BambooHR adapter). The Go server exposes the full
+API and, when built with the `ui` tag, embeds the React SPA. See [docs/MILESTONES.md](docs/MILESTONES.md) for what is done and
 the known gaps, and [docs/SOURCE-DECISIONS.md](docs/SOURCE-DECISIONS.md)
 for the per-URL decisions on the bookmark list.
 
@@ -44,13 +44,14 @@ The database defaults to `./jobwatch.db` and is created on first use.
 Use the global `--db <path>` flag to choose another file.
 
 ```sh
-# 1. A fresh database already seeds the 69 sources decided in Milestones
-#    5a/5b (37 enabled ATS/RSS/HTML, 32 disabled with a note). Add extras:
+# 1. A fresh database already seeds the 70 sources decided in Milestones
+#    5a/5b/6a (38 enabled ATS/RSS/HTML, 32 disabled with a note). Add extras:
 ./jobwatch add-source https://boards.greenhouse.io/gitlab --name GitLab
 ./jobwatch add-source https://jobs.lever.co/spotify --name Spotify
 ./jobwatch add-source https://jobs.ashbyhq.com/linear --name Linear
 ./jobwatch add-source https://acme.jobs.personio.de --name Acme
 ./jobwatch add-source https://apply.workable.com/acme --name Acme
+./jobwatch add-source https://acme.bamboohr.com/careers --name Acme
 
 # or register every recognized URL from another bookmark list
 ./jobwatch add-sources docs/REMOTE-SOURCES.txt
@@ -99,9 +100,9 @@ Built with React + TypeScript (Vite). The pages are:
 - **Sources** — enable/disable, scan status, per-source Refresh, a
   global Refresh all in the top bar, and add/edit forms whose config
   fields depend on the source type (Personio tenant, Workable account,
-  RSS field mapping, HTML CSS selectors). Disabled seeded rows for the
-  known-hard Workday/SuccessFactors/WTTJ links and the not-trackable
-  sources show their explanation.
+  BambooHR subdomain, RSS field mapping, HTML CSS selectors). Disabled
+  seeded rows for the known-hard Workday/SuccessFactors/WTTJ links and
+  the not-trackable sources show their explanation.
 - **Offer detail** — editable application/offer state and location,
   score badges, all provenance links side by side, explicit merge into
   another offer and split (select links for a second offer), a vertical
@@ -141,6 +142,8 @@ Recognized URLs:
 - Ashby: `jobs.ashbyhq.com/<org>`
 - Personio: `<tenant>.jobs.personio.de`, `<tenant>.jobs.personio.com`
 - Workable: `apply.workable.com/<account>`, `<account>.workable.com`
+- BambooHR: `<subdomain>.bamboohr.com/careers` (the `/careers/list`
+  JSON endpoint is read; the board carries no descriptions)
 
 The source name is also the company name of its offers, unless the
 board itself reports one (Greenhouse, Workable) or `company` is set in
@@ -160,6 +163,7 @@ Optional `--config` keys:
 | `board_token` / `site` + `region` / `org` | Greenhouse / Lever (`region: "eu"`) / Ashby board name, if it can't be derived from the URL |
 | `tenant` + `language` | Personio tenant (if not in the URL) and optional feed language |
 | `account` | Workable account slug (if not in the URL) |
+| `subdomain` | BambooHR tenant subdomain (if not in the URL) |
 | `item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field` | RSS/Atom mapping. Paths are child element local names joined with `/` (e.g. `locations/location/name`); `@name` reads an attribute and `#text` reads text. Defaults cover RSS `<item>` and Atom `<entry>` |
 | `item_selector`, `title_selector`, `link_selector`, `link_attr`, `location_selector`, `description_selector`, `company_selector`, `uid_selector`, `uid_attr` | HTML listing page CSS selectors. `item_selector` and `title_selector` are required; only the listing page is fetched, at most every 5 s. Selectors use cascadia's CSS support, including `:has()` and `:haschild()` for item containers |
 
@@ -216,8 +220,8 @@ through the same detection and validation as `add-source`:
   the end.
 - `--disabled` registers the new sources disabled, like `add-source`.
 - Only URLs of supported ATS boards (Greenhouse, Lever, Ashby, Personio,
-  Workable) are detected. Plain career pages need `add-source --type
-  html` or `--type rss` plus selectors/mapping.
+  Workable, BambooHR) are detected. Plain career pages need
+  `add-source --type html` or `--type rss` plus selectors/mapping.
 
 The command exits successfully as long as the file can be read and the
 database does not fail; the report is the result, not an error.

@@ -209,6 +209,11 @@ func TestDetect(t *testing.T) {
 		{"https://apply.workable.com/acme", model.SourceWorkable, Config{Account: "acme"}, true},
 		{"https://apply.workable.com/api/v1/widget/accounts/acme?details=true", model.SourceWorkable, Config{Account: "acme"}, true},
 		{"https://acme.workable.com/", model.SourceWorkable, Config{Account: "acme"}, true},
+		{"https://semble.bamboohr.com/careers", model.SourceBambooHR, Config{Subdomain: "semble"}, true},
+		{"https://semble.bamboohr.com/careers/list", model.SourceBambooHR, Config{Subdomain: "semble"}, true},
+		{"https://Semble.BambooHR.com/careers/211", model.SourceBambooHR, Config{Subdomain: "semble"}, true},
+		{"https://www.bamboohr.com/careers", "", Config{}, false},
+		{"https://semble.bamboohr.com/", "", Config{}, false},
 		{"https://my.greenhouse.io/dashboard", "", Config{}, false},
 		{"https://www.greenhouse.io/careers", "", Config{}, false},
 		{"https://apply.workable.com/j/ABC123", "", Config{}, false},
@@ -486,6 +491,147 @@ func TestWorkableAdapter(t *testing.T) {
 	if _, err := (&Workable{Client: c}).Fetch(context.Background(), model.Source{ID: 3, URL: "https://example.invalid"}); err == nil ||
 		!strings.Contains(err.Error(), "account") {
 		t.Errorf("missing account error = %v", err)
+	}
+}
+
+func TestBambooHRAdapter(t *testing.T) {
+	srv := fixtureServer(t, "/careers/list", "bamboohr_careers.json")
+	c, _ := testClient()
+	b := &BambooHR{Client: c, BaseURL: srv.URL}
+	got, err := b.Fetch(context.Background(), model.Source{
+		ID: 1, Type: model.SourceBambooHR, URL: "https://semble.bamboohr.com/careers",
+	})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(got) != 9 {
+		t.Fatalf("got %d offers, want 9", len(got))
+	}
+	first := got[0]
+	if first.ExternalUID != "117" ||
+		first.Title != "Don't see a role for you? Apply here to join our Talent Pool" {
+		t.Errorf("first offer = %+v", first)
+	}
+	if first.Location != "" || first.Description != "" || first.Company != "" {
+		t.Errorf("first offer location/description/company = %q %q %q", first.Location, first.Description, first.Company)
+	}
+	if first.URL != srv.URL+"/careers/117" {
+		t.Errorf("first url = %q", first.URL)
+	}
+	byID := map[string]RawOffer{}
+	for _, offer := range got {
+		byID[offer.ExternalUID] = offer
+	}
+	if o := byID["211"]; o.Location != "Paris, France" {
+		t.Errorf("211 location = %q", o.Location)
+	}
+	if o := byID["214"]; o.Location != "Paris, ile de France, France" {
+		t.Errorf("214 location = %q", o.Location)
+	}
+	if o := byID["202"]; o.Location != "London, United Kingdom" {
+		t.Errorf("202 location = %q", o.Location)
+	}
+	if o := byID["201"]; o.Location != "United Kingdom" {
+		t.Errorf("201 location = %q", o.Location)
+	}
+	if o := byID["211"]; o.URL != srv.URL+"/careers/211" {
+		t.Errorf("211 url = %q", o.URL)
+	}
+
+	// The subdomain can also come from config_json when the URL is not a
+	// BambooHR careers URL.
+	if _, err := (&BambooHR{Client: c, BaseURL: srv.URL}).Fetch(context.Background(),
+		model.Source{ID: 2, URL: "https://example.invalid", ConfigJSON: `{"subdomain":"semble"}`}); err != nil {
+		t.Errorf("subdomain from config: %v", err)
+	}
+	if _, err := (&BambooHR{Client: c}).Fetch(context.Background(), model.Source{ID: 3, URL: "https://example.invalid"}); err == nil ||
+		!strings.Contains(err.Error(), "subdomain") {
+		t.Errorf("missing subdomain error = %v", err)
+	}
+}
+
+func TestBambooHRParsing(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantCount int
+		wantLoc   string
+		wantUID   string
+		wantErr   string
+	}{
+		{
+			name:      "empty listing",
+			body:      `{"meta":{"totalCount":0},"result":[]}`,
+			wantCount: 0,
+		},
+		{
+			name:      "null result",
+			body:      `{"meta":{},"result":null}`,
+			wantCount: 0,
+		},
+		{
+			name: "missing optional fields",
+			body: `{"result":[
+				{"id":"7","jobOpeningName":"SRE","departmentLabel":null,
+				 "location":{"city":null,"state":null},"atsLocation":null,"isRemote":null},
+				{"jobOpeningName":"No id"},
+				{"id":"8"}]}`,
+			wantCount: 1,
+			wantUID:   "7",
+		},
+		{
+			name:      "remote flag without location",
+			body:      `{"result":[{"id":"9","jobOpeningName":"Platform Engineer","isRemote":true}]}`,
+			wantCount: 1,
+			wantLoc:   "Remote",
+			wantUID:   "9",
+		},
+		{
+			name: "remote flag with location",
+			body: `{"result":[{"id":"10","jobOpeningName":"SRE","isRemote":true,
+				"atsLocation":{"city":"Paris","province":null,"state":null,"country":"France"}}]}`,
+			wantCount: 1,
+			wantLoc:   "Paris, France (remote)",
+			wantUID:   "10",
+		},
+		{
+			name:    "malformed json",
+			body:    `{"result":`,
+			wantErr: "decode",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/robots.txt" {
+					w.Write([]byte("User-agent: *\nAllow: /\n"))
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+
+			c, _ := testClient()
+			got, err := (&BambooHR{Client: c, BaseURL: srv.URL}).Fetch(context.Background(), model.Source{
+				ID: 1, Type: model.SourceBambooHR, URL: "https://semble.bamboohr.com/careers",
+			})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Fetch: %v", err)
+			}
+			if len(got) != tt.wantCount {
+				t.Fatalf("got %d offers, want %d", len(got), tt.wantCount)
+			}
+			if tt.wantCount > 0 && (got[0].Location != tt.wantLoc || got[0].ExternalUID != tt.wantUID) {
+				t.Errorf("first offer = %+v, want location %q uid %q", got[0], tt.wantLoc, tt.wantUID)
+			}
+		})
 	}
 }
 

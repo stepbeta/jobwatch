@@ -51,8 +51,8 @@ func TestSourcesCRUD(t *testing.T) {
 
 	rec = ts.do(t, "GET", "/api/sources", nil)
 	wantCode(t, rec, 200)
-	if got := decodeBody[sourceListResp](t, rec).Sources; len(got) != 70 {
-		t.Fatalf("sources = %d, want 70 (69 seeded + Acme)", len(got))
+	if got := decodeBody[sourceListResp](t, rec).Sources; len(got) != 71 {
+		t.Fatalf("sources = %d, want 71 (70 seeded + Acme)", len(got))
 	}
 
 	id := fmt.Sprintf("%d", created.ID)
