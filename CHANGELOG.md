@@ -494,3 +494,35 @@
 - ARCHITECTURE, DATA-MODEL, API, MILESTONES, README and this changelog
   are updated. No classifier, adapter, scan-pipeline, notes-pinning or
   event-type change.
+
+### Milestone 7f — Company two-column header and modal manual import
+
+#### Added
+- The Offers page header has an **Add offer** button that opens the manual
+  import form in the shared modal shell. The URL fetch-and-prefill flow,
+  the manual company/title/location/URL/description fields, validation,
+  inline errors and the `422 metadata_incomplete`/`metadata_unavailable`
+  prefill fallback are unchanged.
+- A successful import closes the modal, shows the existing success toast,
+  refreshes the app data and opens the new or matched offer's
+  `#/offers/:id` detail page, so the returned offer id is always
+  reachable.
+- Company detail now renders identity and notes as one two-column header
+  panel: name, website, offer count, created time, Edit/Delete company and
+  the possible-duplicate banner on the left; the company-note list and
+  new-note form on the right. The offers list stays below as its own
+  panel. The grid collapses to a vertical stack at `max-width: 900px`,
+  the breakpoint already used by the offer detail columns.
+
+#### Changed
+- The inline import panel at the bottom of `#/offers` is gone; the import
+  form is modal-only. The Dashboard is unchanged (it still has no import
+  UI, per 7e). `jobwatch import` is untouched.
+- The possible-duplicate banner and its merge dialog behavior are
+  unchanged; the banner moved into the company header's identity column.
+- Component tests cover the Offers import modal (open, URL submit,
+  422-prefill fallback, close/navigate) and the Company two-column
+  structure plus its 900px breakpoint contract. `vitest.config.ts`
+  processes CSS so the layout test can read `styles.css?raw`.
+- ARCHITECTURE, MILESTONES, README and this changelog are updated. No
+  schema, API, classifier, adapter, scan-pipeline, notes or event change.

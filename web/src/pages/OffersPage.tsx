@@ -1,7 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ApiError, api, errorMessage, type OfferQuery } from '../api'
+import { Modal } from '../components/Modal'
 import { OfferTable } from '../components/OfferTable'
 import { APP_STATES, OFFER_STATES, REMOTE_POLICIES, appLabel } from '../format'
+import { navigate } from '../router'
 import type { Company, Offer, OfferList } from '../types'
 
 function selectValue(value: string): string | undefined {
@@ -43,6 +45,7 @@ export function OffersPage({
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [busyOfferId, setBusyOfferId] = useState<number | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   useEffect(() => {
     setFilters((f) => ({ ...f, saved: initialSaved, offset: 0 }))
@@ -134,9 +137,14 @@ export function OffersPage({
       <section className="panel">
         <div className="section-head">
           <h2>Offers</h2>
-          <span className="muted">
-            {total} match{total === 1 ? 'es' : ''}
-          </span>
+          <div className="actions">
+            <span className="muted">
+              {total} match{total === 1 ? 'es' : ''}
+            </span>
+            <button type="button" className="primary" onClick={() => setImportOpen(true)}>
+              Add offer
+            </button>
+          </div>
         </div>
 
         <form
@@ -287,7 +295,7 @@ export function OffersPage({
               <>
                 <p>No offers yet.</p>
                 <p className="muted">
-                  Add a source on the <a href="#/sources">Sources</a> page, or import one below.
+                  Add a source on the <a href="#/sources">Sources</a> page, or use Add offer above.
                 </p>
               </>
             )}
@@ -321,16 +329,28 @@ export function OffersPage({
         </div>
       </section>
 
-      <ImportPanel onImported={onDataChanged} onNotice={onNotice} />
+      {importOpen && (
+        <ImportOfferModal
+          onClose={() => setImportOpen(false)}
+          onImported={(offerID) => {
+            setImportOpen(false)
+            onDataChanged()
+            navigate(`/offers/${offerID}`)
+          }}
+          onNotice={onNotice}
+        />
+      )}
     </div>
   )
 }
 
-function ImportPanel({
+function ImportOfferModal({
+  onClose,
   onImported,
   onNotice,
 }: {
-  onImported: () => void
+  onClose: () => void
+  onImported: (offerID: number) => void
   onNotice: (kind: 'info' | 'success' | 'error', text: string) => void
 }) {
   const [company, setCompany] = useState('')
@@ -364,12 +384,7 @@ function ImportPanel({
           ? `Created offer #${r.offer_id}.`
           : `Matched an existing offer (#${r.offer_id}); the link was added to it.`,
       )
-      setCompany('')
-      setTitle('')
-      setLocation('')
-      setUrl('')
-      setDescription('')
-      onImported()
+      onImported(r.offer_id)
     } catch (err) {
       if (
         err instanceof ApiError &&
@@ -394,60 +409,57 @@ function ImportPanel({
   }
 
   return (
-    <section className="panel">
-      <details>
-        <summary>Import an offer seen elsewhere</summary>
-        <p className="hint">
-          Paste a job URL and let JobWatch read its title, company and description (JSON-LD, Open Graph
-          or the page title). If the page cannot be read, the form falls back to manual entry.
-        </p>
-        <form className="form-grid" onSubmit={(e) => void submit(e)}>
-          <label className="span-2">
-            Job URL
-            <input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://… (fetched only if company and title are empty)"
-            />
-          </label>
-          <label>
-            Company
-            <input
-              value={company}
-              onChange={(e) => setCompany(e.target.value)}
-              placeholder="filled from the page when possible"
-            />
-          </label>
-          <label>
-            Title
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="filled from the page when possible"
-            />
-          </label>
-          <label>
-            Location
-            <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="optional" />
-          </label>
-          <label className="span-2">
-            Description
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              placeholder="optional"
-            />
-          </label>
-          {error && <div className="error-box">{error}</div>}
-          <div className="form-actions">
-            <button type="submit" className="primary" disabled={busy}>
-              {busy ? 'Importing…' : 'Fetch & import'}
-            </button>
-          </div>
-        </form>
-      </details>
-    </section>
+    <Modal title="Add an offer" onClose={onClose} wide>
+      <p className="hint">
+        Paste a job URL and let JobWatch read its title, company and description (JSON-LD, Open Graph
+        or the page title). If the page cannot be read, the form falls back to manual entry.
+      </p>
+      <form className="form-grid" onSubmit={(e) => void submit(e)}>
+        <label className="span-2">
+          Job URL
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://… (fetched only if company and title are empty)"
+          />
+        </label>
+        <label>
+          Company
+          <input
+            value={company}
+            onChange={(e) => setCompany(e.target.value)}
+            placeholder="filled from the page when possible"
+          />
+        </label>
+        <label>
+          Title
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="filled from the page when possible"
+          />
+        </label>
+        <label>
+          Location
+          <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="optional" />
+        </label>
+        <label className="span-2">
+          Description
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            placeholder="optional"
+          />
+        </label>
+        {error && <div className="error-box">{error}</div>}
+        <div className="form-actions">
+          <button type="submit" className="primary" disabled={busy}>
+            {busy ? 'Importing…' : 'Fetch & import'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }

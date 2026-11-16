@@ -533,6 +533,45 @@ Done criteria (all met):
 | Applications refresh includes every enabled source behind an application, including `manual`/`wttj` types | the scope is defined by enabled + application ownership; those adapters report `skipped` through the existing scan endpoint |
 | `sort=saved` was added to the offers API | the Saved section needs a server-side `saved_at DESC` order that is complete before the UI cap |
 
+## Milestone 7f — Company two-column header and modal manual import — DONE
+
+Done criteria (all met):
+- [x] Company detail header and notes form one unified block:
+      identity (name, website link, offer count, created_at, Edit/Delete
+      company, possible-duplicate banner) on the left and company notes
+      (list, new-note textarea, Add note) on the right.
+- [x] Company notes keep add/delete only; edit/pin is still not offered
+      for company notes.
+- [x] The block collapses to vertical stacking (identity first, notes
+      below) at `max-width: 900px`, reusing the existing
+      `.detail-columns` breakpoint.
+- [x] The company offers list remains a separate panel below the block,
+      unchanged.
+- [x] The inline import panel is removed from `#/offers`; an **Add offer**
+      button in the Offers header opens the import form in the shared
+      `Modal` from 7e.
+- [x] Import behavior parity: bare URL fetch-and-prefill, explicit
+      fields, inline validation, error toasts, and the
+      `422 metadata_*` prefill fallback.
+- [x] On success the modal closes, the existing success toast appears,
+      app data refreshes, and the UI navigates to the new or matched
+      `#/offers/:id` detail page so the returned id is reachable.
+- [x] Tests: Offers import modal open/submit/422 fallback/close+navigate;
+      Company two-column DOM structure and the 900px collapse contract.
+- [x] `go build`, `go vet`, `go test`, `npm run build` and `npm test`
+      green; no schema, API, classifier, adapter, scan-pipeline, notes or
+      event change.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| The Add offer button lives on `#/offers`, not the Dashboard | the prompt described the pre-7e layout; 7e had already moved manual import from the Dashboard to `#/offers`. The user explicitly chose "Offers page header only" when asked |
+| Post-import navigation opens the offer detail page instead of adding a link to the toast | the toast component is text-only; navigation makes the returned id immediately reachable and shows the imported offer without extending the toast contract |
+| The possible-duplicate banner moved into the header's left column | requested by the prompt; the merge dialog and its explicit keep-which-company confirmation are untouched |
+| The shared `Modal` component was reused; no second modal abstraction was added | 7e already extracted the modal shell, and the import form is the only new consumer |
+| `vitest.config.ts` enables CSS processing | the Company layout test reads `styles.css?raw` to assert the 900px breakpoint contract; dev-only config, no runtime effect |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -551,7 +590,7 @@ Done criteria (all met):
 | Pre-7c snapshot origins are all `scan` | §9 | By design after 7c. The old schema had no reliable manual marker; only snapshots written from 7c onward carry an exact origin |
 | Manual description edits do not refresh classifier scores | §6 | Open. Scores keep their previous values until the next sighting or `jobwatch reclassify --all`; the edit itself is versioned normally |
 | Offer merge does not carry the absorbed offer's bookmark | §9 | Open. The kept offer keeps its own `saved_at`; the absorbed bookmark is not copied. Merge semantics were left unchanged in 7e |
-| Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh and hash routing | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); the Offers page filters/import and Company page still rely on `tsc`/`vite build` and backend tests |
+| Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, the offers import modal, the company two-column layout and hash routing | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); offers filters/pagination, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
 | Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |

@@ -9,5 +9,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // Process CSS so the Company page layout test can assert the raw
+    // stylesheet (the shared 900px breakpoint) via `styles.css?raw`.
+    css: true,
   },
 })

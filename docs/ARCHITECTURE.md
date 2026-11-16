@@ -258,22 +258,35 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `router.ts` | hash routing (`#/`, `#/offers`, `#/offers?saved=true`, `#/sources`, `#/offers/:id`, `#/companies/:id`) |
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with a Refresh button that fans out over the enabled sources behind those applications, and a Saved section (bookmarks, `saved=true`, `sort=saved`) |
-| `pages/OffersPage.tsx` | full offers table: filters (including saved/unsaved), sorting, pagination, bookmark toggle per row, and the manual import form |
+| `pages/OffersPage.tsx` | full offers table: filters (including saved/unsaved), sorting, pagination, bookmark toggle per row, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
 | `pages/SourcesPage.tsx` | source list, enable toggle, scan status, per-source refresh, header Refresh all, and an add/edit modal with type-dependent config fields (personio/workable/rss/html included) and explanatory notes on seeded sources |
 | `pages/OfferPage.tsx` | bookmark toggle in the header, editable states/location, score badges with reason tooltips, collapsed provenance disclosure with explicit merge and split actions (open state stored per offer in localStorage), timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save) |
 | `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note) |
-| `pages/CompanyPage.tsx` | company notes above the offers list, rename/website edit, dismissible possible-duplicate banner and explicit keep-which-company merge dialog |
+| `pages/CompanyPage.tsx` | one two-column header block: company identity, actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; the offers list stays below. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
 | `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source/event/note/company) |
-| `components/Modal.tsx` | shared dialog shell (fixed backdrop, titled head, Escape/backdrop close, wide variant) used by the source add/edit form |
+| `components/Modal.tsx` | shared dialog shell (fixed backdrop, titled head, Escape/backdrop close, wide variant) used by the source add/edit form and the offer import dialog |
 | `components/BookmarkButton.tsx` | dependency-free star toggle used in offer rows and the offer detail header |
 | `components/OfferTable.tsx` | reusable offers table with optional company/application columns and an optional bookmark toggle |
 
 The dashboard (`#/`) contains only Applications and Saved. The full
-filtered/paginated offers table and the import form live on `#/offers`;
-the Saved section's "Show all" link opens `#/offers?saved=true`. The
-bookmark (`saved_at`) is independent of both state machines: saving never
-changes `offer_state` or `application_state`, and a saved offer that
-becomes an application stays in Saved until the user un-bookmarks it.
+filtered/paginated offers table and the manual import dialog live on
+`#/offers`; the Saved section's "Show all" link opens
+`#/offers?saved=true`. The Offers header "Add offer" button opens the
+import form in the shared `Modal`. A successful import closes the
+dialog, toasts the offer id, refreshes the app data and navigates to the
+new or matched `#/offers/:id` detail page, so the id is always
+reachable. A `422 metadata_*` response keeps the dialog open and
+prefills the extracted fields for manual entry. The bookmark (`saved_at`)
+is independent of both state machines: saving never changes
+`offer_state` or `application_state`, and a saved offer that becomes an
+application stays in Saved until the user un-bookmarks it.
+
+The company page (`#/companies/:id`) renders identity and notes in one
+two-column header panel: company name/website/offer count/created time,
+Edit and Delete company, and the possible-duplicate banner on the left;
+the unchanged company-note list and new-note form on the right. The
+offers table remains a separate panel below. Both columns stack at
+`max-width: 900px`, the breakpoint already used by `.detail-columns`.
 
 The Sources header owns "Refresh all"; the top bar only navigates. The
 Dashboard's Applications Refresh is a client-side fan-out over

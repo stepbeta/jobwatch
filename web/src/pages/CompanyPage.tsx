@@ -175,121 +175,123 @@ export function CompanyPage({
       </div>
       {error && <div className="error-box">{error}</div>}
 
-      <section className="panel offer-header">
-        {editing ? (
-          <form className="state-controls" onSubmit={(e) => void saveCompany(e)}>
-            <label>
-              Name
-              <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </label>
-            <label>
-              Website
-              <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" />
-            </label>
-            <button type="submit" className="primary">
-              Save
-            </button>
-            <button type="button" onClick={() => setEditing(false)}>
-              Cancel
-            </button>
-          </form>
-        ) : (
-          <div className="offer-title">
-            <h1>{detail.company.name}</h1>
-            <div className="muted">
-              {detail.company.website ? (
-                <a href={detail.company.website} target="_blank" rel="noreferrer">
-                  {detail.company.website}
-                </a>
-              ) : (
-                'No website'
-              )}{' '}
-              · {detail.company.offer_count} offer(s) · created {fmtDateTime(detail.company.created_at)}
-            </div>
-            <div className="actions">
-              <button type="button" onClick={() => setEditing(true)}>
-                Edit
+      <section className="panel company-header">
+        <div className="company-identity">
+          {editing ? (
+            <form className="state-controls" onSubmit={(e) => void saveCompany(e)}>
+              <label>
+                Name
+                <input value={name} onChange={(e) => setName(e.target.value)} required />
+              </label>
+              <label>
+                Website
+                <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" />
+              </label>
+              <button type="submit" className="primary">
+                Save
               </button>
-              <button type="button" onClick={removeCompany}>
-                Delete company
+              <button type="button" onClick={() => setEditing(false)}>
+                Cancel
               </button>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {duplicates.length > 0 && (
-        <section className="panel merge-prompt" role="status">
-          <div className="section-head">
-            <h2>Possible duplicate companies</h2>
-            <div className="actions">
-              <span className="muted small">Merging is never automatic</span>
-              <button type="button" onClick={() => dismissAll(duplicates)}>
-                Dismiss
-              </button>
-            </div>
-          </div>
-          <p className="muted small">
-            These names look like the same company. Review the candidate and choose which company row to
-            keep; offers and notes are moved, never merged silently.
-          </p>
-          {duplicates.map((c) => (
-            <div className="merge-row" key={c.id}>
-              <div>
-                <Link to={`/companies/${c.id}`}>{c.name}</Link>{' '}
-                <span className="muted small">
-                  score {c.score} · {c.reason}
-                </span>
+            </form>
+          ) : (
+            <div className="offer-title">
+              <h1>{detail.company.name}</h1>
+              <div className="muted">
+                {detail.company.website ? (
+                  <a href={detail.company.website} target="_blank" rel="noreferrer">
+                    {detail.company.website}
+                  </a>
+                ) : (
+                  'No website'
+                )}{' '}
+                · {detail.company.offer_count} offer(s) · created {fmtDateTime(detail.company.created_at)}
               </div>
               <div className="actions">
-                <button type="button" onClick={() => openMerge(c)}>
-                  Merge…
+                <button type="button" onClick={() => setEditing(true)}>
+                  Edit
                 </button>
-                <button type="button" className="link-button" onClick={() => dismissCandidate(c.id)}>
-                  Dismiss
+                <button type="button" onClick={removeCompany}>
+                  Delete company
                 </button>
               </div>
             </div>
-          ))}
-        </section>
-      )}
+          )}
 
-      <section className="panel">
-        <div className="section-head">
-          <h2>Company notes</h2>
-          <span className="muted">{detail.notes.length} note(s)</span>
-        </div>
-        {detail.notes.length === 0 ? (
-          <p className="empty">No company notes yet.</p>
-        ) : (
-          <div className="notes">
-            {detail.notes.map((n) => (
-              <article className="note" key={n.id}>
-                <p>{n.body}</p>
-                <div className="muted small">{fmtDateTime(n.created_at)}</div>
+          {duplicates.length > 0 && (
+            <div className="panel merge-prompt" role="status">
+              <div className="section-head">
+                <h2>Possible duplicate companies</h2>
                 <div className="actions">
-                  <button type="button" onClick={() => deleteNote(n.id)}>
-                    Delete
+                  <span className="muted small">Merging is never automatic</span>
+                  <button type="button" onClick={() => dismissAll(duplicates)}>
+                    Dismiss
                   </button>
                 </div>
-              </article>
-            ))}
+              </div>
+              <p className="muted small">
+                These names look like the same company. Review the candidate and choose which company row
+                to keep; offers and notes are moved, never merged silently.
+              </p>
+              {duplicates.map((c) => (
+                <div className="merge-row" key={c.id}>
+                  <div>
+                    <Link to={`/companies/${c.id}`}>{c.name}</Link>{' '}
+                    <span className="muted small">
+                      score {c.score} · {c.reason}
+                    </span>
+                  </div>
+                  <div className="actions">
+                    <button type="button" onClick={() => openMerge(c)}>
+                      Merge…
+                    </button>
+                    <button type="button" className="link-button" onClick={() => dismissCandidate(c.id)}>
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="company-notes-panel">
+          <div className="section-head">
+            <h2>Company notes</h2>
+            <span className="muted">{detail.notes.length} note(s)</span>
           </div>
-        )}
-        <form className="stack" onSubmit={(e) => void addNote(e)}>
-          <label>
-            New company note
-            <textarea
-              value={noteBody}
-              onChange={(e) => setNoteBody(e.target.value)}
-              rows={3}
-              placeholder="recruiter contact, salary notes, …"
-            />
-          </label>
-          <button type="submit" className="primary" disabled={!noteBody.trim()}>
-            Add note
-          </button>
-        </form>
+          {detail.notes.length === 0 ? (
+            <p className="empty">No company notes yet.</p>
+          ) : (
+            <div className="notes">
+              {detail.notes.map((n) => (
+                <article className="note" key={n.id}>
+                  <p>{n.body}</p>
+                  <div className="muted small">{fmtDateTime(n.created_at)}</div>
+                  <div className="actions">
+                    <button type="button" onClick={() => deleteNote(n.id)}>
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+          <form className="stack" onSubmit={(e) => void addNote(e)}>
+            <label>
+              New company note
+              <textarea
+                value={noteBody}
+                onChange={(e) => setNoteBody(e.target.value)}
+                rows={3}
+                placeholder="recruiter contact, salary notes, …"
+              />
+            </label>
+            <button type="submit" className="primary" disabled={!noteBody.trim()}>
+              Add note
+            </button>
+          </form>
+        </div>
       </section>
 
       <section className="panel">

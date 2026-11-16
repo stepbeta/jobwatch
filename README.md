@@ -103,7 +103,10 @@ Built with React + TypeScript (Vite). The pages are:
 - **Offers** (`#/offers`) — the full table with filters (application/offer
   state, remote policy, saved/unsaved, score minima, company, full-text
   search), sorting and pagination, a star bookmark toggle on every row,
-  and the import form (URL or manual fields). Score badges show 0–100
+  and a header **Add offer** button that opens a modal import form (URL
+  fetch-and-prefill or manual fields). A successful import closes the
+  modal, shows the success toast, refreshes the data and opens the new or
+  matched offer's detail page. Score badges show 0–100
   title/location confidences; hover one to see the matched keywords from
   the classifier.
 - **Sources** — enable/disable, scan status, per-source Refresh, a
@@ -119,9 +122,11 @@ Built with React + TypeScript (Vite). The pages are:
   and a single-version description browser (prev/next, version dropdown,
   Scan/Manual origin badge, diff against the previous version, Add/Edit
   manual description).
-- **Company detail** — company notes above the offers list,
-  rename/website edit, a dismissible possible-duplicate banner and a merge
-  dialog that lets you choose which company row to keep. Nothing is
+- **Company detail** — one two-column header block: identity (name,
+  website, offer count, created time, Edit/Delete company) and the
+  dismissible possible-duplicate banner on the left; company notes (list,
+  add, delete) on the right. The columns stack at 900px. The offers list
+  stays below. Merging always asks which company row to keep; nothing is
   merged automatically.
 
 The bookmark is personal interest, not an application state. Saving an
@@ -290,8 +295,8 @@ Aggregator and candidate-only pages are deliberately not scraped:
 FlexJobs, RemoteMore, the `my.greenhouse.io` dashboard, The Product
 Crew, Welcome to the Jungle matches and Jobgether either require a
 candidate account or render matches client-side. When you find an offer
-there, copy its public URL and paste it into **Offers → Import an
-offer seen elsewhere** (click **Fetch & import**), or run `jobwatch
+there, copy its public URL and paste it into **Offers → Add offer**
+(click **Fetch & import**), or run `jobwatch
 import <url>`; if the page is login-gated or has no usable metadata,
 enter company and title manually in the same form or with
 `--company`/`--title`. If the offer also exists on a company ATS board,
