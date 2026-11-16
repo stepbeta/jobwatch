@@ -42,11 +42,39 @@ type Config struct {
 	// RateLimitMS is the minimum interval between requests to this
 	// source's host, in milliseconds (default 2000).
 	RateLimitMS int `json:"rate_limit_ms,omitempty"`
+	// Note is an optional human-readable explanation shown in the UI,
+	// used by the seeded disabled sources for Workday/SuccessFactors.
+	Note string `json:"note,omitempty"`
 
 	BoardToken string `json:"board_token,omitempty"` // greenhouse
 	Site       string `json:"site,omitempty"`        // lever
 	Region     string `json:"region,omitempty"`      // lever: "" (global) or "eu"
 	Org        string `json:"org,omitempty"`         // ashby job board name
+
+	Tenant   string `json:"tenant,omitempty"`   // personio subdomain
+	Language string `json:"language,omitempty"` // personio feed language (optional)
+	Account  string `json:"account,omitempty"`  // workable account slug
+
+	// rss: item element and field paths. A path is a chain of child
+	// element local names; "@name" reads an attribute.
+	Item             string `json:"item,omitempty"`
+	TitleField       string `json:"title_field,omitempty"`
+	LinkField        string `json:"link_field,omitempty"`
+	DescriptionField string `json:"description_field,omitempty"`
+	LocationField    string `json:"location_field,omitempty"`
+	CompanyField     string `json:"company_field,omitempty"`
+	UIDField         string `json:"uid_field,omitempty"`
+
+	// html: CSS selectors for the listing page.
+	ItemSelector        string `json:"item_selector,omitempty"`
+	TitleSelector       string `json:"title_selector,omitempty"`
+	LinkSelector        string `json:"link_selector,omitempty"`
+	LinkAttr            string `json:"link_attr,omitempty"`
+	LocationSelector    string `json:"location_selector,omitempty"`
+	DescriptionSelector string `json:"description_selector,omitempty"`
+	CompanySelector     string `json:"company_selector,omitempty"`
+	UIDSelector         string `json:"uid_selector,omitempty"`
+	UIDAttr             string `json:"uid_attr,omitempty"`
 }
 
 // ParseConfig decodes src.ConfigJSON. An empty string is an empty config.
@@ -70,6 +98,21 @@ func (c Config) Interval(def time.Duration) time.Duration {
 	return def
 }
 
+// IntervalFor returns the request interval for a source type. HTML pages
+// are the most fragile and least structured target, so their polling
+// never runs faster than 5 s even when config_json asks for less. A
+// larger rate_limit_ms always wins.
+func (c Config) IntervalFor(typ model.SourceType, def time.Duration) time.Duration {
+	d := c.Interval(def)
+	if typ == model.SourceHTML && d < HTMLMinInterval {
+		return HTMLMinInterval
+	}
+	return d
+}
+
+// HTMLMinInterval is the conservative lower bound for HTML scraping.
+const HTMLMinInterval = 5 * time.Second
+
 // Registry maps source types to their fetcher.
 type Registry map[model.SourceType]Fetcher
 
@@ -79,6 +122,10 @@ func NewRegistry(client *Client) Registry {
 		model.SourceGreenhouse: &Greenhouse{Client: client},
 		model.SourceLever:      &Lever{Client: client},
 		model.SourceAshby:      &Ashby{Client: client},
+		model.SourcePersonio:   &Personio{Client: client},
+		model.SourceWorkable:   &Workable{Client: client},
+		model.SourceRSS:        &RSS{Client: client},
+		model.SourceHTML:       &HTML{Client: client},
 	}
 }
 

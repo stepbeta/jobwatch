@@ -204,6 +204,12 @@ func TestDetect(t *testing.T) {
 		{"https://api.lever.co/v0/postings/acme?mode=json", model.SourceLever, Config{Site: "acme"}, true},
 		{"https://jobs.ashbyhq.com/linear", model.SourceAshby, Config{Org: "linear"}, true},
 		{"https://api.ashbyhq.com/posting-api/job-board/linear", model.SourceAshby, Config{Org: "linear"}, true},
+		{"https://acme.jobs.personio.de/xml", model.SourcePersonio, Config{Tenant: "acme"}, true},
+		{"https://acme.jobs.personio.com/careers", model.SourcePersonio, Config{Tenant: "acme"}, true},
+		{"https://apply.workable.com/acme", model.SourceWorkable, Config{Account: "acme"}, true},
+		{"https://apply.workable.com/api/v1/widget/accounts/acme?details=true", model.SourceWorkable, Config{Account: "acme"}, true},
+		{"https://acme.workable.com/", model.SourceWorkable, Config{Account: "acme"}, true},
+		{"https://apply.workable.com/j/ABC123", "", Config{}, false},
 		{"https://careers.example.com/jobs", "", Config{}, false},
 		{"https://jobs.lever.co/", "", Config{}, false},
 		{"not a url", "", Config{}, false},
@@ -385,5 +391,285 @@ func TestAdapterErrors(t *testing.T) {
 	var he *HTTPError
 	if !errors.As(err, &he) || he.Status != 404 || errors.Is(err, ErrBlocked) {
 		t.Errorf("404 board err = %v", err)
+	}
+}
+
+func TestPersonioAdapter(t *testing.T) {
+	srv := fixtureServer(t, "/xml", "personio.xml")
+	c, _ := testClient()
+	p := &Personio{Client: c, BaseURL: srv.URL}
+	got, err := p.Fetch(context.Background(), model.Source{
+		ID: 1, Type: model.SourcePersonio, URL: "https://acme.jobs.personio.de",
+	})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d offers, want 3", len(got))
+	}
+	first := got[0]
+	if first.ExternalUID != "2885178" || first.Title != "Business Development Representative (d/f/m)" {
+		t.Errorf("first offer = %+v", first)
+	}
+	if first.Location != "Berlin" || first.URL != srv.URL+"/job/2885178" {
+		t.Errorf("first location/url = %q %q", first.Location, first.URL)
+	}
+	for _, want := range []string{"Your mission", "Kubernetes", "Your profile", "SRE or Platform Engineer"} {
+		if !strings.Contains(first.Description, want) {
+			t.Errorf("description missing %q: %q", want, first.Description)
+		}
+	}
+	if strings.Contains(first.Description, "<") || strings.Contains(first.Description, "&lt;") {
+		t.Errorf("description still contains markup: %.200q", first.Description)
+	}
+	if got[2].Location != "Remote - Germany" {
+		t.Errorf("third location = %q", got[2].Location)
+	}
+
+	// The tenant can also come from config_json when the URL is not a feed URL.
+	if _, err := (&Personio{Client: c, BaseURL: srv.URL}).Fetch(context.Background(),
+		model.Source{ID: 2, URL: "https://example.invalid", ConfigJSON: `{"tenant":"acme"}`}); err != nil {
+		t.Errorf("tenant from config: %v", err)
+	}
+	if _, err := (&Personio{Client: c}).Fetch(context.Background(), model.Source{ID: 3, URL: "https://example.invalid"}); err == nil ||
+		!strings.Contains(err.Error(), "tenant") {
+		t.Errorf("missing tenant error = %v", err)
+	}
+}
+
+func TestWorkableAdapter(t *testing.T) {
+	srv := fixtureServer(t, "/api/v1/widget/accounts/acme?details=true", "workable_jobs.json")
+	c, _ := testClient()
+	wk := &Workable{Client: c, BaseURL: srv.URL}
+	got, err := wk.Fetch(context.Background(), model.Source{
+		ID: 1, Type: model.SourceWorkable, URL: "https://apply.workable.com/acme",
+	})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d offers, want 3", len(got))
+	}
+	first := got[0]
+	if first.ExternalUID != "81B46579FE" || first.Title != "Open-Source Machine Learning Engineer - EMEA Remote" {
+		t.Errorf("first offer = %+v", first)
+	}
+	if first.Company != "Hugging Face" {
+		t.Errorf("company = %q", first.Company)
+	}
+	if first.URL != "https://apply.workable.com/j/81B46579FE" {
+		t.Errorf("url = %q", first.URL)
+	}
+	if !strings.Contains(first.Location, "Paris, Île-de-France, France") ||
+		!strings.Contains(first.Location, "Berlin, Berlin, Germany") ||
+		!strings.Contains(first.Location, "(remote)") {
+		t.Errorf("location = %q", first.Location)
+	}
+	if !strings.Contains(first.Description, "Hugging Face") {
+		t.Errorf("description missing company text: %.160q", first.Description)
+	}
+	if strings.Contains(first.Description, "<") {
+		t.Errorf("description still contains markup: %.160q", first.Description)
+	}
+	if got[2].Location != "Paris, Île-de-France, France (remote)" {
+		t.Errorf("third location = %q", got[2].Location)
+	}
+
+	// An account can come from config_json, and an unknown account is an
+	// HTTP error rather than an empty board.
+	if _, err := (&Workable{Client: c, BaseURL: srv.URL}).Fetch(context.Background(),
+		model.Source{ID: 2, URL: "https://example.invalid", ConfigJSON: `{"account":"acme"}`}); err != nil {
+		t.Errorf("account from config: %v", err)
+	}
+	if _, err := (&Workable{Client: c}).Fetch(context.Background(), model.Source{ID: 3, URL: "https://example.invalid"}); err == nil ||
+		!strings.Contains(err.Error(), "account") {
+		t.Errorf("missing account error = %v", err)
+	}
+}
+
+func TestRSSAdapter(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		fixture    string
+		config     string
+		wantCount  int
+		wantTitle  string
+		wantURL    string
+		wantUID    string
+		wantDescIn string
+		wantLoc    string
+		wantComp   string
+	}{
+		{
+			name:       "rss defaults",
+			path:       "/feed.xml",
+			fixture:    "rss_feed.xml",
+			wantCount:  3,
+			wantTitle:  "Hometap: Underwriter",
+			wantURL:    "https://weworkremotely.com/remote-jobs/hometap-underwriter",
+			wantUID:    "https://weworkremotely.com/remote-jobs/hometap-underwriter",
+			wantDescIn: "Kubernetes",
+		},
+		{
+			name:       "rss custom mapping",
+			path:       "/feed.xml",
+			fixture:    "rss_feed.xml",
+			config:     `{"location_field":"region","company_field":"category","description_field":"description"}`,
+			wantCount:  3,
+			wantTitle:  "Hometap: Underwriter",
+			wantURL:    "https://weworkremotely.com/remote-jobs/hometap-underwriter",
+			wantUID:    "https://weworkremotely.com/remote-jobs/hometap-underwriter",
+			wantDescIn: "Terraform",
+			wantLoc:    "USA Only",
+			wantComp:   "Management and Finance",
+		},
+		{
+			name:       "atom alternate link",
+			path:       "/atom.xml",
+			fixture:    "atom_feed.xml",
+			config:     `{"description_field":"content"}`,
+			wantCount:  3,
+			wantTitle:  "Go Turns 17",
+			wantURL:    "https://go.dev/blog/17years",
+			wantUID:    "tag:blog.golang.org,2013:blog.golang.org/17years",
+			wantDescIn: "Remote platform engineering",
+		},
+		{
+			name:       "atom attribute mapping",
+			path:       "/atom.xml",
+			fixture:    "atom_feed.xml",
+			config:     `{"link_field":"link@href","description_field":"summary","company_field":"author/name"}`,
+			wantCount:  3,
+			wantTitle:  "Go Turns 17",
+			wantURL:    "https://go.dev/blog/17years",
+			wantUID:    "tag:blog.golang.org,2013:blog.golang.org/17years",
+			wantDescIn: "Happy Birthday",
+			wantComp:   "Austin Clements, for the Go team",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := fixtureServer(t, tt.path, tt.fixture)
+			c, _ := testClient()
+			got, err := (&RSS{Client: c}).Fetch(context.Background(), model.Source{
+				ID: 1, Type: model.SourceRSS, URL: srv.URL + tt.path, ConfigJSON: tt.config,
+			})
+			if err != nil {
+				t.Fatalf("Fetch: %v", err)
+			}
+			if len(got) != tt.wantCount {
+				t.Fatalf("got %d offers, want %d", len(got), tt.wantCount)
+			}
+			first := got[0]
+			if first.Title != tt.wantTitle || first.URL != tt.wantURL || first.ExternalUID != tt.wantUID {
+				t.Errorf("first offer = %+v", first)
+			}
+			if !strings.Contains(first.Description, tt.wantDescIn) {
+				t.Errorf("description missing %q: %.200q", tt.wantDescIn, first.Description)
+			}
+			if first.Location != tt.wantLoc || first.Company != tt.wantComp {
+				t.Errorf("location/company = %q %q, want %q %q", first.Location, first.Company, tt.wantLoc, tt.wantComp)
+			}
+		})
+	}
+
+	// An XML document without known item elements is an empty feed, not an error.
+	srv := fixtureServer(t, "/empty.xml", "personio.xml")
+	c, _ := testClient()
+	got, err := (&RSS{Client: c}).Fetch(context.Background(), model.Source{ID: 1, URL: srv.URL + "/empty.xml"})
+	if err != nil || len(got) != 0 {
+		t.Errorf("empty feed = %v, %d offers", err, len(got))
+	}
+}
+
+func TestHTMLAdapter(t *testing.T) {
+	srv := fixtureServer(t, "/careers", "html_listing.html")
+	c, _ := testClient()
+	cfg := `{"item_selector":"li.job-card","title_selector":"h2.job-title",
+	         "link_selector":"h2.job-title a","location_selector":".job-location",
+	         "description_selector":".job-summary","uid_attr":"data-id"}`
+	got, err := (&HTML{Client: c}).Fetch(context.Background(), model.Source{
+		ID: 1, Type: model.SourceHTML, URL: srv.URL + "/careers", ConfigJSON: cfg,
+	})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d offers, want 3", len(got))
+	}
+	first := got[0]
+	if first.ExternalUID != "acme-101" || first.Title != "Site Reliability Engineer" {
+		t.Errorf("first offer = %+v", first)
+	}
+	if first.URL != srv.URL+"/jobs/site-reliability-engineer" {
+		t.Errorf("relative link = %q", first.URL)
+	}
+	if first.Location != "Remote - France" {
+		t.Errorf("location = %q", first.Location)
+	}
+	for _, want := range []string{"Run Kubernetes and Terraform platforms.", "Fully remote."} {
+		if !strings.Contains(first.Description, want) {
+			t.Errorf("description missing %q: %q", want, first.Description)
+		}
+	}
+	if got[1].URL != "https://careers.example.com/jobs/platform-engineer" {
+		t.Errorf("absolute link = %q", got[1].URL)
+	}
+
+	// A title selector without an explicit link selector falls back to the
+	// first href inside the title element.
+	loose, err := (&HTML{Client: c}).Fetch(context.Background(), model.Source{
+		ID: 1, URL: srv.URL + "/careers",
+		ConfigJSON: `{"item_selector":"li.job-card","title_selector":"h2.job-title"}`,
+	})
+	if err != nil || len(loose) != 3 || loose[0].URL != srv.URL+"/jobs/site-reliability-engineer" {
+		t.Errorf("loose selectors = %v, %d offers (err %v)", loose, len(loose), err)
+	}
+
+	tests := []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{"missing item selector", `{"title_selector":"h2"}`, "item_selector"},
+		{"missing title selector", `{"item_selector":"li"}`, "title_selector"},
+		{"bad item selector", `{"item_selector":"li[","title_selector":"h2"}`, "item_selector"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := (&HTML{Client: c}).Fetch(context.Background(), model.Source{
+				ID: 1, URL: srv.URL + "/careers", ConfigJSON: tt.config,
+			})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("err = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestIntervalFor(t *testing.T) {
+	tests := []struct {
+		name string
+		typ  model.SourceType
+		cfg  string
+		want time.Duration
+	}{
+		{"default", model.SourceGreenhouse, `{}`, DefaultInterval},
+		{"configured", model.SourceWorkable, `{"rate_limit_ms":5000}`, 5 * time.Second},
+		{"html minimum", model.SourceHTML, `{}`, HTMLMinInterval},
+		{"html ignores smaller config", model.SourceHTML, `{"rate_limit_ms":1000}`, HTMLMinInterval},
+		{"html accepts larger config", model.SourceHTML, `{"rate_limit_ms":8000}`, 8 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ParseConfig(model.Source{ConfigJSON: tt.cfg})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.IntervalFor(tt.typ, DefaultInterval); got != tt.want {
+				t.Errorf("IntervalFor = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

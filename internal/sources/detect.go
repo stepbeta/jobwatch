@@ -53,6 +53,20 @@ func Detect(rawURL string) (typ model.SourceType, cfg Config, ok bool) {
 		if len(segs) >= 1 {
 			return model.SourceAshby, Config{Org: segs[0]}, true
 		}
+	case strings.Contains(host, ".jobs.personio."):
+		if i := strings.Index(host, ".jobs.personio."); i > 0 {
+			return model.SourcePersonio, Config{Tenant: host[:i]}, true
+		}
+	case host == "apply.workable.com":
+		// /api/v1/widget/accounts/{account} or /{account}/...
+		if len(segs) >= 5 && segs[0] == "api" && segs[1] == "v1" && segs[2] == "widget" && segs[3] == "accounts" {
+			return model.SourceWorkable, Config{Account: segs[4]}, true
+		}
+		if len(segs) >= 1 && segs[0] != "j" {
+			return model.SourceWorkable, Config{Account: segs[0]}, true
+		}
+	case strings.HasSuffix(host, ".workable.com") && host != "www.workable.com" && host != "jobs.workable.com":
+		return model.SourceWorkable, Config{Account: strings.TrimSuffix(host, ".workable.com")}, true
 	}
 	return "", Config{}, false
 }

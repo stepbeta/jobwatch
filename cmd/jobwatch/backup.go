@@ -35,7 +35,7 @@ func newBackupCmd(opts *rootOptions) *cobra.Command {
 			if err := db.Backup(ctx, sqlDB, dest); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "backup written to %s\n", dest)
+			fmt.Fprintf(cmd.OutOrStdout(), "backup written to %s (integrity check ok)\n", dest)
 			return nil
 		},
 	}

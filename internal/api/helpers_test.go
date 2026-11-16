@@ -50,7 +50,9 @@ func newTestServer(t *testing.T) *testServer {
 	t.Cleanup(func() { sqlDB.Close() })
 	ff := &fakeFetcher{offers: map[int64][]sources.RawOffer{}, errs: map[int64]error{}}
 	clock := &testClock{t: time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)}
-	s := &Server{DB: sqlDB, Version: "test", Fetcher: ff, Now: clock.now}
+	client := sources.NewClient()
+	client.DefaultInterval = 0
+	s := &Server{DB: sqlDB, Version: "test", Fetcher: ff, HTTPClient: client, Now: clock.now}
 	return &testServer{Server: s, handler: s.Handler(), db: sqlDB, fetcher: ff, clock: clock}
 }
 

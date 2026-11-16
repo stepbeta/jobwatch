@@ -109,6 +109,68 @@
   explicit user-confirmed offer merge deletes the absorbed row after all
   child rows have moved; scans still never delete offers.
 
+### Milestone 4 — More sources, import ergonomics, polish
+
+#### Added
+- Personio adapter for the public XML feed
+  (`https://{tenant}.jobs.personio.de/xml`): office as location, job id
+  as external UID, titled description blocks converted to text.
+- Workable adapter for the keyless widget API
+  (`apply.workable.com/api/v1/widget/accounts/{account}?details=true`):
+  multi-location entries are grouped by shortcode, locations joined,
+  `telecommuting` marked, and the company name taken from the board.
+- Generic RSS 2.0 / Atom adapter with configurable item and field mapping
+  (`item`, `title_field`, `link_field`, `description_field`,
+  `location_field`, `company_field`, `uid_field`), including Atom
+  alternate links and HTML descriptions.
+- Last-resort HTML adapter using per-source CSS selectors
+  (`item_selector`, `title_selector`, `link_selector`, …); it fetches only
+  the listing page and never polls a host faster than every 5 seconds.
+- URL detection for Personio (`{tenant}.jobs.personio.de/.com`) and
+  Workable (`apply.workable.com/{account}`, `{account}.workable.com`).
+- Data-only migration 0002 seeding four disabled sources: Datadog/Cisco
+  (Workday), SAP (SuccessFactors) and Welcome to the Jungle, each with an
+  explanatory `note` shown in the UI. Workday/SuccessFactors/WTTJ adapters
+  are intentionally not implemented.
+- `POST /api/offers/import` and `jobwatch import` accept a URL alone and
+  extract title/company/location/description from JSON-LD JobPosting,
+  Open Graph/meta tags or the page title through the polite client.
+  Incomplete pages return `422 metadata_incomplete` /
+  `metadata_unavailable` with a `metadata` object so the UI can prefill
+  its manual form; `--no-fetch` keeps the old explicit-field behaviour.
+- `jobwatch list` now shows remote policy, both confidence scores and the
+  offer/application states in a compact table; `list --sources` shows the
+  disabled-source note.
+- `jobwatch backup` reopens the copy read-only and validates it with
+  `PRAGMA integrity_check`, `foreign_key_check` and an applied-migrations
+  check; a failed copy is deleted.
+- Shared confirmation dialog for every destructive UI action (source,
+  event, note, company), auto-dismissing success/error toasts, loading
+  indications and empty states.
+- Source forms for Personio (tenant/language), Workable (account),
+  RSS/Atom field mapping and HTML selectors, with the seeded note shown.
+- End-to-end smoke test over the real Workable adapter and fixture
+  (add source → scan → classify → application state → timeline event) and
+  `docs/SMOKE-TEST.md` with manual UI steps.
+
+#### Changed
+- Header/empty-source text and README now describe all supported source
+  types and the disabled known-hard rows.
+- The polite client applies a per-type interval: HTML sources have a 5 s
+  floor; a larger `rate_limit_ms` always wins.
+- Manual import and URL metadata extraction share the same polite client
+  through the API server, preserving the robots cache and rate limiter.
+- `source_type` validation for `add-source` no longer advertises `wttj`.
+- Two module dependencies were added: `golang.org/x/net/html` (HTML
+  parsing) and `github.com/andybalholm/cascadia` (CSS selectors), because
+  the standard library has neither.
+
+#### Fixed
+- Backup command now fails (and removes the partial copy) when the copy
+  is not a valid JobWatch database.
+- API server no longer creates two independent polite clients when both
+  scanning and import metadata are used.
+
 
 ### Changed
 - SPEC updated to match decisions made in Milestone 1: Ashby is fetched

@@ -8,13 +8,15 @@ export function OfferTable({
   offers,
   showCompany = true,
   showApplication = true,
+  emptyText = 'No offers match.',
 }: {
   offers: Offer[]
   showCompany?: boolean
   showApplication?: boolean
+  emptyText?: string
 }) {
   if (offers.length === 0) {
-    return <p className="empty">No offers match.</p>
+    return <p className="empty">{emptyText}</p>
   }
   return (
     <div className="table-wrap">

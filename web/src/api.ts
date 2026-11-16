@@ -11,15 +11,25 @@ import type {
   SourceType,
 } from './types'
 
+export interface ImportMetadata {
+  company: string
+  title: string
+  location: string
+  url: string
+  description: string
+}
+
 export class ApiError extends Error {
   readonly code: string
   readonly status: number
+  readonly metadata?: ImportMetadata
 
-  constructor(code: string, message: string, status: number) {
+  constructor(code: string, message: string, status: number, metadata?: ImportMetadata) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.status = status
+    this.metadata = metadata
   }
 }
 
@@ -47,19 +57,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     return undefined as T
   }
   const text = await res.text()
-  let body: unknown = null
+  let payload: unknown = null
   if (text) {
     try {
-      body = JSON.parse(text)
+      payload = JSON.parse(text)
     } catch {
       throw new ApiError('invalid_response', 'The server returned invalid JSON', res.status)
     }
   }
   if (!res.ok) {
-    const err = (body as { error?: { code?: string; message?: string } } | null)?.error
-    throw new ApiError(err?.code ?? 'http_error', err?.message ?? res.statusText, res.status)
+    const errBody = payload as {
+      error?: { code?: string; message?: string }
+      metadata?: ImportMetadata
+    } | null
+    const err = errBody?.error
+    throw new ApiError(
+      err?.code ?? 'http_error',
+      err?.message ?? res.statusText,
+      res.status,
+      errBody?.metadata,
+    )
   }
-  return body as T
+  return payload as T
 }
 
 function body(method: string, data: unknown): RequestInit {
@@ -122,8 +141,8 @@ export const api = {
       body('POST', input),
     ),
   importOffer: (input: {
-    company: string
-    title: string
+    company?: string
+    title?: string
     location?: string
     url?: string
     description?: string

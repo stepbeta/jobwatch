@@ -61,6 +61,26 @@ func decodeStrict(s string, v any) error {
 	return nil
 }
 
+// FillMissing fills empty fields from extracted metadata. Values already
+// present (typically user input) win.
+func (in *ImportInput) FillMissing(company, title, location, rawURL, description string) {
+	if in.Company == "" {
+		in.Company = company
+	}
+	if in.Title == "" {
+		in.Title = title
+	}
+	if in.Location == "" {
+		in.Location = location
+	}
+	if in.URL == "" {
+		in.URL = rawURL
+	}
+	if in.Description == "" {
+		in.Description = description
+	}
+}
+
 // Validate checks the required fields.
 func (in ImportInput) Validate() error {
 	var missing []string
@@ -73,11 +93,18 @@ func (in ImportInput) Validate() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("import: missing %s", strings.Join(missing, ", "))
 	}
-	if in.URL != "" {
-		u, err := url.Parse(in.URL)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return fmt.Errorf("import: invalid url %q", in.URL)
-		}
+	return ValidateImportURL(in.URL)
+}
+
+// ValidateImportURL checks that raw is empty or an absolute http(s) URL.
+func ValidateImportURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("import: invalid url %q", raw)
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stepbeta/jobwatch/internal/model"
@@ -50,12 +51,13 @@ func TestSourcesCRUD(t *testing.T) {
 
 	rec = ts.do(t, "GET", "/api/sources", nil)
 	wantCode(t, rec, 200)
-	if got := decodeBody[sourceListResp](t, rec).Sources; len(got) != 1 {
-		t.Fatalf("sources = %d, want 1", len(got))
+	if got := decodeBody[sourceListResp](t, rec).Sources; len(got) != 5 {
+		t.Fatalf("sources = %d, want 5 (4 seeded + Acme)", len(got))
 	}
 
+	id := fmt.Sprintf("%d", created.ID)
 	disabled := false
-	rec = ts.do(t, "PATCH", "/api/sources/1", map[string]any{"enabled": disabled, "config": map[string]any{"company": "Acme SAS"}})
+	rec = ts.do(t, "PATCH", "/api/sources/"+id, map[string]any{"enabled": disabled, "config": map[string]any{"company": "Acme SAS"}})
 	wantCode(t, rec, 200)
 	patched := decodeBody[sourceResp](t, rec).Source
 	if patched.Enabled {
@@ -65,13 +67,13 @@ func TestSourcesCRUD(t *testing.T) {
 		t.Errorf("config = %s", patched.Config)
 	}
 
-	wantErrorCode(t, ts.do(t, "PATCH", "/api/sources/1", map[string]any{"config": []string{"x"}}),
+	wantErrorCode(t, ts.do(t, "PATCH", "/api/sources/"+id, map[string]any{"config": []string{"x"}}),
 		400, "validation_failed")
 	wantErrorCode(t, ts.do(t, "GET", "/api/sources/99", nil), 404, "not_found")
 
-	rec = ts.do(t, "DELETE", "/api/sources/1", nil)
+	rec = ts.do(t, "DELETE", "/api/sources/"+id, nil)
 	wantCode(t, rec, 204)
-	wantErrorCode(t, ts.do(t, "GET", "/api/sources/1", nil), 404, "not_found")
+	wantErrorCode(t, ts.do(t, "GET", "/api/sources/"+id, nil), 404, "not_found")
 }
 
 func TestSourceScan(t *testing.T) {
@@ -87,7 +89,8 @@ func TestSourceScan(t *testing.T) {
 		{Title: "Platform Engineer", Location: "Remote - France", URL: "https://ex.com/jobs/2"},
 	}
 
-	rec = ts.do(t, "POST", "/api/sources/1/scan", nil)
+	srcID := fmt.Sprintf("%d", src.ID)
+	rec = ts.do(t, "POST", "/api/sources/"+srcID+"/scan", nil)
 	wantCode(t, rec, 200)
 	out := decodeBody[scanResp](t, rec)
 	if out.Result.Status != "ok" || out.Result.Fetched != 2 || out.Result.New != 2 {
@@ -98,7 +101,7 @@ func TestSourceScan(t *testing.T) {
 	}
 
 	// Scanning again is a plain sighting.
-	rec = ts.do(t, "POST", "/api/sources/1/scan", nil)
+	rec = ts.do(t, "POST", "/api/sources/"+srcID+"/scan", nil)
 	wantCode(t, rec, 200)
 	if got := decodeBody[scanResp](t, rec).Result; got.Seen != 2 || got.New != 0 {
 		t.Errorf("rescan = %+v", got)
@@ -106,7 +109,7 @@ func TestSourceScan(t *testing.T) {
 
 	// A fetch error marks the source error but still answers 200.
 	ts.fetcher.errs[src.ID] = errors.New("boom")
-	rec = ts.do(t, "POST", "/api/sources/1/scan", nil)
+	rec = ts.do(t, "POST", "/api/sources/"+srcID+"/scan", nil)
 	wantCode(t, rec, 200)
 	out = decodeBody[scanResp](t, rec)
 	if out.Result.Status != "error" || out.Result.Error == "" {
@@ -125,8 +128,9 @@ func TestSourceScanNotImplemented(t *testing.T) {
 		"name": "Feed", "url": "https://example.com/feed.xml", "source_type": string(model.SourceRSS),
 	})
 	wantCode(t, rec, 201)
+	created := decodeBody[sourceResp](t, rec).Source
 	ts.Server.Fetcher = sources.Registry{}
-	rec = ts.do(t, "POST", "/api/sources/1/scan", nil)
+	rec = ts.do(t, "POST", "/api/sources/"+fmt.Sprintf("%d", created.ID)+"/scan", nil)
 	wantCode(t, rec, 200)
 	out := decodeBody[scanResp](t, rec)
 	if out.Result.Status != "skipped" || out.Result.Error == "" {

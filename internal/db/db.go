@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"os"
 
 	"github.com/stepbeta/jobwatch/migrations"
 
@@ -43,10 +44,65 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 
 // Backup writes a consistent copy of the database to dest using
 // VACUUM INTO, which is safe while the database is in WAL mode and in use.
-// dest must not exist.
+// dest must not exist. The copy is reopened read-only and checked with
+// PRAGMA integrity_check and foreign_key_check before success is reported.
 func Backup(ctx context.Context, sqlDB *sql.DB, dest string) error {
 	if _, err := sqlDB.ExecContext(ctx, "VACUUM INTO ?", dest); err != nil {
 		return fmt.Errorf("backup to %s: %w", dest, err)
+	}
+	if err := ValidateBackup(ctx, dest); err != nil {
+		_ = os.Remove(dest)
+		return fmt.Errorf("backup validation: %w", err)
+	}
+	return nil
+}
+
+// ValidateBackup opens path read-only and verifies that it is a complete,
+// internally consistent JobWatch database.
+func ValidateBackup(ctx context.Context, path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("%s is empty", path)
+	}
+	sqlDB, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=query_only(1)")
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer sqlDB.Close()
+	if err := sqlDB.PingContext(ctx); err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	var integrity string
+	if err := sqlDB.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil {
+		return fmt.Errorf("integrity check %s: %w", path, err)
+	}
+	if integrity != "ok" {
+		return fmt.Errorf("integrity check %s: %s", path, integrity)
+	}
+	rows, err := sqlDB.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return fmt.Errorf("foreign key check %s: %w", path, err)
+	}
+	violations := 0
+	for rows.Next() {
+		violations++
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("foreign key check %s: %w", path, err)
+	}
+	if violations > 0 {
+		return fmt.Errorf("%s has %d foreign key violation(s)", path, violations)
+	}
+	var version int
+	if err := sqlDB.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&version); err != nil {
+		return fmt.Errorf("read schema_migrations from %s: %w", path, err)
+	}
+	if version == 0 {
+		return fmt.Errorf("%s has no applied migrations", path)
 	}
 	return nil
 }

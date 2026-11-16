@@ -9,6 +9,7 @@ import (
 
 	"github.com/stepbeta/jobwatch/internal/db"
 	"github.com/stepbeta/jobwatch/internal/model"
+	"github.com/stepbeta/jobwatch/internal/sources"
 )
 
 func newListCmd(opts *rootOptions) *cobra.Command {
@@ -40,7 +41,7 @@ func newListCmd(opts *rootOptions) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				fmt.Fprintln(tw, "ID\tNAME\tTYPE\tENABLED\tLAST SCAN\tSTATUS\tURL")
+				fmt.Fprintln(tw, "ID\tNAME\tTYPE\tENABLED\tLAST SCAN\tSTATUS\tURL\tNOTE")
 				for _, s := range srcs {
 					last, status := "-", "-"
 					if s.LastScanAt != nil {
@@ -49,7 +50,8 @@ func newListCmd(opts *rootOptions) *cobra.Command {
 					if s.LastScanStatus != nil {
 						status = string(*s.LastScanStatus)
 					}
-					fmt.Fprintf(tw, "%d\t%s\t%s\t%v\t%s\t%s\t%s\n", s.ID, s.Name, s.Type, s.Enabled, last, status, s.URL)
+					cfg, _ := sources.ParseConfig(s)
+					fmt.Fprintf(tw, "%d\t%s\t%s\t%v\t%s\t%s\t%s\t%s\n", s.ID, s.Name, s.Type, s.Enabled, last, status, s.URL, truncate(cfg.Note, 60))
 				}
 				return nil
 			}
@@ -62,14 +64,18 @@ func newListCmd(opts *rootOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(tw, "ID\tCOMPANY\tTITLE\tLOCATION\tOFFER\tAPPLICATION\tLAST SEEN")
+			fmt.Fprintln(tw, "ID\tCOMPANY\tTITLE\tLOCATION\tREMOTE\tT\tL\tOFFER\tAPPLICATION\tLAST SEEN")
 			for _, o := range offers {
 				loc := ""
 				if o.Location != nil {
 					loc = *o.Location
 				}
-				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", o.ID, truncate(o.CompanyName, 24), truncate(o.Title, 50),
-					truncate(loc, 30), o.OfferState, o.ApplicationState, model.FormatTime(o.LastSeenAt))
+				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", o.ID, truncate(o.CompanyName, 22),
+					truncate(o.Title, 44), truncate(loc, 24), o.RemotePolicy, score(o.TitleConfidence), score(o.LocationConfidence),
+					o.OfferState, o.ApplicationState, model.FormatTime(o.LastSeenAt))
+			}
+			if len(offers) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "no offers; add a source with `jobwatch add-source <url>` or import one")
 			}
 			return nil
 		},
@@ -79,6 +85,13 @@ func newListCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 100, "maximum rows (0 = no limit)")
 	cmd.Flags().BoolVar(&listSources, "sources", false, "list sources instead of offers")
 	return cmd
+}
+
+func score(v *int) string {
+	if v == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%d", *v)
 }
 
 func truncate(s string, n int) string {

@@ -25,11 +25,17 @@ type Server struct {
 	// Fetcher is used by the synchronous scan endpoint. When nil, a
 	// registry with one shared polite client is created on first use.
 	Fetcher sources.Fetcher
+	// HTTPClient is the polite client used for URL metadata extraction
+	// during imports. When nil it is created on first use and shared with
+	// the default Fetcher.
+	HTTPClient *sources.Client
 	// Now defaults to time.Now.
 	Now func() time.Time
 
 	fetcherOnce    sync.Once
 	defaultFetcher sources.Fetcher
+	clientOnce     sync.Once
+	defaultClient  *sources.Client
 }
 
 // Handler returns the HTTP handler for the API.
@@ -81,12 +87,22 @@ func (s *Server) now() time.Time {
 	return time.Now().UTC().Truncate(time.Second)
 }
 
+func (s *Server) httpClient() *sources.Client {
+	if s.HTTPClient != nil {
+		return s.HTTPClient
+	}
+	s.clientOnce.Do(func() {
+		s.defaultClient = sources.NewClient()
+	})
+	return s.defaultClient
+}
+
 func (s *Server) fetcher() sources.Fetcher {
 	if s.Fetcher != nil {
 		return s.Fetcher
 	}
 	s.fetcherOnce.Do(func() {
-		s.defaultFetcher = sources.NewRegistry(sources.NewClient())
+		s.defaultFetcher = sources.NewRegistry(s.httpClient())
 	})
 	return s.defaultFetcher
 }
@@ -113,17 +129,17 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+type errorDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 type errorBody struct {
-	Error struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
+	Error errorDetail `json:"error"`
 }
 
 func writeError(w http.ResponseWriter, code int, errCode, msg string) {
-	var b errorBody
-	b.Error.Code, b.Error.Message = errCode, msg
-	writeJSON(w, code, b)
+	writeJSON(w, code, errorBody{Error: errorDetail{Code: errCode, Message: msg}})
 }
 
 // maxBodyBytes caps JSON request bodies.

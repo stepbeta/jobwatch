@@ -1,15 +1,23 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
+import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
 import { Link } from '../components/Link'
 import { OfferTable } from '../components/OfferTable'
 import { fmtDateTime } from '../format'
+import type { NoticeKind } from '../App'
 import type { CompanyCandidate, CompanyDetail } from '../types'
 
 function dismissedKey(companyID: number): string {
   return `jobwatch.dismissed-duplicates:${companyID}`
 }
 
-export function CompanyPage({ id }: { id: number }) {
+export function CompanyPage({
+  id,
+  onNotice,
+}: {
+  id: number
+  onNotice: (kind: NoticeKind, text: string) => void
+}) {
   const [detail, setDetail] = useState<CompanyDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -23,6 +31,7 @@ export function CompanyPage({ id }: { id: number }) {
   const [keepID, setKeepID] = useState<number>(id)
   const [mergeBusy, setMergeBusy] = useState(false)
   const [mergeError, setMergeError] = useState('')
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -54,19 +63,25 @@ export function CompanyPage({ id }: { id: number }) {
       await api.createNote({ entity_type: 'company', entity_id: id, body: noteBody.trim() })
       setNoteBody('')
       await load()
+      onNotice('success', 'Company note added.')
     } catch (err) {
-      setError(errorMessage(err))
+      const text = errorMessage(err)
+      setError(text)
+      onNotice('error', text)
     }
   }
 
-  async function deleteNote(noteId: number) {
-    if (!window.confirm('Delete this note?')) return
-    try {
-      await api.deleteNote(noteId)
-      await load()
-    } catch (err) {
-      setError(errorMessage(err))
-    }
+  function deleteNote(noteId: number) {
+    setConfirm({
+      title: 'Delete company note',
+      message: 'Delete this company note? This cannot be undone.',
+      confirmLabel: 'Delete note',
+      onConfirm: async () => {
+        await api.deleteNote(noteId)
+        await load()
+        onNotice('success', 'Company note deleted.')
+      },
+    })
   }
 
   async function saveCompany(e: FormEvent) {
@@ -75,20 +90,25 @@ export function CompanyPage({ id }: { id: number }) {
       await api.updateCompany(id, { name: name.trim(), website: website.trim() || null })
       setEditing(false)
       await load()
+      onNotice('success', 'Company updated.')
     } catch (err) {
-      setError(errorMessage(err))
+      const text = errorMessage(err)
+      setError(text)
+      onNotice('error', text)
     }
   }
 
-  async function removeCompany() {
+  function removeCompany() {
     if (!detail) return
-    if (!window.confirm(`Delete company "${detail.company.name}"? It must have no offers.`)) return
-    try {
-      await api.deleteCompany(detail.company.id)
-      window.location.hash = '#/'
-    } catch (err) {
-      setError(errorMessage(err))
-    }
+    setConfirm({
+      title: 'Delete company',
+      message: `Delete company "${detail.company.name}"? It must have no offers. This cannot be undone.`,
+      confirmLabel: 'Delete company',
+      onConfirm: async () => {
+        await api.deleteCompany(detail.company.id)
+        window.location.hash = '#/'
+      },
+    })
   }
 
   function dismissCandidate(candidateID: number) {
@@ -131,7 +151,11 @@ export function CompanyPage({ id }: { id: number }) {
   }
 
   if (loading && !detail) {
-    return <p className="muted page">Loading company…</p>
+    return (
+      <p className="muted page" aria-busy="true">
+        Loading company…
+      </p>
+    )
   }
   if (!detail) {
     return (
@@ -186,7 +210,7 @@ export function CompanyPage({ id }: { id: number }) {
               <button type="button" onClick={() => setEditing(true)}>
                 Edit
               </button>
-              <button type="button" onClick={() => void removeCompany()}>
+              <button type="button" onClick={removeCompany}>
                 Delete company
               </button>
             </div>
@@ -235,7 +259,11 @@ export function CompanyPage({ id }: { id: number }) {
           <h2>Offers</h2>
           <span className="muted">{detail.offers.length} shown</span>
         </div>
-        <OfferTable offers={detail.offers} showCompany={false} />
+        <OfferTable
+          offers={detail.offers}
+          showCompany={false}
+          emptyText="This company has no offers yet."
+        />
       </section>
 
       <section className="panel">
@@ -252,7 +280,7 @@ export function CompanyPage({ id }: { id: number }) {
                 <p>{n.body}</p>
                 <div className="muted small">{fmtDateTime(n.created_at)}</div>
                 <div className="actions">
-                  <button type="button" onClick={() => void deleteNote(n.id)}>
+                  <button type="button" onClick={() => deleteNote(n.id)}>
                     Delete
                   </button>
                 </div>
@@ -275,6 +303,8 @@ export function CompanyPage({ id }: { id: number }) {
           </button>
         </form>
       </section>
+
+      {confirm && <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />}
 
       {mergeTarget && (
         <div className="modal-backdrop" role="presentation">

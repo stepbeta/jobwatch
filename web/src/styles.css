@@ -828,3 +828,85 @@ details summary {
   align-items: flex-start;
   gap: 8px;
 }
+
+/* toasts */
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(420px, calc(100vw - 32px));
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 18%);
+  font-size: 13px;
+}
+
+.toast-info {
+  background: var(--blue-bg);
+}
+
+.toast-success {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.toast-error {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+.toast .link-button {
+  flex: 0 0 auto;
+  color: inherit;
+}
+
+/* empty states */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-alt);
+}
+
+.empty-state p {
+  margin: 0;
+}
+
+/* explanatory config notes on sources */
+.note-text {
+  margin-top: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--amber);
+  color: var(--amber);
+}
+
+.hint code {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--panel-alt);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+/* destructive confirmation */
+.danger-button {
+  background: var(--red);
+  border-color: var(--red);
+  color: var(--panel);
+}

@@ -13,6 +13,7 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 | `internal/model` | Table structs, enum constants, `normalize.go` (company/title keyword normalization, location bucket, fingerprint, text hash), time helpers |
 | `internal/sources` | `Fetcher` interface, `RawOffer`, `Config` (config_json), `Registry`, polite HTTP `Client`, robots.txt parser, URL type detection, adapters |
 | `internal/scan` | Scan pipeline, manual import and classifier backfill; depends on `db`, `classify` and `sources`, shared by CLI and API |
+| `internal/importmeta` | Lightweight metadata extraction from a job page (JSON-LD, Open Graph, meta tags, title) for URL imports |
 | `internal/classify` | Deterministic title/location scoring, remote-policy derivation and reason lists |
 | `internal/diff` | Small line diff used for the changed-offer snapshot view |
 | `internal/api` | REST handlers under `/api`: sources, offers, events, notes, companies, import, health |
@@ -37,13 +38,21 @@ Adapters (`sources.NewRegistry`):
 | greenhouse | `GET https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true` | `content` is entity-escaped HTML → unescaped → plain text; `company_name` fills `RawOffer.Company` |
 | lever | `GET https://api.lever.co/v0/postings/{site}?mode=json` (`api.eu.lever.co` when `region=eu`) | description = `descriptionPlain` + lists + `additionalPlain`; multiple `allLocations` joined with `; ` |
 | ashby | `GET https://api.ashbyhq.com/posting-api/job-board/{org}` | `isListed=false` skipped; secondary locations joined with `; ` |
+| personio | `GET https://{tenant}.jobs.personio.{de,com}/xml` | `position` elements; office is the location, `id` builds `{tenant}/job/{id}`, `jobDescriptions` joined as titled HTML→text blocks; optional `language` query |
+| workable | `GET https://apply.workable.com/api/v1/widget/accounts/{account}?details=true` | keyless widget API; entries with the same `shortcode` are grouped, all `locations` joined, `telecommuting` adds a remote marker; `name` is the company |
+| rss | `GET <source url>` | RSS 2.0 and Atom; item/field mapping in config (`item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field`); paths are child local names with `@attr` and `#text`; Atom alternate links and HTML descriptions handled |
+| html | `GET <source url>` | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); one request per scan, no per-offer page fetches; minimum interval 5 s |
 
-Other types return `ErrNotImplemented`; the scan skips them.
+`wttj` and `manual` have no fetcher; `wttj` scans are skipped and manual
+offers come from the import path. The seeded Workday/SuccessFactors rows
+are disabled `html`/`wttj` sources with a `note` in `config_json`.
 
 `sources.Detect(url)` maps public board URLs (`boards.greenhouse.io/x`,
 `job-boards[.eu].greenhouse.io/x`, `jobs[.eu].lever.co/x`,
-`jobs.ashbyhq.com/x`, and the API URLs) to a type + config. Adapters use
-config keys first, then fall back to detection on the source URL.
+`jobs.ashbyhq.com/x`, `{tenant}.jobs.personio.{de,com}`,
+`apply.workable.com/{account}`, `{account}.workable.com`, and the API
+URLs) to a type + config. Adapters use config keys first, then fall back
+to detection on the source URL.
 
 ### Polite client (`sources.Client`)
 
@@ -55,7 +64,8 @@ config keys first, then fall back to detection on the source URL.
 - Rate limit: requests to the same host are spaced by the source's
   `rate_limit_ms` (default 2 s) or the robots `Crawl-delay`, whichever is
   larger. The limiter is keyed by host so several sources on one ATS
-  share it. The robots.txt fetch counts as a request.
+  share it. The robots.txt fetch counts as a request. HTML sources never
+  run faster than every 5 s, even if `rate_limit_ms` asks for less.
 - 30 s timeout, 20 MiB body cap. HTTP 401/403/429 and robots disallow
   wrap `ErrBlocked`.
 
@@ -107,12 +117,19 @@ during `jobwatch reclassify`, never in a background AI call.
   scores in one transaction; `--all` recomputes every offer after keyword
   changes. `scan.Reclassify` is the shared implementation.
 
-## Manual import (`scan.Import`)
+## Manual import and URL metadata (`scan.Import`, `importmeta`)
 
-Input: `{company, title, location?, url?, description?}`. Runs the same
-sighting logic (including classification) in one transaction with
-`source_id = NULL`; a matching fingerprint adds a provenance row to the
-existing offer. Never fetches.
+Input: `{company?, title?, location?, url?, description?}`. When a URL is
+present and company or title is missing, `importmeta.Extract` fetches the
+page through the same polite client (robots.txt, rate limit, UA, timeout)
+and reads JSON-LD `JobPosting`, Open Graph/meta tags and the page title.
+Explicit fields win; the canonical JSON-LD URL is used only when the
+input has no URL. A complete result runs the same sighting logic
+(including classification) in one transaction with `source_id = NULL`;
+a matching fingerprint adds a provenance row to the existing offer. If
+metadata is incomplete the API returns `422` with the extracted fields
+for the UI's manual fallback; the CLI asks for `--company`/`--title` or
+`--no-fetch`. Import never scans a source.
 
 ## REST API (`internal/api`)
 
@@ -139,7 +156,9 @@ plus the refreshed source row. A fetch failure is part of the summary
 adapter is reported as `skipped` without touching the status. The
 default fetcher is one `sources.Registry` with one shared
 `sources.Client`, created lazily per server so the robots cache and
-per-host rate limiter survive across requests.
+per-host rate limiter survive across requests. The same client is used
+for import URL metadata, so a user-triggered import also honors
+robots.txt and the per-host interval.
 
 Offer listing is `db.QueryOffers`: a shared WHERE builder for the count
 and page queries, FTS5 `MATCH` against `job_offers_fts` (validated up
@@ -201,9 +220,11 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `router.ts` | hash routing (`#/`, `#/sources`, `#/offers/:id`, `#/companies/:id`) |
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`), filtered/paginated offers table, import form |
-| `pages/SourcesPage.tsx` | source list, enable toggle, scan status, per-source refresh, add/edit form with type-dependent config fields |
+| `pages/SourcesPage.tsx` | source list, enable toggle, scan status, per-source refresh, add/edit form with type-dependent config fields (personio/workable/rss/html included), explanatory notes on seeded sources |
 | `pages/OfferPage.tsx` | editable states/location, score badges with reason tooltips, provenance links with explicit merge and split actions, timeline with backdating, notes with event pin, snapshot diff and full description |
 | `pages/CompanyPage.tsx` | offers, company notes, rename/website edit, dismissible possible-duplicate banner and explicit keep-which-company merge dialog |
+| `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source/event/note/company) |
+| `App.tsx` | top bar, global refresh-all loop, auto-dismissing toast stack, routing |
 
 `vite.config.ts` proxies `/api` to `127.0.0.1:8080` in development.
 
@@ -213,6 +234,14 @@ with immutable caching for `assets/` and an `index.html` fallback for
 client-side routes. Without the `ui` build tag, `web/noui.go` serves a
 placeholder page explaining how to build the SPA, so plain
 `go build ./...` works on a fresh checkout.
+
+## Backup
+
+`db.Backup` uses `VACUUM INTO` (safe with a live WAL database, dest must
+not exist), then reopens the copy read-only and runs `PRAGMA
+integrity_check`, `PRAGMA foreign_key_check` and a `schema_migrations`
+check. A copy that fails validation is removed and the command exits
+non-zero.
 
 ## Server
 

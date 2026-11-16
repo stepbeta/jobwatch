@@ -126,7 +126,7 @@ func (c *Client) Get(ctx context.Context, src model.Source, u, accept string) ([
 	if err != nil {
 		return nil, fmt.Errorf("parse url %q: %w", u, err)
 	}
-	interval := cfg.Interval(c.DefaultInterval)
+	interval := cfg.IntervalFor(src.Type, c.DefaultInterval)
 
 	rules, err := c.robotsFor(ctx, parsed, interval)
 	if err != nil {

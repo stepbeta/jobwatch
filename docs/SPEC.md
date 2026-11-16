@@ -42,6 +42,7 @@ One binary, subcommands:
 - `jobwatch add-source <url> [--name ...]` — registers a source
 - `jobwatch list` — quick terminal listing of offers and states
 - `jobwatch import <url-or-json>` — manually add an offer seen elsewhere
+  (a bare URL is fetched for lightweight metadata unless `--no-fetch`)
 - `jobwatch backup <dest>`
 
 Future-proofing: subcommand architecture (e.g. Cobra) so more commands
@@ -222,7 +223,8 @@ Notes on known sources:
 - Datadog & Cisco run on Workday, SAP on SuccessFactors: skip in v1
   (complex POST APIs); leave the rows disabled with a comment.
 - Welcome to the Jungle uses an internal API without public guarantees:
-  implement cautiously behind rate limits, expect breakage.
+  implement cautiously behind rate limits, expect breakage. v1 leaves a
+  disabled source row with an explanation instead of shipping a scraper.
 - A source that fails N consecutive times is flagged `error` in the UI
   (visible indicator on the sources list) without blocking other sources.
 
@@ -319,3 +321,15 @@ plain React + a lightweight table component is fine.
   `POST /api/offers/:id/split`; detail responses include `snapshot_diff`
   for the two latest snapshots. `jobwatch reclassify [--all]` backfills
   scores. Milestone 3 needs no schema change.
+- 2026-11-16 (after Milestone 4): Personio, Workable, RSS/Atom and
+  CSS-selector HTML adapters are implemented; HTML sources have a 5 s
+  minimum poll interval and fetch only their listing page. WTTJ,
+  Workday and SuccessFactors remain unimplemented and are seeded as
+  disabled rows with explanatory notes. Manual import may fetch a URL to
+  extract JSON-LD/Open Graph/meta/title metadata; this is the only
+  outbound request besides source scanning and it uses the same polite
+  client. API errors `metadata_incomplete`/`metadata_unavailable` carry a
+  `metadata` object for the UI's manual fallback. `jobwatch backup`
+  validates its copy (integrity, foreign keys, applied migrations).
+  `jobwatch list` shows both confidence scores. Migration 0002 is
+  data-only (seed rows), so the schema is unchanged.

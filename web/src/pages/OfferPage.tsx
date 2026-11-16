@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
+import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
 import { Link } from '../components/Link'
 import { ScoreBadge } from '../components/ScoreBadge'
 import {
@@ -12,6 +13,7 @@ import {
   fromLocalInput,
   toLocalInput,
 } from '../format'
+import type { NoticeKind } from '../App'
 import type { ApplicationState, EventType, Offer, OfferDetail, OfferState } from '../types'
 
 function hostname(url: string): string {
@@ -28,7 +30,13 @@ function diffPrefix(op: 'equal' | 'added' | 'removed'): string {
   return ' '
 }
 
-export function OfferPage({ id }: { id: number }) {
+export function OfferPage({
+  id,
+  onNotice,
+}: {
+  id: number
+  onNotice: (kind: NoticeKind, text: string) => void
+}) {
   const [detail, setDetail] = useState<OfferDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -58,6 +66,7 @@ export function OfferPage({ id }: { id: number }) {
   const [mergeLoading, setMergeLoading] = useState(false)
   const [mergeBusy, setMergeBusy] = useState(false)
   const [mergeError, setMergeError] = useState('')
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -92,8 +101,11 @@ export function OfferPage({ id }: { id: number }) {
         location: location.trim() === '' ? null : location.trim(),
       })
       await load()
+      onNotice('success', 'Offer updated.')
     } catch (err) {
-      setError(errorMessage(err))
+      const text = errorMessage(err)
+      setError(text)
+      onNotice('error', text)
     } finally {
       setSaving(false)
     }
@@ -110,19 +122,25 @@ export function OfferPage({ id }: { id: number }) {
       setEventDesc('')
       setEventAt(toLocalInput(new Date()))
       await load()
+      onNotice('success', 'Timeline event added.')
     } catch (err) {
-      setError(errorMessage(err))
+      const text = errorMessage(err)
+      setError(text)
+      onNotice('error', text)
     }
   }
 
-  async function deleteEvent(eventId: number) {
-    if (!window.confirm('Delete this timeline event?')) return
-    try {
-      await api.deleteEvent(id, eventId)
-      await load()
-    } catch (err) {
-      setError(errorMessage(err))
-    }
+  function deleteEvent(eventId: number) {
+    setConfirm({
+      title: 'Delete timeline event',
+      message: 'Delete this timeline event? Notes pinned to it keep their text but lose the pin.',
+      confirmLabel: 'Delete event',
+      onConfirm: async () => {
+        await api.deleteEvent(id, eventId)
+        await load()
+        onNotice('success', 'Timeline event deleted.')
+      },
+    })
   }
 
   async function addNote(e: FormEvent) {
@@ -138,8 +156,11 @@ export function OfferPage({ id }: { id: number }) {
       setNoteBody('')
       setNotePin('')
       await load()
+      onNotice('success', 'Note added.')
     } catch (err) {
-      setError(errorMessage(err))
+      const text = errorMessage(err)
+      setError(text)
+      onNotice('error', text)
     }
   }
 
@@ -149,19 +170,25 @@ export function OfferPage({ id }: { id: number }) {
       await api.updateNote(editingNote.id, { body: editingNote.body })
       setEditingNote(null)
       await load()
+      onNotice('success', 'Note updated.')
     } catch (err) {
-      setError(errorMessage(err))
+      const text = errorMessage(err)
+      setError(text)
+      onNotice('error', text)
     }
   }
 
-  async function deleteNote(noteId: number) {
-    if (!window.confirm('Delete this note?')) return
-    try {
-      await api.deleteNote(noteId)
-      await load()
-    } catch (err) {
-      setError(errorMessage(err))
-    }
+  function deleteNote(noteId: number) {
+    setConfirm({
+      title: 'Delete note',
+      message: 'Delete this note? This cannot be undone.',
+      confirmLabel: 'Delete note',
+      onConfirm: async () => {
+        await api.deleteNote(noteId)
+        await load()
+        onNotice('success', 'Note deleted.')
+      },
+    })
   }
 
   function startSplit() {
@@ -236,7 +263,11 @@ export function OfferPage({ id }: { id: number }) {
   }
 
   if (loading && !detail) {
-    return <p className="muted page">Loading offer…</p>
+    return (
+      <p className="muted page" aria-busy="true">
+        Loading offer…
+      </p>
+    )
   }
   if (!detail) {
     return (
@@ -587,6 +618,8 @@ export function OfferPage({ id }: { id: number }) {
           <p className="muted small">Older versions are stored as snapshots.</p>
         )}
       </details>
+
+      {confirm && <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />}
 
       {mergeOpen && (
         <div className="modal-backdrop" role="presentation">

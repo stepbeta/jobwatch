@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { api, errorMessage, type OfferQuery } from '../api'
+import { ApiError, api, errorMessage, type OfferQuery } from '../api'
 import { Link } from '../components/Link'
 import { OfferTable } from '../components/OfferTable'
 import { StatePill } from '../components/StatePill'
@@ -19,9 +19,11 @@ function numberValue(value: string): number | undefined {
 export function Dashboard({
   refreshToken,
   onDataChanged,
+  onNotice,
 }: {
   refreshToken: number
   onDataChanged: () => void
+  onNotice: (kind: 'info' | 'success' | 'error', text: string) => void
 }) {
   const [filters, setFilters] = useState<OfferQuery>({ sort: 'last_seen', limit: 50, offset: 0 })
   const [search, setSearch] = useState('')
@@ -90,6 +92,15 @@ export function Dashboard({
   const limit = offers?.limit ?? filters.limit ?? 50
   const offset = offers?.offset ?? 0
   const total = offers?.total ?? 0
+  const hasFilters = Boolean(
+    filters.q ||
+      filters.application_state ||
+      filters.offer_state ||
+      filters.remote_policy ||
+      filters.min_title_confidence !== undefined ||
+      filters.min_location_confidence !== undefined ||
+      filters.company_id !== undefined,
+  )
 
   return (
     <div className="page">
@@ -271,7 +282,37 @@ export function Dashboard({
         </form>
 
         {error && <div className="error-box">{error}</div>}
-        {loading && !offers ? <p className="muted">Loading…</p> : offers && <OfferTable offers={offers.offers} />}
+        {loading && !offers ? (
+          <p className="muted" aria-busy="true">
+            Loading offers…
+          </p>
+        ) : offers && offers.offers.length === 0 ? (
+          <div className="empty-state">
+            {hasFilters ? (
+              <>
+                <p>No offers match these filters.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch('')
+                    setFilters({ sort: 'last_seen', limit: 50, offset: 0 })
+                  }}
+                >
+                  Clear filters
+                </button>
+              </>
+            ) : (
+              <>
+                <p>No offers yet.</p>
+                <p className="muted">
+                  Add a source on the <a href="#/sources">Sources</a> page, or import one below.
+                </p>
+              </>
+            )}
+          </div>
+        ) : offers ? (
+          <OfferTable offers={offers.offers} />
+        ) : null}
 
         <div className="pagination">
           <button
@@ -294,33 +335,45 @@ export function Dashboard({
         </div>
       </section>
 
-      <ImportPanel onImported={onDataChanged} />
+      <ImportPanel onImported={onDataChanged} onNotice={onNotice} />
     </div>
   )
 }
 
-function ImportPanel({ onImported }: { onImported: () => void }) {
+function ImportPanel({
+  onImported,
+  onNotice,
+}: {
+  onImported: () => void
+  onNotice: (kind: 'info' | 'success' | 'error', text: string) => void
+}) {
   const [company, setCompany] = useState('')
   const [title, setTitle] = useState('')
   const [location, setLocation] = useState('')
   const [url, setUrl] = useState('')
   const [description, setDescription] = useState('')
-  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError('')
-    setMessage('')
+    const hasFields = company.trim() !== '' && title.trim() !== ''
+    if (url.trim() === '' && !hasFields) {
+      setError('Enter a URL, or both company and title.')
+      return
+    }
+    setBusy(true)
     try {
       const r = await api.importOffer({
-        company: company.trim(),
-        title: title.trim(),
+        company: company.trim() || undefined,
+        title: title.trim() || undefined,
         location: location.trim() || undefined,
         url: url.trim() || undefined,
         description: description.trim() || undefined,
       })
-      setMessage(
+      onNotice(
+        'success',
         r.created
           ? `Created offer #${r.offer_id}.`
           : `Matched an existing offer (#${r.offer_id}); the link was added to it.`,
@@ -332,7 +385,25 @@ function ImportPanel({ onImported }: { onImported: () => void }) {
       setDescription('')
       onImported()
     } catch (err) {
-      setError(errorMessage(err))
+      if (
+        err instanceof ApiError &&
+        err.metadata &&
+        (err.code === 'metadata_incomplete' || err.code === 'metadata_unavailable')
+      ) {
+        const m = err.metadata
+        if (!company && m.company) setCompany(m.company)
+        if (!title && m.title) setTitle(m.title)
+        if (!location && m.location) setLocation(m.location)
+        if (!url && m.url) setUrl(m.url)
+        if (!description && m.description) setDescription(m.description)
+        setError(`${err.message} The available fields were prefilled.`)
+      } else {
+        const text = errorMessage(err)
+        setError(text)
+        onNotice('error', text)
+      }
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -340,22 +411,39 @@ function ImportPanel({ onImported }: { onImported: () => void }) {
     <section className="panel">
       <details>
         <summary>Import an offer seen elsewhere</summary>
+        <p className="hint">
+          Paste a job URL and let JobWatch read its title, company and description (JSON-LD, Open Graph
+          or the page title). If the page cannot be read, the form falls back to manual entry.
+        </p>
         <form className="form-grid" onSubmit={(e) => void submit(e)}>
+          <label className="span-2">
+            Job URL
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://… (fetched only if company and title are empty)"
+            />
+          </label>
           <label>
             Company
-            <input value={company} onChange={(e) => setCompany(e.target.value)} required />
+            <input
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              placeholder="filled from the page when possible"
+            />
           </label>
           <label>
             Title
-            <input value={title} onChange={(e) => setTitle(e.target.value)} required />
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="filled from the page when possible"
+            />
           </label>
           <label>
             Location
             <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="optional" />
-          </label>
-          <label>
-            URL
-            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="optional" />
           </label>
           <label className="span-2">
             Description
@@ -367,10 +455,9 @@ function ImportPanel({ onImported }: { onImported: () => void }) {
             />
           </label>
           {error && <div className="error-box">{error}</div>}
-          {message && <p className="hint">{message}</p>}
           <div className="form-actions">
-            <button type="submit" className="primary">
-              Import
+            <button type="submit" className="primary" disabled={busy}>
+              {busy ? 'Importing…' : 'Fetch & import'}
             </button>
           </div>
         </form>

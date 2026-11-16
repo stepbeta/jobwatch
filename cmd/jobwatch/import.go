@@ -10,16 +10,20 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/stepbeta/jobwatch/internal/importmeta"
 	"github.com/stepbeta/jobwatch/internal/scan"
+	"github.com/stepbeta/jobwatch/internal/sources"
 )
 
 func newImportCmd(opts *rootOptions) *cobra.Command {
 	var flags scan.ImportInput
+	var noFetch bool
 	cmd := &cobra.Command{
 		Use:   "import <url | json | file.json | ->",
-		Short: "Manually add an offer seen elsewhere (no fetch)",
+		Short: "Manually add an offer seen elsewhere (fetches URL metadata when needed)",
 		Long: `Manually add an offer. The argument is either:
-  - a URL, with --company and --title (and optionally --location, --description)
+  - a URL: the page title/company/description are extracted when --company
+    and --title are not both given (use --no-fetch to skip that request)
   - a JSON object or array: {"company","title","location","url","description"}
   - a path to a .json file, or "-" to read JSON from stdin
 
@@ -50,11 +54,25 @@ offer's provenance instead of creating a new offer.`,
 			if len(inputs) == 0 {
 				return errors.New("import: nothing to import")
 			}
-			if len(inputs) > 1 && (flags != scan.ImportInput{}) {
+			if len(inputs) > 1 && (flags != scan.ImportInput{} || noFetch) {
 				return errors.New("import: field flags cannot be combined with a JSON array")
 			}
 			if len(inputs) == 1 {
 				inputs[0] = overlay(inputs[0], flags)
+				for i := range inputs {
+					if noFetch || inputs[i].URL == "" || (inputs[i].Company != "" && inputs[i].Title != "") {
+						continue
+					}
+					fmt.Fprintf(cmd.ErrOrStderr(), "fetching metadata from %s…\n", inputs[i].URL)
+					meta, err := importmeta.Extract(ctx, sources.NewClient(), inputs[i].URL)
+					if err != nil {
+						return fmt.Errorf("import: %w (pass --company/--title or --no-fetch)", err)
+					}
+					inputs[i].FillMissing(meta.Company, meta.Title, meta.Location, meta.URL, meta.Description)
+					if inputs[i].Company == "" || inputs[i].Title == "" {
+						return fmt.Errorf("import: could not extract company and title from %s (pass --company/--title or --no-fetch)", inputs[i].URL)
+					}
+				}
 			}
 
 			sqlDB, err := opts.open(ctx)
@@ -80,6 +98,7 @@ offer's provenance instead of creating a new offer.`,
 	cmd.Flags().StringVar(&flags.Title, "title", "", "job title")
 	cmd.Flags().StringVar(&flags.Location, "location", "", "location as advertised")
 	cmd.Flags().StringVar(&flags.Description, "description", "", "description text")
+	cmd.Flags().BoolVar(&noFetch, "no-fetch", false, "do not fetch a URL for metadata; require --company and --title")
 	return cmd
 }
 

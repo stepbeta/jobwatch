@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workzag-jobs>
+<position>
+    <id>2885178</id>
+    <office>Berlin</office>
+    <department>Go to Market</department>
+    <name>Business Development Representative (d/f/m)</name>
+    <jobDescriptions><jobDescription><name>Your mission</name><value><![CDATA[<p>Build the platform with <strong>Kubernetes</strong> and Terraform.</p><ul><li>Remote-friendly team</li></ul>]]></value></jobDescription><jobDescription><name>Your profile</name><value><![CDATA[<p>SRE or Platform Engineer experience.</p>]]></value></jobDescription></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>entry-level</seniority>
+    <schedule>full-time</schedule>
+    <occupation>business_development_and_new_accounts</occupation>
+    <occupationCategory>sales_and_business_development</occupationCategory>
+    <createdAt>2026-11-11T17:43:42+00:00</createdAt>
+</position>
+<position>
+    <id>2884392</id>
+    <office>Munich</office>
+    <department>Product and Tech</department>
+    <name>Test Job</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <occupation>other</occupation>
+    <occupationCategory>other</occupationCategory>
+    <createdAt>2026-11-11T10:53:10+00:00</createdAt>
+</position>
+<position>
+    <id>2885123</id>
+    <office>Remote - Germany</office>
+    <department>Product and Tech</department>
+    <name>Site Reliability Engineer (d/f/m)</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <occupation>sre</occupation>
+    <occupationCategory>it</occupationCategory>
+    <createdAt>2026-11-10T09:00:00+00:00</createdAt>
+</position>
+</workzag-jobs>

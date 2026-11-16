@@ -1,9 +1,57 @@
 import { useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
+import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
 import { SOURCE_TYPES, fmtDateTime, relativeTime, scanLabel } from '../format'
+import type { NoticeKind } from '../App'
 import type { ScanResponse, ScanResult, Source, SourceType } from '../types'
 
-const IMPLEMENTED: SourceType[] = ['greenhouse', 'lever', 'ashby']
+const FETCHABLE: SourceType[] = ['greenhouse', 'lever', 'ashby', 'personio', 'workable', 'rss', 'html']
+
+interface ExtraField {
+  key: string
+  label: string
+  placeholder?: string
+}
+
+const EXTRA_FIELDS: Partial<Record<SourceType, ExtraField[]>> = {
+  personio: [
+    { key: 'tenant', label: 'Tenant', placeholder: 'acme (from acme.jobs.personio.de)' },
+    { key: 'language', label: 'Feed language', placeholder: 'de or en (optional)' },
+  ],
+  workable: [{ key: 'account', label: 'Account', placeholder: 'acme (from apply.workable.com/acme)' }],
+  rss: [
+    { key: 'item', label: 'Item element', placeholder: 'item / entry (auto-detected)' },
+    { key: 'title_field', label: 'Title field', placeholder: 'title' },
+    { key: 'link_field', label: 'Link field', placeholder: 'link / link@href' },
+    { key: 'description_field', label: 'Description field', placeholder: 'description / summary / content' },
+    { key: 'location_field', label: 'Location field', placeholder: 'e.g. region (optional)' },
+    { key: 'company_field', label: 'Company field', placeholder: 'e.g. author (optional)' },
+    { key: 'uid_field', label: 'UID field', placeholder: 'guid / id (optional)' },
+  ],
+  html: [
+    { key: 'item_selector', label: 'Item selector', placeholder: 'li.job-card' },
+    { key: 'title_selector', label: 'Title selector', placeholder: 'h2 a' },
+    { key: 'link_selector', label: 'Link selector', placeholder: 'defaults to the title selector' },
+    { key: 'link_attr', label: 'Link attribute', placeholder: 'href' },
+    { key: 'location_selector', label: 'Location selector', placeholder: '.location (optional)' },
+    { key: 'description_selector', label: 'Description selector', placeholder: '.summary (optional)' },
+    { key: 'company_selector', label: 'Company selector', placeholder: '.company (optional)' },
+    { key: 'uid_selector', label: 'UID selector', placeholder: 'e.g. a (optional)' },
+    { key: 'uid_attr', label: 'UID attribute', placeholder: 'e.g. data-id (optional)' },
+  ],
+}
+
+function extraKeys(): string[] {
+  const out: string[] = []
+  for (const fields of Object.values(EXTRA_FIELDS)) {
+    for (const f of fields ?? []) out.push(f.key)
+  }
+  return out
+}
+
+function canScan(source: Source): boolean {
+  return source.enabled && source.source_type !== 'manual' && source.source_type !== 'wttj'
+}
 
 function cfgStr(config: Record<string, unknown>, key: string): string {
   const v = config[key]
@@ -15,11 +63,13 @@ export function SourcesPage({
   sources,
   onReload,
   onScan,
+  onNotice,
   scanning,
 }: {
   sources: Source[]
   onReload: () => Promise<void>
   onScan: (id: number) => Promise<ScanResponse>
+  onNotice: (kind: NoticeKind, text: string) => void
   scanning: boolean
 }) {
   const [formOpen, setFormOpen] = useState(false)
@@ -27,6 +77,7 @@ export function SourcesPage({
   const [busyId, setBusyId] = useState<number | null>(null)
   const [results, setResults] = useState<Record<number, ScanResult>>({})
   const [error, setError] = useState('')
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
 
   function openNew() {
     setEditing(null)
@@ -44,8 +95,11 @@ export function SourcesPage({
     try {
       await api.updateSource(source.id, { enabled: !source.enabled })
       await onReload()
+      onNotice('info', `${source.name} ${source.enabled ? 'disabled' : 'enabled'}.`)
     } catch (e) {
-      setError(errorMessage(e))
+      const text = errorMessage(e)
+      setError(text)
+      onNotice('error', text)
     } finally {
       setBusyId(null)
     }
@@ -58,24 +112,30 @@ export function SourcesPage({
       const r = await onScan(source.id)
       setResults((prev) => ({ ...prev, [source.id]: r.result }))
     } catch (e) {
-      setError(errorMessage(e))
+      const text = errorMessage(e)
+      setError(text)
+      onNotice('error', text)
     } finally {
       setBusyId(null)
     }
   }
 
-  async function remove(source: Source) {
-    if (!window.confirm(`Delete source "${source.name}"? Its offers and links are kept.`)) return
-    setBusyId(source.id)
-    setError('')
-    try {
-      await api.deleteSource(source.id)
-      await onReload()
-    } catch (e) {
-      setError(errorMessage(e))
-    } finally {
-      setBusyId(null)
-    }
+  function askRemove(source: Source) {
+    setConfirm({
+      title: 'Delete source',
+      message: `Delete source "${source.name}"? Its offers and provenance links are kept. This only removes the source row.`,
+      confirmLabel: 'Delete source',
+      onConfirm: async () => {
+        setBusyId(source.id)
+        try {
+          await api.deleteSource(source.id)
+          await onReload()
+          onNotice('success', `Source "${source.name}" deleted.`)
+        } finally {
+          setBusyId(null)
+        }
+      },
+    })
   }
 
   return (
@@ -89,7 +149,13 @@ export function SourcesPage({
         </div>
         {error && <div className="error-box">{error}</div>}
         {sources.length === 0 ? (
-          <p className="empty">No sources yet. Add a Greenhouse, Lever or Ashby board URL.</p>
+          <div className="empty-state">
+            <p>No sources yet.</p>
+            <p className="muted">
+              Add a Greenhouse, Lever, Ashby, Personio or Workable board URL, an RSS/Atom feed, or a
+              careers page with CSS selectors.
+            </p>
+          </div>
         ) : (
           <div className="table-wrap">
             <table className="grid">
@@ -121,6 +187,9 @@ export function SourcesPage({
                       <td>
                         <strong>{s.name}</strong>
                         <div className="muted small mono">{s.url}</div>
+                        {cfgStr(s.config, 'note') && (
+                          <div className="note-text small">{cfgStr(s.config, 'note')}</div>
+                        )}
                       </td>
                       <td>{s.source_type}</td>
                       <td title={fmtDateTime(s.last_scan_at)}>
@@ -145,7 +214,16 @@ export function SourcesPage({
                       <td className="actions">
                         <button
                           type="button"
-                          disabled={busyId === s.id || scanning}
+                          disabled={busyId === s.id || scanning || !canScan(s)}
+                          title={
+                            !s.enabled
+                              ? 'Enable the source to scan it'
+                              : s.source_type === 'wttj'
+                                ? 'No adapter for this source type yet'
+                                : s.source_type === 'manual'
+                                  ? 'Manual sources are never fetched'
+                                  : undefined
+                          }
                           onClick={() => void refresh(s)}
                         >
                           {busyId === s.id ? 'Scanning…' : 'Refresh'}
@@ -153,7 +231,7 @@ export function SourcesPage({
                         <button type="button" disabled={busyId === s.id} onClick={() => openEdit(s)}>
                           Edit
                         </button>
-                        <button type="button" disabled={busyId === s.id} onClick={() => void remove(s)}>
+                        <button type="button" disabled={busyId === s.id} onClick={() => askRemove(s)}>
                           Delete
                         </button>
                       </td>
@@ -171,12 +249,15 @@ export function SourcesPage({
           key={editing?.id ?? 'new'}
           source={editing}
           onClose={() => setFormOpen(false)}
-          onSaved={async () => {
+          onSaved={async (created) => {
             setFormOpen(false)
             await onReload()
+            onNotice('success', created ? 'Source created.' : 'Source updated.')
           }}
         />
       )}
+
+      {confirm && <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />}
     </div>
   )
 }
@@ -188,7 +269,7 @@ function SourceForm({
 }: {
   source: Source | null
   onClose: () => void
-  onSaved: () => Promise<void>
+  onSaved: (created: boolean) => Promise<void>
 }) {
   const [name, setName] = useState(source?.name ?? '')
   const [url, setUrl] = useState(source?.url ?? '')
@@ -200,8 +281,17 @@ function SourceForm({
   const [site, setSite] = useState(cfgStr(source?.config ?? {}, 'site'))
   const [region, setRegion] = useState(cfgStr(source?.config ?? {}, 'region'))
   const [org, setOrg] = useState(cfgStr(source?.config ?? {}, 'org'))
+  const [extra, setExtra] = useState<Record<string, string>>(() => {
+    const out: Record<string, string> = {}
+    for (const key of extraKeys()) out[key] = cfgStr(source?.config ?? {}, key)
+    return out
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  function setExtraField(key: string, value: string) {
+    setExtra((prev) => ({ ...prev, [key]: value }))
+  }
 
   function buildConfig(): Record<string, unknown> {
     const cfg: Record<string, unknown> = { ...(source?.config ?? {}) }
@@ -210,10 +300,17 @@ function SourceForm({
       if (!v) delete cfg[key]
       else cfg[key] = numeric ? Number(v) : v
     }
-    delete cfg.board_token
-    delete cfg.site
-    delete cfg.region
-    delete cfg.org
+    for (const key of [
+      'board_token',
+      'site',
+      'region',
+      'org',
+      'company',
+      'rate_limit_ms',
+      ...extraKeys(),
+    ]) {
+      delete cfg[key]
+    }
     set('company', company)
     set('rate_limit_ms', rateLimit, true)
     if (type === 'greenhouse') set('board_token', boardToken)
@@ -222,6 +319,7 @@ function SourceForm({
       set('region', region)
     }
     if (type === 'ashby') set('org', org)
+    for (const field of EXTRA_FIELDS[type] ?? []) set(field.key, extra[field.key] ?? '')
     return cfg
   }
 
@@ -242,7 +340,7 @@ function SourceForm({
       } else {
         await api.createSource(input)
       }
-      await onSaved()
+      await onSaved(source === null)
     } catch (err) {
       setError(errorMessage(err))
       setSaving(false)
@@ -337,11 +435,49 @@ function SourceForm({
           </label>
         )}
 
-        {!IMPLEMENTED.includes(type) && (
-          <p className="hint">
-            {type === 'manual'
-              ? 'Manual sources are never fetched; add offers with the import endpoint or CLI.'
-              : 'No adapter for this source type yet: scans skip it without changing its status.'}
+        {(EXTRA_FIELDS[type] ?? []).map((field) => (
+          <label key={field.key}>
+            {field.label}
+            <input
+              value={extra[field.key] ?? ''}
+              onChange={(e) => setExtraField(field.key, e.target.value)}
+              placeholder={field.placeholder}
+            />
+          </label>
+        ))}
+
+        {type === 'html' && (
+          <p className="hint span-2">
+            The listing page is fetched at most once per scan and never faster than every 5 seconds.
+            Selectors use standard CSS syntax (tag, class, id, attributes and descendant/child
+            combinators).
+          </p>
+        )}
+        {type === 'rss' && (
+          <p className="hint span-2">
+            Field paths are child element local names; use <code>@name</code> for an attribute and
+            <code> #text</code> for the element text. Defaults cover RSS &lt;item&gt; and Atom
+            &lt;entry&gt; feeds.
+          </p>
+        )}
+        {cfgStr(source?.config ?? {}, 'note') && (
+          <p className="hint span-2">{cfgStr(source?.config ?? {}, 'note')}</p>
+        )}
+
+        {type === 'manual' && (
+          <p className="hint span-2">
+            Manual sources are never fetched; add offers with the import form or the CLI.
+          </p>
+        )}
+        {type === 'wttj' && (
+          <p className="hint span-2">
+            No adapter for this source type yet: scans skip it without changing its status. Welcome to
+            the Jungle has no public contract; use manual import or an RSS/HTML source instead.
+          </p>
+        )}
+        {!FETCHABLE.includes(type) && type !== 'manual' && type !== 'wttj' && (
+          <p className="hint span-2">
+            No adapter for this source type yet: scans skip it without changing its status.
           </p>
         )}
 

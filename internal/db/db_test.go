@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,6 +56,53 @@ func TestOpenPragmasAndSchema(t *testing.T) {
 		if n != 1 {
 			t.Errorf("table %s missing", table)
 		}
+	}
+}
+
+func TestSeededKnownSources(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTest(t)
+	srcs, err := ListSources(ctx, sqlDB, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs) != 4 {
+		t.Fatalf("seeded sources = %d, want 4", len(srcs))
+	}
+	want := map[string]bool{"Datadog (Workday)": true, "Cisco (Workday)": true, "SAP (SuccessFactors)": true, "Welcome to the Jungle (search)": true}
+	for _, src := range srcs {
+		if !want[src.Name] {
+			t.Errorf("unexpected seeded source %q", src.Name)
+		}
+		delete(want, src.Name)
+		if src.Enabled {
+			t.Errorf("seeded source %q is enabled", src.Name)
+		}
+		if !strings.Contains(src.ConfigJSON, "note") {
+			t.Errorf("seeded source %q has no note: %s", src.Name, src.ConfigJSON)
+		}
+	}
+	if len(want) > 0 {
+		t.Errorf("missing seeded sources: %v", want)
+	}
+
+	// Re-applying the migration file is harmless.
+	if _, err := sqlDB.ExecContext(ctx, `DELETE FROM sources WHERE name = 'SAP (SuccessFactors)'`); err != nil {
+		t.Fatal(err)
+	}
+	body, err := migrations.FS.ReadFile("0002_known_hard_sources.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, string(body)); err != nil {
+		t.Fatalf("re-apply seed migration: %v", err)
+	}
+	srcs, err = ListSources(ctx, sqlDB, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs) != 4 {
+		t.Errorf("sources after re-apply = %d, want 4", len(srcs))
 	}
 }
 
@@ -275,6 +323,19 @@ func TestBackup(t *testing.T) {
 	}
 	if err := Backup(ctx, sqlDB, dest); err == nil {
 		t.Error("Backup overwrote an existing file")
+	}
+	if err := ValidateBackup(ctx, dest); err != nil {
+		t.Errorf("ValidateBackup: %v", err)
+	}
+	garbage := filepath.Join(t.TempDir(), "garbage.db")
+	if err := os.WriteFile(garbage, []byte("not a sqlite database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateBackup(ctx, garbage); err == nil {
+		t.Error("ValidateBackup accepted a non-database file")
+	}
+	if _, err := os.Stat(filepath.Join(t.TempDir(), "missing.db")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stat missing file: %v", err)
 	}
 	if _, err := GetSource(ctx, sqlDB, 42); !errors.Is(err, ErrNotFound) {
 		t.Errorf("GetSource missing = %v, want ErrNotFound", err)

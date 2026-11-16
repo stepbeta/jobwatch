@@ -7,16 +7,22 @@ import { SourcesPage } from './pages/SourcesPage'
 import { useRoute } from './router'
 import type { ScanResponse, Source } from './types'
 
-interface Notice {
-  kind: 'info' | 'error'
+export type NoticeKind = 'info' | 'success' | 'error'
+
+interface Toast {
+  id: number
+  kind: NoticeKind
   text: string
 }
+
+let toastSeq = 0
+const toastTTL = 8000
 
 export default function App() {
   const route = useRoute()
   const [sources, setSources] = useState<Source[]>([])
   const [loadError, setLoadError] = useState('')
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [toasts, setToasts] = useState<Toast[]>([])
   const [scanning, setScanning] = useState({ active: false, done: 0, total: 0 })
   const [refreshToken, setRefreshToken] = useState(0)
 
@@ -36,25 +42,33 @@ export default function App() {
 
   const refreshData = useCallback(() => setRefreshToken((t) => t + 1), [])
 
+  const notify = useCallback((kind: NoticeKind, text: string) => {
+    const id = ++toastSeq
+    setToasts((prev) => [...prev, { id, kind, text }])
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id))
+    }, toastTTL)
+  }, [])
+
   const scanOne = useCallback(async (id: number): Promise<ScanResponse> => {
     const r = await api.scanSource(id)
     setSources((prev) => prev.map((s) => (s.id === id ? r.source : s)))
     setRefreshToken((t) => t + 1)
-    setNotice(
+    notify(
+      r.result.error ? 'error' : 'success',
       r.result.error
-        ? { kind: 'error', text: `${r.source.name}: ${r.result.error}` }
-        : {
-            kind: 'info',
-            text: `${r.source.name}: ${r.result.new} new, ${r.result.changed} changed, ${r.result.disappeared} disappeared`,
-          },
+        ? `${r.source.name}: ${r.result.error}`
+        : `${r.source.name}: ${r.result.new} new, ${r.result.changed} changed, ${r.result.disappeared} disappeared`,
     )
     return r
-  }, [])
+  }, [notify])
 
   const scanAll = useCallback(async () => {
-    const targets = sources.filter((s) => s.enabled)
+    const targets = sources.filter(
+      (s) => s.enabled && s.source_type !== 'manual' && s.source_type !== 'wttj',
+    )
     if (targets.length === 0) {
-      setNotice({ kind: 'info', text: 'No enabled sources to scan.' })
+      notify('info', 'No enabled sources to scan.')
       return
     }
     setScanning({ active: true, done: 0, total: targets.length })
@@ -71,17 +85,17 @@ export default function App() {
         if (r.result.error) failed++
       } catch (e) {
         failed++
-        setNotice({ kind: 'error', text: `${s.name}: ${errorMessage(e)}` })
+        notify('error', `${s.name}: ${errorMessage(e)}`)
       }
     }
     setScanning({ active: false, done: targets.length, total: targets.length })
     await loadSources()
     setRefreshToken((t) => t + 1)
-    setNotice({
-      kind: failed > 0 ? 'error' : 'info',
-      text: `Refresh all: ${added} new, ${changed} changed${failed ? `, ${failed} source(s) failed` : ''}.`,
-    })
-  }, [sources, loadSources])
+    notify(
+      failed > 0 ? 'error' : 'success',
+      `Refresh all: ${added} new, ${changed} changed${failed ? `, ${failed} source(s) failed` : ''}.`,
+    )
+  }, [sources, loadSources, notify])
 
   const attention = sources.filter(
     (s) => s.last_scan_status === 'error' || s.last_scan_status === 'blocked',
@@ -114,40 +128,62 @@ export default function App() {
           type="button"
           className="primary"
           onClick={() => void scanAll()}
-          disabled={scanning.active || sources.filter((s) => s.enabled).length === 0}
+          disabled={
+            scanning.active ||
+            sources.filter(
+              (s) => s.enabled && s.source_type !== 'manual' && s.source_type !== 'wttj',
+            ).length === 0
+          }
         >
           Refresh all
         </button>
       </header>
 
       {loadError && <div className="error-box top-error">{loadError}</div>}
-      {notice && (
-        <div className={`notice notice-${notice.kind}`}>
-          <span>{notice.text}</span>
-          <button type="button" className="link-button" onClick={() => setNotice(null)}>
-            Dismiss
-          </button>
-        </div>
-      )}
 
       <main>
-        {route.name === 'dashboard' && <Dashboard refreshToken={refreshToken} onDataChanged={refreshData} />}
+        {route.name === 'dashboard' && (
+          <Dashboard refreshToken={refreshToken} onDataChanged={refreshData} onNotice={notify} />
+        )}
         {route.name === 'sources' && (
           <SourcesPage
             sources={sources}
             onReload={loadSources}
             onScan={scanOne}
+            onNotice={notify}
             scanning={scanning.active}
           />
         )}
-        {route.name === 'offer' && <OfferPage id={route.id} />}
-        {route.name === 'company' && <CompanyPage id={route.id} />}
+        {route.name === 'offer' && <OfferPage id={route.id} onNotice={notify} />}
+        {route.name === 'company' && <CompanyPage id={route.id} onNotice={notify} />}
         {route.name === 'notfound' && (
           <div className="page">
             <div className="panel empty">Page not found. <a href="#/">Back to dashboard</a></div>
           </div>
         )}
       </main>
+
+      {toasts.length > 0 && (
+        <div className="toast-stack" aria-live="polite">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className={`toast toast-${t.kind}`}
+              role={t.kind === 'error' ? 'alert' : 'status'}
+            >
+              <span>{t.text}</span>
+              <button
+                type="button"
+                className="link-button"
+                aria-label="Dismiss notification"
+                onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
+              >
+                Dismiss
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </>
   )
 }

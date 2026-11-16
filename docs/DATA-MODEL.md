@@ -12,12 +12,13 @@ require a table rebuild.
 | Version | File | Content |
 |---|---|---|
 | 0001 | `0001_init.sql` | All tables below, indexes, FTS5 tables and triggers |
+| 0002 | `0002_known_hard_sources.sql` | Data-only seed: four disabled source rows (Datadog/Cisco Workday, SAP SuccessFactors, WTTJ) with an explanatory `note`. `INSERT … WHERE NOT EXISTS` by URL, so it is safe to re-apply |
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
 Opening a database that records a version unknown to the binary fails.
-Milestones 2 and 3 need no schema change; they use the tables, indexes
-and FTS5 triggers created by 0001.
+Milestone 2 and 3 needed no schema change; Milestone 4 only adds the
+disabled-source rows from 0002 (no table or column changes).
 
 ## Tables
 
@@ -54,9 +55,29 @@ fingerprint would collide.
 | created_at | TEXT | |
 
 `config_json` keys (all optional): `company` (overrides source name as
-company), `rate_limit_ms` (min interval between requests, default 2000),
-`board_token` (greenhouse), `site` + `region` (`""`/`"eu"`, lever),
-`org` (ashby). Board keys are derived from the source URL when absent.
+company), `rate_limit_ms` (min interval between requests, default 2000;
+HTML sources are capped at a 5 s minimum), `note` (human-readable
+explanation shown in the UI), `board_token` (greenhouse), `site` +
+`region` (`""`/`"eu"`, lever), `org` (ashby), `tenant` + `language`
+(personio), `account` (workable). Board keys are derived from the source
+URL when absent.
+
+RSS mapping keys: `item` (item element; auto-detects `item`/`entry`),
+`title_field`, `link_field`, `description_field`, `location_field`,
+`company_field`, `uid_field`. A field is a chain of child element local
+names; `@name` reads an attribute and `#text` reads the element text.
+Defaults: title, link (Atom alternate `href` fallback), description
+(`description`/`summary`/`content`), uid (`guid`/`id`).
+
+HTML selector keys: `item_selector` and `title_selector` are required;
+`link_selector` (defaults to the title selector), `link_attr` (default
+`href`), `location_selector`, `description_selector`,
+`company_selector`, `uid_selector`, `uid_attr`. Standard CSS syntax is
+supported by cascadia; only the listing page is fetched, once per scan.
+
+Seeded source rows from migration 0002 are disabled and carry a `note`.
+They exist so the known-hard Workday/SuccessFactors links and WTTJ are
+visible without pretending an adapter can read them.
 
 ### job_offers
 | Column | Type | Notes |
@@ -141,6 +162,15 @@ Indexes: (entity_type, entity_id), pinned_event_id. Written by the notes
 API; a note can be pinned to a timeline event (`ON DELETE SET NULL`
 when that event is deleted). The pin must belong to the note's entity
 (the offer itself, or an offer of the company).
+
+### Manual import metadata
+
+`POST /api/offers/import` and `jobwatch import` accept a URL without
+company/title. The server fetches that page politely and derives
+company/title/location/description from JSON-LD `JobPosting`, Open Graph
+or `<meta>` tags and the page title before using the normal provenance
+path. This is a user-initiated fetch, not a source scan; it stores no
+extra metadata beyond the resulting offer/provenance/snapshot rows.
 
 ### snapshots
 | Column | Type | Notes |

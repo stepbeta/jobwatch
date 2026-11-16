@@ -98,17 +98,65 @@ Done criteria (all met):
 | Classifier adds French internship terms (`stage`, `alternance`) and a management penalty | the target market is France and manager titles are not hands-on Platform/SRE roles |
 | Score caps by remote policy (onsite 50, hybrid 75, unknown 60) | `location_confidence` means "full remote in France", not just "France" |
 
+## Milestone 4 — More sources, import ergonomics, polish — DONE
+
+Done criteria (all met):
+- [x] Personio adapter (`{tenant}.jobs.personio.de/xml`), Workable public
+      widget adapter, generic RSS/Atom adapter with configurable item/field
+      mapping, and a last-resort HTML adapter with per-source CSS selectors
+      and a 5 s minimum poll interval
+- [x] Fixture-based tests for every new adapter (recorded feeds/pages, plus
+      hand-edited fixture details documented in
+      `internal/sources/testdata/README.md`); no test hits the network
+- [x] Seeded disabled sources for Datadog/Cisco (Workday), SAP
+      (SuccessFactors) and Welcome to the Jungle with explanatory `note`
+      values; no Workday/SuccessFactors/WTTJ adapter was added
+- [x] `POST /api/offers/import` and `jobwatch import` accept a URL and
+      extract lightweight metadata (JSON-LD, Open Graph, meta, title), with
+      a manual-form fallback in the API (`422 metadata_*` + `metadata`) and
+      the CLI (`--company`/`--title` or `--no-fetch`)
+- [x] `jobwatch list` prints a compact table with offer/application states
+      and both confidence scores; `list --sources` shows the disabled-source
+      note
+- [x] `jobwatch backup` validates the copy (read-only reopen, integrity
+      check, foreign-key check, applied migrations) and removes a failed copy
+- [x] UI polish: empty states (offers/sources/tables), auto-dismissing
+      success/error toasts, loading indicators, shared confirm dialogs for
+      every destructive action, and type-specific forms for the new adapters
+- [x] End-to-end smoke test (`internal/api/e2e_test.go`) covering add source
+      → scan through the real Workable adapter → classify → set application
+      state → backdated timeline event; manual steps are documented in
+      `docs/SMOKE-TEST.md`
+- [x] `go build`, `go vet`, `go test`, `npm run build` green; migration 0002
+
+### Deviations (permanent decisions; SPEC updated, see SPEC §11)
+
+| Deviation | Reason |
+|---|---|
+| WTTJ is left disabled with a note instead of shipping an adapter | WTTJ exposes only an internal API with no public contract; a fragile scraper would break silently and risk blocking. Manual import and RSS/HTML sources cover the use case |
+| Workday and SuccessFactors are not implemented; seeded rows are disabled `html`/`wttj` sources | SPEC §7 says to skip them in v1; the rows make the links visible with an explanation |
+| The disabled known-hard rows are seeded by data-only migration 0002 | the user asked for the rows to exist; `INSERT … WHERE NOT EXISTS` makes it idempotent and keeps upgrades additive |
+| URL metadata extraction performs a user-initiated page fetch | SPEC §2 only allowed source scanning; importing a URL cannot work otherwise. The fetch uses the same robots/rate-limit/UA client and is never automatic |
+| HTML sources cannot poll faster than every 5 s | unknown page shapes are the most fragile target; a conservative floor protects the site |
+| The HTML adapter fetches only the configured listing page | following per-offer pages would multiply requests; selectors on the listing usually carry title/link/location |
+| RSS/Atom field mapping uses child-element local names plus `@attr`/`#text`, not full XPath | keeps the mapper small and dependency-free while covering real RSS/Atom feeds |
+| `golang.org/x/net/html` and `github.com/andybalholm/cascadia` are new module dependencies | the standard library has no HTML parser and writing a correct CSS-selector engine in-house would add avoidable risk; both are small, stable, pure-Go libraries |
+| `jobwatch backup` validates by reopening the copy read-only | `VACUUM INTO` is consistent, but an integrity/FK/schema check proves the copy is usable and catches truncated destinations |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
 |---|---|---|
-| ATS workplace hints discarded | §6 | Open. Lever/Ashby `workplaceType` is not carried in `RawOffer`; `remote_policy` is derived from location and description text |
+| ATS workplace hints discarded | §6 | Open. Lever/Ashby `workplaceType` is not carried in `RawOffer`; Workable's `telecommuting` is used, and `remote_policy` is otherwise derived from location and description text |
 | Title change of a posting creates a new offer | §5 | Open. Identity is the fingerprint only (external UID not used) |
-| Adapters for personio, workable, wttj, rss, html missing | §7 | Open. Such sources can be registered; scan reports `skipped` and leaves their status unchanged |
+| WTTJ adapter missing | §7 | By design. A disabled seeded row exists; scans report `skipped` and leave its status unchanged |
+| Workday/SuccessFactors adapters missing | §7 | By design for v1. Disabled seeded rows carry an explanation |
+| HTML adapter is listing-only | §7 | Open. It fetches one page per scan; descriptions are whatever the configured selector exposes |
+| RSS/Atom item heuristics | §7 | Open. Titles such as “Company: Role” are not split automatically; mapping is configurable per source |
+| Import metadata extraction is heuristic | §3 | Open. JSON-LD/Open Graph/meta/title only; pages without them need the manual form |
 | No "N consecutive failures" counter | §7 | Open. One failed scan marks the source `error`/`blocked`; the next success resets it. The error text is in the scan summary but not stored |
 | `notes_fts` not exposed | §4 | Open. The index is maintained but `GET /api/offers?q=` searches offers only |
 | No FTS search over companies in the UI | §9 | Open. `GET /api/companies?q=` matches the name; no full-text company search |
-| Import by URL alone is not implemented | §3 | Open. Both CLI and API require `company` and `title`; a bare URL cannot be fetched for metadata |
 | No snapshot listing endpoint | §9 | Open. Detail returns the latest snapshot, the count and a diff of the two latest only |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |

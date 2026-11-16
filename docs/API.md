@@ -52,7 +52,10 @@ Pings the database. `200`:
 
 ### GET /api/sources
 
-All sources, ordered by ID.
+All sources, ordered by ID. A fresh database includes four disabled,
+seeded rows (Datadog/Cisco Workday, SAP SuccessFactors, WTTJ); their
+`config.note` explains why they are disabled. Their IDs sit before any
+source you add.
 
 ```json
 { "sources": [ {
@@ -178,14 +181,43 @@ Manually add an offer seen elsewhere. Runs the same dedup path as scans
 in one transaction; a matching fingerprint adds a provenance row to the
 existing offer instead of creating a duplicate.
 
+Two input modes:
+
+1. **Raw JSON** with the fields supplied. `company` and `title` are
+   required in this mode; `url` must be `http(s)` when present.
+2. **URL extraction**. If `url` is present and `company` or `title` is
+   missing, JobWatch fetches the page politely (robots.txt, rate limit,
+   JobWatch User-Agent) and reads JSON-LD `JobPosting`, Open Graph/meta
+   tags and the page title. Explicit fields win over extracted values;
+   the input URL is always kept as the provenance link. No JavaScript is
+   executed.
+
 ```json
 { "company": "Qonto", "title": "SRE (H/F)", "location": "Paris",
   "url": "https://example.com/job/1", "description": "optional" }
 ```
 
-`company` and `title` required; `url` must be `http(s)` when present.
-`201 { "offer_id": 3, "created": true }` for a new offer, `200` with
-`created: false` when an existing offer matched.
+```json
+{ "url": "https://example.com/jobs/42" }
+```
+
+- `201 { "offer_id": 3, "created": true }` for a new offer.
+- `200` with `created: false` when an existing company+title matched.
+- `400 validation_failed` for an invalid URL, or when no URL and no
+  company/title are supplied.
+- `422 metadata_incomplete` when the page was fetched but company or
+  title could not be extracted:
+  ```json
+  {
+    "error": { "code": "metadata_incomplete", "message": "…" },
+    "metadata": { "company": "", "title": "SRE (H/F)", "location": "Paris",
+                  "url": "https://example.com/jobs/42", "description": "…" }
+  }
+  ```
+- `422 metadata_unavailable` when the page could not be fetched (network,
+  robots.txt, HTTP 4xx/5xx). `metadata` still carries the input URL. The
+  UI uses it to prefill its manual form; the CLI suggests `--company`,
+  `--title` or `--no-fetch`.
 
 ### GET /api/offers/:id
 
@@ -460,6 +492,8 @@ when it has none, and the emptied company row is deleted.
 | 400 | `invalid_id` | path ID is not a positive integer |
 | 400 | `validation_failed` | missing/invalid field, empty patch, self-merge |
 | 400 | `invalid_query` | invalid FTS5 search expression |
+| 422 | `metadata_incomplete` | URL import fetched the page but needs company/title from the user; response includes `metadata` |
+| 422 | `metadata_unavailable` | URL import could not fetch or parse the page; response includes `metadata` |
 | 404 | `not_found` | unknown endpoint, entity or child entity |
 | 409 | `duplicate_source` | another source uses the URL |
 | 409 | `duplicate_company` | normalized company name already exists |

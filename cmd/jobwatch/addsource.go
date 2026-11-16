@@ -21,14 +21,16 @@ func newAddSourceCmd(opts *rootOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add-source <url>",
 		Short: "Register a source (type and config are detected from known ATS URLs)",
-		Long: `Register a source. Greenhouse, Lever and Ashby board URLs are recognized
-automatically, e.g.:
+		Long: `Register a source. Greenhouse, Lever, Ashby, Personio and Workable
+board URLs are recognized automatically, e.g.:
 
   jobwatch add-source https://boards.greenhouse.io/gitlab
   jobwatch add-source https://jobs.lever.co/spotify --name Spotify
   jobwatch add-source https://jobs.ashbyhq.com/linear
+  jobwatch add-source https://acme.jobs.personio.de
+  jobwatch add-source https://apply.workable.com/acme
 
-Other URLs need --type and usually --config.`,
+RSS/Atom feeds and HTML listing pages need --type plus --config; see the README.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -96,14 +98,14 @@ Other URLs need --type and usually --config.`,
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "display name (default: board name from the URL); also the default company name")
-	cmd.Flags().StringVar(&typ, "type", "", "source type: greenhouse|lever|ashby|personio|workable|wttj|rss|html")
+	cmd.Flags().StringVar(&typ, "type", "", "source type: greenhouse|lever|ashby|personio|workable|rss|html (wttj is not implemented)")
 	cmd.Flags().StringVar(&cfgJSON, "config", "", `extra config_json keys, e.g. '{"company":"Acme","rate_limit_ms":5000}'`)
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "register the source disabled")
 	return cmd
 }
 
 func defaultSourceName(c sources.Config, u *url.URL) string {
-	for _, v := range []string{c.BoardToken, c.Site, c.Org} {
+	for _, v := range []string{c.BoardToken, c.Site, c.Org, c.Tenant, c.Account} {
 		if v != "" {
 			return v
 		}
