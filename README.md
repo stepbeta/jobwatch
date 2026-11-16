@@ -5,7 +5,7 @@ company job boards (Greenhouse, Lever, Ashby, Personio, Workable), RSS /
 Atom feeds and CSS-selector career pages. It detects new, changed and
 disappeared offers and keeps everything in a single SQLite file.
 
-Status: Milestone 5b (undetected source decisions). The Go server
+Status: Milestone 5c (aggregator follow-ups). The Go server
 exposes the full API and, when built with the `ui` tag, embeds the React
 SPA. See [docs/MILESTONES.md](docs/MILESTONES.md) for what is done and
 the known gaps, and [docs/SOURCE-DECISIONS.md](docs/SOURCE-DECISIONS.md)
@@ -231,7 +231,10 @@ boards, 5 RSS feeds, 5 server-rendered HTML listings, and 28 disabled
 sources with an explanatory `note` (JS-only SPAs, Notion, candidate
 logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt
 disallows, aggregators). Disabled sources are never scanned; their
-offers enter through manual import.
+offers enter through manual import. The Workable public search is one of
+them: its France+remote query URL is disallowed by robots.txt, and the
+allowed category pages are incomplete, so the per-company Workable
+boards remain the supported surface.
 
 JobWatch honors `robots.txt` and spaces its requests. A source that
 refuses access is marked `blocked`; any other failure marks it `error`.
@@ -260,6 +263,18 @@ offer, the URL is added to that offer instead of creating a duplicate.
 When a page cannot be read, the API returns the extracted fields to the
 UI's manual fallback; the CLI asks for `--company`/`--title` (or
 `--no-fetch`).
+
+Aggregator and candidate-only pages are deliberately not scraped:
+FlexJobs, RemoteMore, the `my.greenhouse.io` dashboard, The Product
+Crew, Welcome to the Jungle matches and Jobgether either require a
+candidate account or render matches client-side. When you find an offer
+there, copy its public URL and paste it into **Dashboard → Import an
+offer seen elsewhere** (click **Fetch & import**), or run `jobwatch
+import <url>`; if the page is login-gated or has no usable metadata,
+enter company and title manually in the same form or with
+`--company`/`--title`. If the offer also exists on a company ATS board,
+register that board instead so future scans track it automatically. See
+[docs/SOURCE-DECISIONS.md](docs/SOURCE-DECISIONS.md#aggregators-milestone-5c).
 
 ### Offer states
 

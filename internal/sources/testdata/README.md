@@ -13,7 +13,9 @@ Fixtures recorded from the public APIs/sites on 2026-11-15/16 and trimmed
   (first three jobs kept; a second location added to job 1 by hand to
   exercise multi-location grouping)
 - `rss_feed.xml`: weworkremotely.com/remote-jobs.rss (first three items,
-  descriptions replaced with a short excerpt)
+  descriptions replaced with a short excerpt). Keeps the non-standard
+  `<region>` element; the registered source maps `location_field: region`
+  and the fixture test also checks the `Company: Role` titles
 - `atom_feed.xml`: go.dev/blog/feed.atom (first three entries, content
   replaced with a short excerpt)
 - `teamtailor_feed.xml`: careers.epicompany.eu/jobs.rss (first two items,

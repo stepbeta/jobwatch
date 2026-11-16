@@ -603,6 +603,45 @@ func TestRSSAdapter(t *testing.T) {
 		})
 	}
 
+	// We Work Remotely publishes RSS 2.0 items with the region in a
+	// non-standard <region> element and no company element. The registered
+	// source maps only location_field; titles such as "Company: Role" are
+	// kept verbatim (the RSS known gap), and the company stays empty.
+	t.Run("weworkremotely registered mapping", func(t *testing.T) {
+		srv := fixtureServer(t, "/remote-jobs.rss", "rss_feed.xml")
+		c, _ := testClient()
+		got, err := (&RSS{Client: c}).Fetch(context.Background(), model.Source{
+			ID: 36, Type: model.SourceRSS, URL: srv.URL + "/remote-jobs.rss",
+			ConfigJSON: `{"location_field":"region"}`,
+		})
+		if err != nil {
+			t.Fatalf("Fetch: %v", err)
+		}
+		if len(got) != 3 {
+			t.Fatalf("got %d offers, want 3", len(got))
+		}
+		want := []struct{ title, region string }{
+			{"Hometap: Underwriter", "USA Only"},
+			{"Jadeclass Education: Online English Writing and Analysis Teacher - All Levels", "Oceania Only"},
+			{"DeepSeas: Lead Incident Response Analyst", "Americas Only"},
+		}
+		for i, w := range want {
+			offer := got[i]
+			if offer.Title != w.title || offer.Location != w.region {
+				t.Errorf("offer %d title/location = %q/%q, want %q/%q", i, offer.Title, offer.Location, w.title, w.region)
+			}
+			if offer.Company != "" {
+				t.Errorf("offer %d company = %q, want empty", i, offer.Company)
+			}
+			if !strings.HasPrefix(offer.URL, "https://weworkremotely.com/remote-jobs/") {
+				t.Errorf("offer %d URL = %q", i, offer.URL)
+			}
+			if offer.ExternalUID != offer.URL {
+				t.Errorf("offer %d UID = %q, want the guid/link %q", i, offer.ExternalUID, offer.URL)
+			}
+		}
+	})
+
 	// An XML document without known item elements is an empty feed, not an error.
 	srv := fixtureServer(t, "/empty.xml", "personio.xml")
 	c, _ := testClient()

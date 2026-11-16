@@ -235,6 +235,38 @@ Done criteria (all met):
 | The seed never updates a row with the same URL | the user may have changed the name, config or enabled flag; the seed must only fill a fresh or partially populated database |
 | The 28 not-trackable rows are shipped disabled with their notes | they were decided as manual-import-only in 5b; re-enabling them would make scans fail repeatedly |
 
+## Milestone 5c — Aggregator follow-ups — DONE
+
+Done criteria (all met):
+- [x] We Work Remotely uses its public RSS feed
+      `https://weworkremotely.com/remote-jobs.rss` as an enabled `rss`
+      source with `{"location_field":"region"}`; one real scan returned
+      `ok` with 100 feed items and 99 offers (0 new, 0 changed, 0
+      disappeared)
+- [x] Fixture test for the WWR feed shape (`region`, `Company: Role`
+      titles kept verbatim, empty company) using the recorded
+      `internal/sources/testdata/rss_feed.xml`
+- [x] Workable public search evaluated: the France+remote query URL is
+      disallowed by robots.txt and the allowed category pages are
+      per-category, capped and incomplete; no targeted adapter or `html`
+      source was added and the disabled row stays with its note
+- [x] `docs/SOURCE-DECISIONS.md` records the Aggregators review and
+      states that offers from FlexJobs, RemoteMore, the
+      `my.greenhouse.io` dashboard, The Product Crew, WTTJ matches and
+      Jobgether enter JobWatch via `jobwatch import` / the UI import form
+- [x] README has one paragraph describing that manual-import workflow
+- [x] `go build`, `go vet`, `go test` green; no schema migration and no
+      adapter change
+
+### Deviations (permanent decisions)
+
+| Deviation | Reason |
+|---|---|
+| The WWR row was not created by 5c | 5b already registered and scanned the same feed; 5c re-verified the row against migration 0003 and added the missing fixture test instead of creating a duplicate source |
+| No `html` source for the allowed Workable category pages | the sitemap lists 36 France category URLs, each capped at 15 results, overlapping and without a Platform/SRE category; the complete search uses an undocumented API. Per-company `apply.workable.com/<account>` boards are the stable surface |
+| Aggregator rows keep `source_type = html`, disabled, with the 5b `note` | they are documentation of why a URL is not tracked; the manual import path already exists and needs no new source type |
+| No data migration updates the Workable note | it already states the correct reason; migrations never update existing rows, so changing it would only affect fresh databases |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -253,6 +285,8 @@ Done criteria (all met):
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
 | Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |
+| Workable public search is not tracked | §7 | By design after 5c. The France+remote query URL is robots-disallowed; allowed category pages are incomplete. Track the company's `apply.workable.com/<account>` board instead |
+| Aggregator offers require manual import | §7 | By design after 5c. FlexJobs, RemoteMore, the `my.greenhouse.io` dashboard, The Product Crew, WTTJ matches and Jobgether are never scraped; use `jobwatch import` or the UI import form |
 | Teamtailor offers created before the mapping fix have no location | §7 | Open data artifact. The `locations/location/name` mapping is correct and fixture-tested; scans do not update the location of an existing offer, so only new offers carry it |
 | Murena "Other positions" table is not tracked | §7 | By design. The second table has a different column layout; the engineering table is tracked |
 | No scheduled scans or notifications | §10 | Out of scope for v1 |

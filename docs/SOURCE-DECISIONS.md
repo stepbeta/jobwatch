@@ -1,9 +1,11 @@
-# Source decisions (Milestone 5b)
+# Source decisions (Milestones 5b–5c)
 
 Every URL in `docs/REMOTE-SOURCES.txt` that `sources.Detect` could not
 classify was investigated with exactly one polite fetch through the
 shared client (robots.txt, rate limit, no retries, no anti-bot
-bypassing). Each row records the single action taken.
+bypassing). Each row records the single action taken. Milestone 5c
+revisited the Aggregators section; see [Aggregators](#aggregators-milestone-5c)
+below.
 
 The decided rows are now shipped by data-only migration
 `0003_seed_remote_sources.sql`, alongside the 8 boards registered in 5a:
@@ -74,14 +76,14 @@ Actions:
 | https://www.ashbyhq.com/careers?ashby_location_id=cfda037a-823f-4ee2-b732-40a6b55a6b17 | Ashby | underlying-board | Ashby board `ashby`; registered `https://jobs.ashbyhq.com/ashby` (79 offers). |
 | https://careers.sekoia.com/jobs?split_view=true&query=&remote_status_id=fully | Sekoia | rss | Teamtailor feed `https://careers.sekoia.com/jobs.rss`; `location_field: locations/location/name` (1 offer). |
 | https://supabase.com/careers#positions | Supabase | underlying-board | Ashby board `supabase`; registered `https://jobs.ashbyhq.com/supabase` (77 offers). |
-| https://www.flexjobs.com/search | FlexJobs | not-trackable | Requires a paid membership/login and its robots.txt was unreachable; not crawled. |
-| https://jobs.workable.com/search?location=France&workplace=remote | Workable (search) | not-trackable | robots.txt disallows the Workable job search path. |
-| https://weworkremotely.com/remote-jobs/search?country%5B%5D=FR | We Work Remotely | rss | RSS feed `https://weworkremotely.com/remote-jobs.rss`; `location_field: region` (99 offers). |
-| https://jobgether.com | Jobgether | not-trackable | Aggregator that requires an account and renders matches client-side. |
-| https://www.welcometothejungle.com/fr/jobs-matches | Welcome to the Jungle (matches) | not-trackable | WTTJ uses an internal API with no public contract. Manual import only. |
-| https://my.greenhouse.io/dashboard | Greenhouse (candidate dashboard) | not-trackable | Candidate dashboard; requires a candidate login. |
-| https://app.theproductcrew.io/ | The Product Crew | not-trackable | Candidate-only platform; requires login. |
-| https://remotemore.com/candidates/ | RemoteMore | not-trackable | Candidate signup platform; no public job listing. |
+| https://www.flexjobs.com/search | FlexJobs | not-trackable | Requires a paid membership/login and its robots.txt was unreachable; not crawled. Offers enter through `jobwatch import` or the UI import form. |
+| https://jobs.workable.com/search?location=France&workplace=remote | Workable (search) | not-trackable | The query URL is disallowed by robots.txt (`Disallow: /search*?*`). Allowed clean category pages exist but are incomplete; no targeted adapter was added. Offers enter through manual import. See [Aggregators](#aggregators-milestone-5c). |
+| https://weworkremotely.com/remote-jobs/search?country%5B%5D=FR | We Work Remotely | rss | Public RSS feed `https://weworkremotely.com/remote-jobs.rss`; registered config `{"location_field":"region"}` (99 offers). Re-verified in 5c with a fixture test. |
+| https://jobgether.com | Jobgether | not-trackable | Aggregator that requires an account and renders matches client-side. Not scraped; offers enter through `jobwatch import` or the UI import form. |
+| https://www.welcometothejungle.com/fr/jobs-matches | Welcome to the Jungle (matches) | not-trackable | WTTJ uses an internal API with no public contract. Not scraped; manual import only. |
+| https://my.greenhouse.io/dashboard | Greenhouse (candidate dashboard) | not-trackable | Candidate dashboard; requires a candidate login. Not scraped; offers enter through manual import. |
+| https://app.theproductcrew.io/ | The Product Crew | not-trackable | Candidate-only platform; requires login. Not scraped; offers enter through manual import. |
+| https://remotemore.com/candidates/ | RemoteMore | not-trackable | Candidate signup platform; no public job listing. Not scraped; offers enter through manual import. |
 
 ## Totals
 
@@ -94,3 +96,80 @@ Actions:
 | **Total** | **57** |
 
 The 8 URLs already registered by Milestone 5a are not repeated here.
+
+## Aggregators (Milestone 5c)
+
+### We Work Remotely
+
+The 5b row is correct and stays enabled. The public feed
+`https://weworkremotely.com/remote-jobs.rss` is RSS 2.0 with these
+per-item fields: `title` (`Company: Role`), `region` (e.g. `USA Only`),
+`category`, `type`, `description` (escaped HTML), `pubDate`, `guid` and
+`link`. The feed has no company element, so the registered config maps
+only the location:
+
+```json
+{"location_field": "region"}
+```
+
+`internal/sources/testdata/rss_feed.xml` records that shape (first three
+items, descriptions trimmed) and `TestRSSAdapter/weworkremotely_registered_mapping`
+asserts the mapping, the verbatim `Company: Role` titles and the empty
+company. A real scan in 5c returned `ok`: 100 feed items, 99 offers, 0
+new (all already tracked), 0 changed, 0 disappeared.
+
+### Workable public search
+
+`https://jobs.workable.com/search?location=France&workplace=remote`
+cannot be an `html` source, and a targeted adapter was not judged
+worthwhile:
+
+- robots.txt allows `/search/*` but disallows `/search*?*` and
+  `/search`; the requested France+remote URL is a query URL.
+- The allowed clean pages (for example
+  `/search/france/remote-software-engineer-jobs`, 36 France URLs in the
+  sitemap) are server-rendered and expose job links plus a JSON-LD
+  `ItemList`, but each is a single category capped at 15 results, with
+  heavy overlap and no Platform/SRE category. Registering several of
+  them would still not give a complete listing.
+- The complete search is served by an internal API with no public
+  contract, which is the same class of risk as WTTJ.
+- The per-company Workable widget API is already supported. When a
+  company is found through the search, the right stable source is its
+  `apply.workable.com/<account>` board.
+
+The disabled row stays, with the note "robots.txt disallows the Workable
+job search path." No request was made to the disallowed search URL.
+
+### Candidate-account and JS-only aggregators
+
+These pages are not scraped at all. They either require a candidate
+account or render their matches client-side, and JobWatch has no adapter
+that could read them reliably:
+
+| Page | Why it is not scraped |
+|---|---|
+| flexjobs.com/search | Paid membership/candidate login; robots.txt unreachable |
+| remotemore.com/candidates/ | Candidate signup platform; no public listing |
+| my.greenhouse.io/dashboard | Candidate dashboard behind a login |
+| app.theproductcrew.io | Candidate-only platform behind a login |
+| welcometothejungle.com/fr/jobs-matches | Internal API, no public contract; JS marketplace |
+| jobgether.com | Account required; matches rendered client-side |
+
+Offers found on these pages enter JobWatch manually:
+
+```sh
+# Paste the public offer URL; metadata is extracted when possible.
+./jobwatch import https://www.example.com/jobs/senior-sre
+
+# If the page is login-gated or has no metadata, supply the fields.
+./jobwatch import https://www.example.com/jobs/senior-sre \
+  --company "Example" --title "Senior SRE" --location "Remote (France)"
+```
+
+In the UI, the same workflow is **Dashboard → Import an offer seen
+elsewhere**: paste the URL and click **Fetch & import**; the form
+pre-fills missing company/title fields for manual entry. A manual import
+is matched to an existing offer when company and title agree, and its
+provenance row has `source_id = NULL`. These aggregator rows remain
+disabled and are never scanned.

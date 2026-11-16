@@ -257,6 +257,30 @@
 - README, API, DATA-MODEL and SMOKE-TEST document the seeded source set
   and migration 0003.
 
+### Milestone 5c — Aggregator follow-ups
+
+#### Added
+- Fixture test for the We Work Remotely RSS shape
+  (`internal/sources/testdata/rss_feed.xml`): the `region` element maps
+  to the location, `Company: Role` titles are kept verbatim and the
+  company stays empty. A real scan of the live feed returned
+  100 items → 99 offers, all already tracked.
+- A documented manual-import route for aggregator and candidate-only
+  pages (FlexJobs, RemoteMore, `my.greenhouse.io` dashboard, The Product
+  Crew, Welcome to the Jungle matches, Jobgether): paste the public offer
+  URL into the UI import form or run `jobwatch import`.
+
+#### Changed
+- `docs/SOURCE-DECISIONS.md` now records the Milestone 5c Aggregators
+  review: the WWR feed mapping, why the Workable public search is not
+  worth an adapter or HTML source (robots-disallowed query URL,
+  incomplete category pages, undocumented search API), and the
+  manual-import workflow for account/JS-only aggregators.
+- README describes that workflow and the Workable decision; the status
+  line and MILESTONES known-gaps table are up to date.
+- No schema migration, adapter or API change; the Workable and
+  aggregator rows stay disabled with their explanatory notes.
+
 ### Changed
 - SPEC updated to match decisions made in Milestone 1: Ashby is fetched
   with GET, a few schema columns are NOT NULL with defaults, enum values
