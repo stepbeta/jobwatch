@@ -4,6 +4,7 @@ export type Route =
   | { name: 'dashboard' }
   | { name: 'offers'; saved?: boolean }
   | { name: 'sources' }
+  | { name: 'interviewPrep' }
   | { name: 'offer'; id: number }
   | { name: 'company'; id: number }
   | { name: 'notfound' }
@@ -19,6 +20,7 @@ export function parseRoute(hash: string): Route {
     return { name: 'offers', saved: saved === 'true' ? true : saved === 'false' ? false : undefined }
   }
   if (parts[0] === 'sources' && parts.length === 1) return { name: 'sources' }
+  if (parts[0] === 'interview-prep' && parts.length === 1) return { name: 'interviewPrep' }
   if (parts[0] === 'offers' && parts[1]) {
     const id = Number(parts[1])
     return Number.isInteger(id) && id > 0 ? { name: 'offer', id } : { name: 'notfound' }

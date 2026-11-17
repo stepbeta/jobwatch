@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, errorMessage } from './api'
 import { CompanyPage } from './pages/CompanyPage'
 import { Dashboard } from './pages/Dashboard'
+import { InterviewPrepPage } from './pages/InterviewPrepPage'
 import { OfferPage } from './pages/OfferPage'
 import { OffersPage } from './pages/OffersPage'
 import { SourcesPage } from './pages/SourcesPage'
@@ -110,6 +111,12 @@ export default function App() {
           <a href="#/sources" className={route.name === 'sources' ? 'active' : ''}>
             Sources
           </a>
+          <a
+            href="#/interview-prep"
+            className={route.name === 'interviewPrep' ? 'active' : ''}
+          >
+            Interview prep
+          </a>
         </nav>
         <span className="spacer" />
       </header>
@@ -146,6 +153,7 @@ export default function App() {
           />
         )}
         {route.name === 'offer' && <OfferPage id={route.id} onNotice={notify} />}
+        {route.name === 'interviewPrep' && <InterviewPrepPage onNotice={notify} />}
         {route.name === 'company' && <CompanyPage id={route.id} onNotice={notify} />}
         {route.name === 'notfound' && (
           <div className="page">

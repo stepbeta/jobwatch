@@ -198,6 +198,14 @@ Built with React + TypeScript (Vite). The pages are:
   add, delete) on the right. The columns stack at 900px. The offers list
   stays below. Merging always asks which company row to keep; nothing is
   merged automatically.
+- **Interview prep** (`#/interview-prep`) — a personal FAQ of anticipated
+  interview questions and prepared answers. Questions form an accordion;
+  expanding one renders its answer. Add and Edit share a modal with a
+  question input, a markdown textarea and a live preview pane; Delete asks
+  for confirmation. Duplicate questions are allowed. Answers are stored as
+  markdown plaintext and rendered by a small built-in renderer (headings,
+  bold, italic, inline code, fenced code blocks and lists) that never
+  injects HTML, so raw HTML is displayed literally.
 
 The bookmark is personal interest, not an application state. Saving an
 offer never changes its application or offer state, and if a saved offer

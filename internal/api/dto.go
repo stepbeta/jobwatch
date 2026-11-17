@@ -210,6 +210,28 @@ func noteToJSON(n model.Note) noteJSON {
 	}
 }
 
+type interviewEntryJSON struct {
+	ID           int64   `json:"id"`
+	Question     string  `json:"question"`
+	Answer       string  `json:"answer"`
+	AnswerFormat string  `json:"answer_format"`
+	DisplayOrder *int    `json:"display_order"`
+	CreatedAt    *string `json:"created_at"`
+	UpdatedAt    *string `json:"updated_at"`
+}
+
+func interviewEntryToJSON(e model.InterviewEntry) interviewEntryJSON {
+	return interviewEntryJSON{
+		ID:           e.ID,
+		Question:     e.Question,
+		Answer:       e.Answer,
+		AnswerFormat: string(e.AnswerFormat),
+		DisplayOrder: e.DisplayOrder,
+		CreatedAt:    timeString(e.CreatedAt),
+		UpdatedAt:    timeString(e.UpdatedAt),
+	}
+}
+
 type snapshotJSON struct {
 	ID         int64  `json:"id"`
 	Origin     string `json:"origin"`

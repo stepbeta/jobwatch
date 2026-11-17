@@ -677,6 +677,89 @@ func TestMigrationAddsOfferSavedAt(t *testing.T) {
 	}
 }
 
+// TestMigrationAddsInterviewEntries upgrades a pre-0009 database: the new
+// table appears empty (no existing row is rewritten) and accepts entries
+// afterwards.
+func TestMigrationAddsInterviewEntries(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "interview.db")
+	sqlDB, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+
+	base := fstest.MapFS{}
+	for _, name := range []string{
+		"0001_init.sql",
+		"0002_known_hard_sources.sql",
+		"0003_seed_remote_sources.sql",
+		"0004_seed_5c_sources.sql",
+		"0005_seed_bamboohr_sources.sql",
+		"0006_event_message_types.sql",
+		"0007_snapshot_origin.sql",
+		"0008_offer_saved_at.sql",
+	} {
+		body, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base[name] = &fstest.MapFile{Data: body}
+	}
+	if err := Migrate(ctx, sqlDB, base); err != nil {
+		t.Fatalf("apply migrations 0001-0008: %v", err)
+	}
+	var before int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'interview_entries'`).
+		Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if before != 0 {
+		t.Fatalf("interview_entries exists before 0009")
+	}
+
+	if err := Migrate(ctx, sqlDB, migrations.FS); err != nil {
+		t.Fatalf("upgrade with embedded migrations: %v", err)
+	}
+	var recorded int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 9 AND name = 'interview_entries'`).
+		Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Errorf("migration 0009 recorded %d times, want 1", recorded)
+	}
+
+	entries, err := ListInterviewEntries(ctx, sqlDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("upgraded database has %d interview entries, want 0", len(entries))
+	}
+
+	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
+	created, err := InsertInterviewEntry(ctx, sqlDB, model.InterviewEntry{
+		Question: "  What is your on-call experience?  ",
+		Answer:   "Two years of weekly rotation.",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Question != "What is your on-call experience?" || created.AnswerFormat != model.AnswerFormatMarkdown {
+		t.Errorf("created entry = %+v", created)
+	}
+	got, err := GetInterviewEntry(ctx, sqlDB, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer != "Two years of weekly rotation." || got.DisplayOrder != nil {
+		t.Errorf("stored entry = %+v", got)
+	}
+}
+
 func boolPtr(v bool) *bool { return &v }
 
 func countSnapshotsByOrigin(t *testing.T, sqlDB *sql.DB, offerID int64) map[model.SnapshotOrigin]int {

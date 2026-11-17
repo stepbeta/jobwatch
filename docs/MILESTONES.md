@@ -5,17 +5,18 @@ added here as they start.
 
 ## Current state
 
-Milestones 1–7f are complete, and the Milestone 8 documentation pass is
-complete as well. The binary scans the 70 seeded sources plus any
-sources the user adds, detects new/changed/disappeared offers, classifies
-them deterministically, and serves the React UI and REST API from one
-process.
+Milestones 1–9 are complete. The binary scans the 70 seeded sources
+plus any sources the user adds, detects new/changed/disappeared offers,
+classifies them deterministically, and serves the React UI and REST API
+from one process.
 End to end, a user can add sources, scan, filter and bookmark offers, set
 application states, keep a timeline and notes, browse description
-versions, and merge or split records after explicit confirmation.
+versions, merge or split records after explicit confirmation, and build a
+personal interview-prep FAQ with markdown answers.
 Milestone 8 reorganizes the README and adds `docs/USAGE.md`; it changes no
-behavior, schema or API. Open items and deliberate limitations remain in
-the known-gaps table below.
+behavior, schema or API. Milestone 9 adds the standalone interview-prep
+table, REST resource and page. Open items and deliberate limitations
+remain in the known-gaps table below.
 
 ## Milestone 1 — Core: bootstrap, database, sources, scan, CLI — DONE
 
@@ -627,6 +628,51 @@ Done criteria (all met):
 | API details stay in API.md; README links to it instead of repeating endpoint shapes | API.md is already the endpoint reference required by AGENTS.md |
 | No screenshots or images; the workflow is text plus one Mermaid diagram | the repository is text-first and the prompt forbids images |
 
+## Milestone 9 — Interview prep section — DONE
+
+Done criteria (all met):
+- [x] Additive migration 0009 creates `interview_entries` with question,
+      markdown answer (`answer` TEXT NOT NULL DEFAULT ''), enum-like
+      `answer_format` defaulting to `markdown`, nullable `display_order`
+      for manual ordering, and created/updated timestamps. No applied
+      migration is edited and no existing table or row changes.
+- [x] CRUD under `/api/interview-entries`: list (explicit
+      `display_order` first, then id), create (question required, answer
+      may be empty), get one, partial PATCH (`question`, `answer`,
+      `display_order`; unknown fields rejected; `null` clears the manual
+      position) and DELETE. Duplicate questions are allowed. Errors use
+      the shared `{ "error": { "code", "message" } }` shape.
+- [x] Dedicated `#/interview-prep` route and top-bar "Interview prep"
+      entry; the dashboard is untouched.
+- [x] Accordion list: the question is the header row, expanding shows the
+      rendered answer. Per-entry Edit and Delete actions sit on the header
+      row; Delete uses the shared `ConfirmDialog`.
+- [x] Add opens a modal (shared `Modal`); Edit reuses the same modal.
+      Both have a single-line question input, a markdown textarea and a
+      live preview pane. No WYSIWYG engine or formatting toolbar.
+- [x] Markdown rendering covers headings, bold, italic, inline code,
+      fenced code blocks and lists. It is a small in-house React renderer
+      that never injects HTML, so `<script>` and other raw HTML in an
+      answer are displayed literally and cannot execute. No dependency
+      was added.
+- [x] Tests: API integration tests for full CRUD, ordering, duplicate
+      questions and validation errors; a migration-upgrade test; and
+      Vitest component tests for expand/collapse, the add modal, escaped
+      markdown, edit and delete.
+- [x] `go build`, `go vet`, `go test`, `npm run build` and `npm test`
+      green; offers/events/notes/companies, the classifier, adapters,
+      scan pipeline and existing migrations are unchanged.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| The REST resource is `/api/interview-entries` with `interview_entries` / `interview_entry` response keys | follows the existing plural-noun resource naming (`/api/sources`, `/api/notes`) and avoids overloading `/api/interview` as both section and resource |
+| Add and Edit share one modal; editing is not inline | one form, one validation path and one live-preview implementation, matching the 7e source modal pattern |
+| A hand-rolled markdown renderer is used instead of a parser dependency | the supported subset is small and fixed; emitting React text nodes makes HTML injection impossible without a sanitizer dependency, and no new runtime package is needed |
+| `display_order` is supported by the API but there are no up/down reordering controls yet | the prompt marks reordering optional and forbids drag-and-drop; adding reliable mixed-NULL ordering controls was not cheap enough for this milestone |
+| Rows with an explicit `display_order` sort before rows without one | SQLite's default would put NULLs first, which makes a partially ordered list confusing; the fallback to id stays defined |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -645,7 +691,8 @@ Done criteria (all met):
 | Pre-7c snapshot origins are all `scan` | §9 | By design after 7c. The old schema had no reliable manual marker; only snapshots written from 7c onward carry an exact origin |
 | Manual description edits do not refresh classifier scores | §6 | Open. Scores keep their previous values until the next sighting or `jobwatch reclassify --all`; the edit itself is versioned normally |
 | Offer merge does not carry the absorbed offer's bookmark | §9 | Open. The kept offer keeps its own `saved_at`; the absorbed bookmark is not copied. Merge semantics were left unchanged in 7e |
-| Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, the offers import modal, the company two-column layout and hash routing | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); offers filters/pagination, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
+| Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, the offers import modal, the company two-column layout, hash routing and interview prep (accordion, add/edit/delete, escaped markdown) | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); offers filters/pagination, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
+| Interview prep has no reordering controls | §9 | Open. `display_order` is stored and patchable through the API, but the UI has no up/down buttons; entries without one fall back to id order |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
 | Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |

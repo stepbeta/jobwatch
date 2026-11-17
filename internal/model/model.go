@@ -165,6 +165,20 @@ func (o SnapshotOrigin) Valid() bool {
 	return false
 }
 
+// AnswerFormat is the stored markup format of an interview answer.
+type AnswerFormat string
+
+const (
+	// AnswerFormatMarkdown is the only answer format for now: plaintext
+	// markdown rendered (and escaped) by the UI, never HTML.
+	AnswerFormatMarkdown AnswerFormat = "markdown"
+)
+
+// Valid reports whether f is a known answer format.
+func (f AnswerFormat) Valid() bool {
+	return f == AnswerFormatMarkdown
+}
+
 type Company struct {
 	ID             int64
 	Name           string
@@ -246,6 +260,18 @@ type Note struct {
 	PinnedEventID *int64
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+// InterviewEntry is one question in the personal interview-prep FAQ
+// with its prepared answer. Answers are markdown plaintext.
+type InterviewEntry struct {
+	ID           int64
+	Question     string
+	Answer       string
+	AnswerFormat AnswerFormat
+	DisplayOrder *int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type Snapshot struct {

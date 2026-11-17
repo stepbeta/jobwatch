@@ -255,7 +255,7 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | Path | Content |
 |---|---|
 | `App.tsx` | top bar with navigation only, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
-| `router.ts` | hash routing (`#/`, `#/offers`, `#/offers?saved=true`, `#/sources`, `#/offers/:id`, `#/companies/:id`) |
+| `router.ts` | hash routing (`#/`, `#/offers`, `#/offers?saved=true`, `#/sources`, `#/interview-prep`, `#/offers/:id`, `#/companies/:id`) |
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with a Refresh button that fans out over the enabled sources behind those applications, and a Saved section (bookmarks, `saved=true`, `sort=saved`) |
 | `pages/OffersPage.tsx` | full offers table: filters (including saved/unsaved), sorting, pagination, bookmark toggle per row, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
@@ -263,6 +263,8 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `pages/OfferPage.tsx` | bookmark toggle in the header, editable states/location, score badges with reason tooltips, collapsed provenance disclosure with explicit merge and split actions (open state stored per offer in localStorage), timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save) |
 | `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note) |
 | `pages/CompanyPage.tsx` | one two-column header block: company identity, actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; the offers list stays below. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
+| `pages/InterviewPrepPage.tsx` | personal interview FAQ: accordion of anticipated questions, rendered markdown answer when expanded, per-entry Edit/Delete, and an Add/Edit modal with a textarea plus a live preview pane |
+| `components/Markdown.tsx` | deliberately small markdown renderer for interview answers: headings, bold, italic, inline code, fenced code blocks and lists, emitted as React elements (never HTML) |
 | `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source/event/note/company) |
 | `components/Modal.tsx` | shared dialog shell (fixed backdrop, titled head, Escape/backdrop close, wide variant) used by the source add/edit form and the offer import dialog |
 | `components/BookmarkButton.tsx` | dependency-free star toggle used in offer rows and the offer detail header |
@@ -287,6 +289,16 @@ Edit and Delete company, and the possible-duplicate banner on the left;
 the unchanged company-note list and new-note form on the right. The
 offers table remains a separate panel below. Both columns stack at
 `max-width: 900px`, the breakpoint already used by `.detail-columns`.
+
+The interview-prep page (`#/interview-prep`) is independent of offers and
+companies. It lists the personal FAQ as an accordion; the question is the
+always-visible header row with Edit and Delete actions, and expanding it
+renders the stored markdown answer. Add and Edit share one modal with a
+question input, a markdown textarea and a live preview pane. The renderer
+in `components/Markdown.tsx` supports only headings, bold, italic, inline
+code, fenced code blocks and lists, and returns React text nodes instead
+of HTML, so raw HTML in an answer is shown literally and never executed.
+Delete goes through the shared `ConfirmDialog`.
 
 The Sources header owns "Refresh all"; the top bar only navigates. The
 Dashboard's Applications Refresh is a client-side fan-out over

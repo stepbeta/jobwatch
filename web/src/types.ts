@@ -127,6 +127,18 @@ export interface Snapshot {
 
 export type SnapshotOrigin = 'scan' | 'manual'
 
+export type AnswerFormat = 'markdown'
+
+export interface InterviewEntry {
+  id: number
+  question: string
+  answer: string
+  answer_format: AnswerFormat
+  display_order: number | null
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface SnapshotSummary {
   id: number
   origin: SnapshotOrigin

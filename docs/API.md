@@ -25,9 +25,9 @@ the project overview is the [README](../README.md).
   rejected with `400 invalid_json`.
 - **Partial updates**: a field that is absent is left unchanged. For
   nullable fields (`location`, `website`, event `description`,
-  `pinned_event_id`), `null` clears the value. The offer detail
-  `description` field is the exception: it accepts a string only and
-  rejects `null` (see `PATCH /api/offers/:id`).
+  `pinned_event_id`, interview `display_order`), `null` clears the value.
+  The offer detail `description` field is the exception: it accepts a
+  string only and rejects `null` (see `PATCH /api/offers/:id`).
 - Pagination: `limit` (bounded per endpoint) and `offset` (default 0).
   List responses include `total`, `limit` and `offset`.
 - `config` on sources is a JSON object; unknown keys are preserved.
@@ -43,6 +43,7 @@ the project overview is the [README](../README.md).
 | `remote_policy` | `remote` `hybrid` `onsite` `unknown` |
 | event `type` | `cv_sent` `message_received` `message_sent` `interview` `offer` `rejected` `ghosted` `other` |
 | snapshot `origin` | `scan` `manual` |
+| interview `answer_format` | `markdown` |
 | note `entity_type` | `offer` `company` |
 
 Event `message_received` covers both a recruiter's inbound first contact
@@ -554,6 +555,65 @@ when it has none, and the emptied company row is deleted.
 - `409 merge_conflict` when a moved offer's new fingerprint already
   exists in the target (same company + title + location bucket). The
   merge is rolled back; the user must resolve the offers first.
+
+## Interview prep
+
+A personal FAQ of anticipated interview questions and prepared answers.
+Questions are plain text; answers are stored as **markdown plaintext**
+(never HTML) and rendered escaped by the UI. Duplicate questions are
+allowed: this is a personal notebook, not a deduplicated domain.
+`answer_format` is enum-like and currently accepts only `markdown`.
+
+```json
+{
+  "id": 1,
+  "question": "Tell me about a production incident.",
+  "answer": "**Situation**\n\n- alert fired\n- rolled back",
+  "answer_format": "markdown",
+  "display_order": null,
+  "created_at": "2026-11-17T09:00:00Z",
+  "updated_at": "2026-11-17T09:00:00Z"
+}
+```
+
+### GET /api/interview-entries
+
+`200 { "interview_entries": [...] }`. Rows with an explicit
+`display_order` come first in ascending order; rows without one follow by
+`id`.
+
+### POST /api/interview-entries
+
+```json
+{ "question": "Why this company?", "answer": "optional markdown" }
+```
+
+- `question` required and non-blank; it is trimmed.
+- `answer` optional (defaults to the empty string). It may be empty at
+  creation.
+- `answer_format` optional, defaults to `markdown`; any other value is
+  `400 validation_failed`.
+- `display_order` optional integer.
+- `201 { "interview_entry": {...} }`.
+
+### GET /api/interview-entries/:id
+
+`200 { "interview_entry": {...} }`, `404 not_found`.
+
+### PATCH /api/interview-entries/:id
+
+Any of `question`, `answer`, `display_order`.
+
+- `question` must be non-blank when supplied; it is trimmed.
+- `answer` replaces the stored markdown; `""` clears it.
+- `display_order` is an integer, or `null` to remove the manual position.
+- `answer_format` is not patchable (sending it is `400 invalid_json`).
+- An empty patch is `400 validation_failed`.
+- `200 { "interview_entry": {...} }`; `404 not_found`.
+
+### DELETE /api/interview-entries/:id
+
+`204`. Removes the entry permanently.
 
 ## Error codes
 

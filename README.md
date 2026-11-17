@@ -137,6 +137,9 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
   single-version description browser with Scan/Manual origin and diffs.
 - **Company detail** — identity and company notes in one two-column
   header, offers below, and an explicit possible-duplicate merge prompt.
+- **Interview prep** (`#/interview-prep`) — a personal FAQ of anticipated
+  interview questions with markdown answers, edited in a modal with a
+  live preview.
 
 Page-by-page behavior and the bookmark semantics are in
 [docs/USAGE.md](docs/USAGE.md#web-ui).
@@ -197,8 +200,9 @@ handler group. The documented smoke flow runs with
 
 ## Status
 
-Milestones 1–7f are complete, and Milestone 8 is the documentation pass
-recorded here: it restructures this README and adds `docs/USAGE.md`; no
-behavior, schema or API changed. The binary scans, classifies and serves
-the UI and API end to end. Known gaps and deliberate limitations are
-listed in [docs/MILESTONES.md](docs/MILESTONES.md#known-gaps-current).
+Milestones 1–9 are complete, including the Milestone 8 documentation pass
+that restructured this README and added `docs/USAGE.md`. The binary
+scans, classifies and serves the UI and API end to end, and Milestone 9
+adds the personal interview-prep FAQ. Known gaps and deliberate
+limitations are listed in
+[docs/MILESTONES.md](docs/MILESTONES.md#known-gaps-current).

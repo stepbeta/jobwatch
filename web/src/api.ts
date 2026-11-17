@@ -3,6 +3,7 @@ import type {
   CompanyList,
   Event,
   EventType,
+  InterviewEntry,
   Note,
   OfferDetail,
   OfferList,
@@ -197,6 +198,18 @@ export const api = {
   updateNote: (id: number, patch: { body?: string; pinned_event_id?: number | null }) =>
     request<{ note: Note }>(`/notes/${id}`, body('PATCH', patch)),
   deleteNote: (id: number) => request<void>(`/notes/${id}`, { method: 'DELETE' }),
+
+  // interview prep
+  listInterviewEntries: () =>
+    request<{ interview_entries: InterviewEntry[] }>('/interview-entries'),
+  createInterviewEntry: (input: { question: string; answer?: string }) =>
+    request<{ interview_entry: InterviewEntry }>('/interview-entries', body('POST', input)),
+  updateInterviewEntry: (
+    id: number,
+    patch: { question?: string; answer?: string; display_order?: number | null },
+  ) => request<{ interview_entry: InterviewEntry }>(`/interview-entries/${id}`, body('PATCH', patch)),
+  deleteInterviewEntry: (id: number) =>
+    request<void>(`/interview-entries/${id}`, { method: 'DELETE' }),
 
   // companies
   listCompanies: (query: { q?: string; limit?: number; offset?: number } = {}) =>

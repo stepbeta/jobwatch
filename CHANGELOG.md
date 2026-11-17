@@ -564,3 +564,38 @@
   implementation and the build.
 
 No code, schema, API or behavior changed.
+
+### Milestone 9 — Interview prep FAQ
+
+#### Added
+- Additive migration 0009 creates the standalone `interview_entries`
+  table: question, markdown answer, enum-like `answer_format`, optional
+  `display_order` and created/updated timestamps. Existing tables and rows
+  are untouched.
+- Interview-prep CRUD under `/api/interview-entries` (`GET` list, `POST`,
+  `GET` one, `PATCH`, `DELETE`) with the usual validation, error shape and
+  partial-update semantics. Duplicate questions are allowed. Answers are
+  stored as markdown plaintext, never HTML.
+- A dedicated **Interview prep** page at `#/interview-prep` with a top-bar
+  entry: an accordion of questions where expanding shows the rendered
+  answer, Edit/Delete actions on each header row, and an Add button that
+  opens a modal with a question input, a markdown textarea and a live
+  preview pane. Edit reuses the same modal. Delete uses the shared
+  confirmation dialog.
+- A small in-house markdown renderer (`components/Markdown.tsx`) for
+  answers: headings, bold, italic, inline code, fenced code blocks and
+  lists. It emits React text nodes and never uses
+  `dangerouslySetInnerHTML`, so raw HTML in an answer is shown literally
+  and cannot execute. No markdown dependency was added.
+- API integration tests for interview-entry CRUD, ordering, duplicate
+  questions and validation errors; a migration-upgrade test; and component
+  tests for expand/collapse, the add modal, escaped markdown, edit and
+  delete flows.
+
+#### Changed
+- `docs/API.md`, `docs/DATA-MODEL.md`, `docs/ARCHITECTURE.md`,
+  `docs/USAGE.md`, `README.md`, `docs/MILESTONES.md` and this changelog
+  document the new API, table, route and page.
+
+No offer, event, note, company, classifier, adapter or scan-pipeline
+behavior changed.
