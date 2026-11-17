@@ -12,6 +12,11 @@ offers, detects offers that disappeared or changed, classifies each offer
 with a deterministic scoring engine, and lets the user track the full
 application lifecycle (timeline, notes, states) per offer and per company.
 
+Practical usage — source configuration, import, states, CLI and backups —
+is documented in [USAGE.md](USAGE.md). The endpoint reference is
+[API.md](API.md); build and quick-start instructions are in the
+[README](../README.md).
+
 ## 2. Core principles & constraints
 
 - **Single binary, zero external dependencies.** Go backend, SQLite

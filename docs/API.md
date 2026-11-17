@@ -3,6 +3,10 @@
 Base path `/api`, JSON in and out. Every endpoint is served by
 `jobwatch serve` on localhost. The SPA uses the same API.
 
+For source configuration, the manual-import workflow and CLI usage, see
+[USAGE.md](USAGE.md). The product specification is [SPEC.md](SPEC.md) and
+the project overview is the [README](../README.md).
+
 ## Conventions
 
 - **Errors** always use one shape:

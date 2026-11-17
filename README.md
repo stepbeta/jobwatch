@@ -1,74 +1,109 @@
-# jobwatch
+# JobWatch
 
-JobWatch is a local, single-user tool that tracks job offers from
-company job boards (Greenhouse, Lever, Ashby, Personio, Workable,
-BambooHR), RSS / Atom feeds and CSS-selector career pages. It detects
-new, changed and disappeared offers and keeps everything in a single
-SQLite file.
-
-Status: Milestone 7c (snapshot origins and version browsing). The Go
-server exposes the full API and, when built with the `ui` tag, embeds the
-React SPA. See [docs/MILESTONES.md](docs/MILESTONES.md) for what is done and
-the known gaps, and [docs/SOURCE-DECISIONS.md](docs/SOURCE-DECISIONS.md)
-for the per-URL decisions on the bookmark list.
+JobWatch is a local, single-user web application that tracks job offers
+during one job search. It is aimed at a full-remote Platform Engineer /
+SRE search in France. It scans ATS boards (Greenhouse, Lever, Ashby,
+Personio, Workable, BambooHR), RSS/Atom feeds and CSS-selector career
+pages, and records new, changed and disappeared offers. Classification is
+deterministic and rule-based — there is no LLM in the scan loop — and
+offers, states, timeline events, notes and description versions all live
+in one SQLite file. The server binds to localhost, honors `robots.txt`,
+rate-limits each host, and ships as a single Go binary with the React UI
+embedded.
 
 ## Requirements
 
-- Go 1.27 or newer. No other backend dependencies: SQLite is a pure-Go
-  driver compiled into the binary.
-- Node.js 20+ (with npm) only to build the web UI.
+- Go 1.27 or newer. SQLite is a pure-Go driver compiled into the binary,
+  so there is no C dependency and no separate database server.
+- Node.js 20+ with npm, only to build the web UI.
 - Linux (developed on WSL2 / Ubuntu 24.04); other platforms should work.
+- No Docker, external services or config file are required.
 
-## Build
+## Quick start
 
 ```sh
-# Backend only: the binary serves the API and a placeholder page.
-go build -o jobwatch ./cmd/jobwatch
+git clone https://github.com/stepbeta/jobwatch.git
+cd jobwatch
 
-# With the embedded web UI.
+# Build the React UI and embed it in the binary.
 cd web
 npm ci
 npm run build
 cd ..
 go build -tags ui -o jobwatch ./cmd/jobwatch
 
-# optional: embed a version string
+# Start the server. The SQLite database is created on first use.
+./jobwatch serve
+# → http://127.0.0.1:8080
+```
+
+`web/dist` is a build artifact (gitignored). Plain `go build ./...` works
+without it and serves a placeholder page; `-tags ui` requires
+`npm run build` first. For API-only work:
+
+```sh
+go build -o jobwatch ./cmd/jobwatch
+```
+
+To embed a version string:
+
+```sh
 go build -tags ui -ldflags "-X main.version=0.2.0" -o jobwatch ./cmd/jobwatch
 ```
 
-`web/dist` is a build artifact (gitignored). Plain `go build ./...`
-works without it; `-tags ui` requires `npm run build` first.
+### Add sources and scan
 
-## Quick start
-
-The database defaults to `./jobwatch.db` and is created on first use.
-Use the global `--db <path>` flag to choose another file.
+A fresh database already contains the 70 sources decided in Milestones
+5a/5b/6a: 38 enabled ATS/RSS/HTML sources and 32 disabled rows with a
+note. Add your own, then scan headlessly (or use the UI):
 
 ```sh
-# 1. A fresh database already seeds the 70 sources decided in Milestones
-#    5a/5b/6a (38 enabled ATS/RSS/HTML, 32 disabled with a note). Add extras:
 ./jobwatch add-source https://boards.greenhouse.io/gitlab --name GitLab
-./jobwatch add-source https://jobs.lever.co/spotify --name Spotify
-./jobwatch add-source https://jobs.ashbyhq.com/linear --name Linear
-./jobwatch add-source https://acme.jobs.personio.de --name Acme
-./jobwatch add-source https://apply.workable.com/acme --name Acme
-./jobwatch add-source https://acme.bamboohr.com/careers --name Acme
 
-# or register every recognized URL from another bookmark list
-./jobwatch add-sources docs/REMOTE-SOURCES.txt
+./jobwatch scan          # headless scan of all enabled sources
+./jobwatch list          # ID, company, title, location, remote, scores, states
+```
 
-# 2. Start the web UI (or scan headlessly with ./jobwatch scan)
-./jobwatch serve
-# → http://127.0.0.1:8080
+To register a whole file of bookmarks, use
+`./jobwatch add-sources <file>` (see
+[docs/USAGE.md](docs/USAGE.md#bulk-source-registration)). Or open
+`http://127.0.0.1:8080`, go to **Sources** and click **Refresh all**. The
+database defaults to `./jobwatch.db`; use the global `--db <path>` flag to
+choose another file.
 
-# 3. Headless usage still works
-./jobwatch scan
-./jobwatch list                  # ID, company, title, location, remote, T/L scores, states
-./jobwatch list --offer-state changed
-./jobwatch list --sources        # includes notes on disabled seeded sources
-./jobwatch reclassify            # backfill scores of older offers
-./jobwatch reclassify --all      # recompute every score after keyword changes
-./jobwatch backup ~/jobwatch-$(date +%F).db   # validated copy
+## Core workflow
+
+1. **Configure sources.** Use the seeded rows, add an ATS board with
+   `add-source`, register a bookmark list with `add-sources`, or define
+   an RSS/HTML source with its mapping or selectors.
+2. **Scan.** Scans are manual: **Sources → Refresh all**, the
+   Applications Refresh on the dashboard, or `jobwatch scan`. Each source
+   is fetched politely, parsed by its adapter, and written in one
+   transaction. A failing source is marked `error` or `blocked` without
+   stopping the others.
+3. **Classify and review.** Every sighting gets a title score, a location
+   score and a derived remote policy. Offers are deduplicated by company
+   and fingerprint; changed descriptions keep a new snapshot, and offers
+   that disappear are marked `disappeared`, never deleted. The **Offers**
+   page filters and sorts by state, remote policy and both scores.
+4. **Bookmark and apply.** The star is a personal bookmark, independent
+   of application state. Set an application state on the offer, then keep
+   its timeline events and notes on the offer detail page.
+
+```mermaid
+flowchart TD
+    A["Sources: seeded ATS, RSS and HTML rows, plus add-source / add-sources"] --> B["Scan: Sources Refresh, Dashboard Refresh, or jobwatch scan"]
+    B --> C{"Polite fetch: robots.txt and per-host rate limit"}
+    C -->|ok| D["Parse offers with the source adapter"]
+    C -->|blocked or error| S["Mark the source blocked or error; other sources continue"]
+    D --> E["Resolve company and deduplicate by offer fingerprint"]
+    E --> F["Deterministic classification: title score, location score, remote policy"]
+    F --> G["New offers become active; changed descriptions mark changed; missing offers become disappeared"]
+    G --> H["Review in Offers: filter by state, remote policy and scores"]
+    H --> I["Bookmark in Saved"]
+    H --> J["Set application state"]
+    J --> K["Timeline events and notes"]
+    M["Manual import: URL metadata or JSON"] --> E
 ```
 
 ## Commands
@@ -76,270 +111,55 @@ Use the global `--db <path>` flag to choose another file.
 | Command | Description |
 |---|---|
 | `serve [--port 8080] [--addr 127.0.0.1]` | Start the local server: REST API under `/api` and the SPA at `/` |
-| `scan [all\|<source-id>]` | Scan all enabled sources (default) or one source by ID. Exits non-zero if a source failed |
-| `add-source <url> [--name N] [--type T] [--config JSON] [--disabled]` | Register a source |
-| `add-sources <file> [--disabled]` | Register every recognized URL in a file; reports added / already registered / not detected |
-| `list [--offer-state S] [--app-state S] [--limit N] [--sources]` | List offers (most recently seen first) or sources |
-| `import <url \| json \| file.json \| ->` | Add an offer seen elsewhere. A bare URL is fetched for JSON-LD/Open Graph/title metadata (`--no-fetch` disables); JSON fields can be supplied manually |
-| `reclassify [--all]` | Backfill title/location scores and remote policies with the deterministic classifier; `--all` recomputes every offer |
-| `backup <dest>` | Write and validate a consistent copy of the database (must not exist) |
+| `scan [all\|<source-id>]` | Scan all enabled sources (default) or one source by ID |
+| `add-source <url>` | Register a source; ATS board URLs are detected automatically |
+| `add-sources <file>` | Register every recognized URL in a file |
+| `list` | Print offers and states; `--sources` lists sources instead |
+| `import <url \| json \| file.json \| ->` | Add an offer seen elsewhere |
+| `reclassify [--all]` | Backfill or recompute classifier scores |
+| `backup <dest>` | Write and validate a consistent copy of the database |
 
-Run `./jobwatch <command> --help` for details.
+All commands accept `--db <path>` (default `./jobwatch.db`). Run
+`./jobwatch <command> --help` for the exact flags; the full command
+reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
 
 ## Web UI
 
-Built with React + TypeScript (Vite). The pages are:
+- **Dashboard** (`#/`) — Applications (offers with an application state
+  other than `todo`, most recent timeline activity first) and Saved
+  (bookmarked offers).
+- **Offers** (`#/offers`) — the full filterable, sortable table with score
+  badges, a bookmark toggle on every row, and the **Add offer** import
+  dialog.
+- **Sources** — enable/disable, scan status, per-source Refresh, Refresh
+  all, and add/edit in a modal with type-dependent config fields.
+- **Offer detail** — states, provenance, timeline, notes and a
+  single-version description browser with Scan/Manual origin and diffs.
+- **Company detail** — identity and company notes in one two-column
+  header, offers below, and an explicit possible-duplicate merge prompt.
 
-- **Dashboard** (`#/`) — the Applications section (offers whose
-  application state is not `todo`, most recent timeline activity first)
-  and the Saved section (bookmarked offers, most recently saved first).
-  Applications has a Refresh button that scans only the enabled sources
-  behind those applications: sources with only `todo` offers are not
-  scanned, and manual imports (`source_id` NULL) contribute no source.
-  The button fans out over the existing per-source scan endpoint
-  sequentially and reports per-source failures plus an aggregate summary.
-  Saved shows every bookmarked offer regardless of application state;
-  its "Show all" link opens the offers page with the saved filter preset.
-- **Offers** (`#/offers`) — the full table with filters (application/offer
-  state, remote policy, saved/unsaved, score minima, company, full-text
-  search), sorting and pagination, a star bookmark toggle on every row,
-  and a header **Add offer** button that opens a modal import form (URL
-  fetch-and-prefill or manual fields). A successful import closes the
-  modal, shows the success toast, refreshes the data and opens the new or
-  matched offer's detail page. Score badges show 0–100
-  title/location confidences; hover one to see the matched keywords from
-  the classifier.
-- **Sources** — enable/disable, scan status, per-source Refresh, a
-  header Refresh all, and an add/edit modal whose config fields depend on
-  the source type (Personio tenant, Workable account, BambooHR subdomain,
-  RSS field mapping, HTML CSS selectors). Disabled seeded rows for the
-  known-hard Workday/SuccessFactors/WTTJ links and the not-trackable
-  sources show their explanation.
-- **Offer detail** — a bookmark toggle, editable application/offer state
-  and location, score badges, collapsed provenance links with explicit
-  merge into another offer and split (select links for a second offer), a
-  vertical timeline with backdating, notes optionally pinned to an event,
-  and a single-version description browser (prev/next, version dropdown,
-  Scan/Manual origin badge, diff against the previous version, Add/Edit
-  manual description).
-- **Company detail** — one two-column header block: identity (name,
-  website, offer count, created time, Edit/Delete company) and the
-  dismissible possible-duplicate banner on the left; company notes (list,
-  add, delete) on the right. The columns stack at 900px. The offers list
-  stays below. Merging always asks which company row to keep; nothing is
-  merged automatically.
+Page-by-page behavior and the bookmark semantics are in
+[docs/USAGE.md](docs/USAGE.md#web-ui).
 
-The bookmark is personal interest, not an application state. Saving an
-offer never changes its application or offer state, and if a saved offer
-later becomes an application it stays in Saved until you un-bookmark it.
+## Reference
 
-Success/error toasts, loading indicators and confirmation dialogs are
-shared across the pages; every destructive action asks first. The top bar
-only navigates; scan actions live on the Sources page and in the
-Dashboard Applications section.
-
-Development (two processes):
-
-```sh
-./jobwatch serve                 # API on 127.0.0.1:8080
-cd web && npm install && npm run dev
-# open http://127.0.0.1:5173 — Vite proxies /api to the Go server
-```
-
-The production build (`npm run build`) writes `web/dist`, which is
-embedded by `go build -tags ui`.
-
-## REST API
-
-All endpoints are under `/api` and documented in
-[docs/API.md](docs/API.md). Errors use
-`{"error":{"code":"...","message":"..."}}`. `GET /api/health` is the
-liveness check.
-
-### Sources
-
-Recognized URLs:
-
-- Greenhouse: `boards.greenhouse.io/<token>`, `job-boards[.eu].greenhouse.io/<token>`
-- Lever: `jobs.lever.co/<site>`, `jobs.eu.lever.co/<site>`
-- Ashby: `jobs.ashbyhq.com/<org>`
-- Personio: `<tenant>.jobs.personio.de`, `<tenant>.jobs.personio.com`
-- Workable: `apply.workable.com/<account>`, `<account>.workable.com`
-- BambooHR: `<subdomain>.bamboohr.com/careers` (the `/careers/list`
-  JSON endpoint is read; the board carries no descriptions)
-
-The source name is also the company name of its offers, unless the
-board itself reports one (Greenhouse, Workable) or `company` is set in
-the config.
-Optional `--config` keys:
-
-```sh
-./jobwatch add-source https://jobs.lever.co/acme \
-  --config '{"company":"Acme SAS","rate_limit_ms":5000}'
-```
-
-| Key | Meaning |
-|---|---|
-| `company` | Company name for offers of this source |
-| `rate_limit_ms` | Minimum delay between requests to the host (default 2000; HTML sources never go below 5000) |
-| `note` | Explanation shown on the sources page (used by the seeded disabled rows) |
-| `board_token` / `site` + `region` / `org` | Greenhouse / Lever (`region: "eu"`) / Ashby board name, if it can't be derived from the URL |
-| `tenant` + `language` | Personio tenant (if not in the URL) and optional feed language |
-| `account` | Workable account slug (if not in the URL) |
-| `subdomain` | BambooHR tenant subdomain (if not in the URL) |
-| `item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field` | RSS/Atom mapping. Paths are child element local names joined with `/` (e.g. `locations/location/name`); `@name` reads an attribute and `#text` reads text. Defaults cover RSS `<item>` and Atom `<entry>` |
-| `item_selector`, `title_selector`, `link_selector`, `link_attr`, `location_selector`, `description_selector`, `company_selector`, `uid_selector`, `uid_attr` | HTML listing page CSS selectors. `item_selector` and `title_selector` are required; only the listing page is fetched, at most every 5 s. Selectors use cascadia's CSS support, including `:has()` and `:haschild()` for item containers |
-
-RSS/Atom and HTML sources need `--type`:
-
-```sh
-./jobwatch add-source https://weworkremotely.com/remote-jobs.rss \
-  --type rss --name "We Work Remotely" \
-  --config '{"location_field":"region","company_field":"category"}'
-
-./jobwatch add-source https://careers.example.com/jobs \
-  --type html --name "Example careers" \
-  --config '{"item_selector":"li.job","title_selector":"h2 a",
-             "location_selector":".location","description_selector":".summary"}'
-
-# Teamtailor feeds nest the location under tt:locations/tt:location;
-# paths use local names, so the namespace prefix is omitted.
-./jobwatch add-source https://careers.example.com/jobs.rss \
-  --type rss --name "Example" \
-  --config '{"location_field":"locations/location/name"}'
-
-# Item containers can be selected with :has()/:haschild() when the
-# listing has no stable class on the row itself.
-./jobwatch add-source https://careers.example.com/jobs \
-  --type html --name "Example careers" \
-  --config '{"item_selector":"li:haschild(a[href^=\"/jobs/\"])",
-             "title_selector":"a[href^=\"/jobs/\"] h2",
-             "link_selector":"a[href^=\"/jobs/\"]"}'
-```
-
-`wttj` has no adapter. A fresh database also contains disabled rows for
-Datadog/Cisco (Workday), SAP (SuccessFactors) and WTTJ with an
-explanatory `note`; they are never scanned unless you enable them and
-configure selectors.
-
-### Bulk source registration
-
-`jobwatch add-sources <file>` reads one URL per line and runs every URL
-through the same detection and validation as `add-source`:
-
-```sh
-./jobwatch add-sources docs/REMOTE-SOURCES.txt
-```
-
-- Blank lines and lines starting with `#` are ignored. A `#` preceded by
-  whitespace starts an inline comment (`... # note`); a `#` inside the
-  URL is kept as a fragment (`https://example.com/jobs#openings`).
-- Duplicate URLs in the file are refused (the first occurrence wins)
-  and the remaining lines are still processed.
-- A URL that is already registered, a duplicate line, an invalid URL or
-  a page without a known ATS adapter never aborts the run. The final
-  report has three groups: **added**, **already registered** and **not
-  detected**. The not-detected URLs are also printed as a plain list at
-  the end.
-- `--disabled` registers the new sources disabled, like `add-source`.
-- Only URLs of supported ATS boards (Greenhouse, Lever, Ashby, Personio,
-  Workable, BambooHR) are detected. Plain career pages need
-  `add-source --type html` or `--type rss` plus selectors/mapping.
-
-The command exits successfully as long as the file can be read and the
-database does not fail; the report is the result, not an error.
-
-### Source decisions
-
-The 57 URLs that `add-sources` could not detect were investigated one
-polite fetch at a time. The outcome is recorded per URL in
-[docs/SOURCE-DECISIONS.md](docs/SOURCE-DECISIONS.md): 19 underlying ATS
-boards, 5 RSS feeds, 5 server-rendered HTML listings, and 28 disabled
-sources with an explanatory `note` (JS-only SPAs, Notion, candidate
-logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt
-disallows, aggregators). Disabled sources are never scanned; their
-offers enter through manual import. The Workable public search is one of
-them: its France+remote query URL is disallowed by robots.txt, and the
-allowed category pages are incomplete, so the per-company Workable
-boards remain the supported surface.
-
-JobWatch honors `robots.txt` and spaces its requests. A source that
-refuses access is marked `blocked`; any other failure marks it `error`.
-Neither stops the scan of the other sources.
-
-### Manual import
-
-```sh
-# A bare URL: title/company/location/description are extracted from
-# JSON-LD, Open Graph/meta tags or the page title.
-./jobwatch import https://www.linkedin.com/jobs/view/123
-
-# URL plus explicit fields (no page fetch), or --no-fetch to force this
-./jobwatch import https://www.linkedin.com/jobs/view/123 \
-  --company "Qonto" --title "SRE (H/F)" --location "Paris"
-
-# JSON object or array, inline, from a file, or from stdin
-./jobwatch import '{"company":"Qonto","title":"SRE","url":"https://example.com/job"}'
-./jobwatch import offers.json
-cat offers.json | ./jobwatch import -
-```
-
-JSON fields are `company` and `title` (required for raw JSON), `location`,
-`url` and `description`. If the company and title match an existing
-offer, the URL is added to that offer instead of creating a duplicate.
-When a page cannot be read, the API returns the extracted fields to the
-UI's manual fallback; the CLI asks for `--company`/`--title` (or
-`--no-fetch`).
-
-Aggregator and candidate-only pages are deliberately not scraped:
-FlexJobs, RemoteMore, the `my.greenhouse.io` dashboard, The Product
-Crew, Welcome to the Jungle matches and Jobgether either require a
-candidate account or render matches client-side. When you find an offer
-there, copy its public URL and paste it into **Offers → Add offer**
-(click **Fetch & import**), or run `jobwatch
-import <url>`; if the page is login-gated or has no usable metadata,
-enter company and title manually in the same form or with
-`--company`/`--title`. If the offer also exists on a company ATS board,
-register that board instead so future scans track it automatically. See
-[docs/SOURCE-DECISIONS.md](docs/SOURCE-DECISIONS.md#aggregators-milestone-5c).
-
-### Offer states
-
-- `active`: seen in the latest scan.
-- `changed`: the description changed (each version is kept as a snapshot
-  with its scan/manual origin; the detail page browses the versions and
-  shows the added/removed lines against the previous one).
-- `disappeared`: no longer listed on any source. Scans never delete offers.
-
-### Classification
-
-Every scan and import scores each offer deterministically (no LLM):
-`title_confidence` asks whether the title is a Platform/SRE/DevOps/Infra
-role, `location_confidence` whether it is full remote and
-France-compatible, and `remote_policy` is derived from the location and
-description. The keyword tables live in `internal/classify/tables.go`.
-Offer lists can be filtered by both minimum scores. Run
-`./jobwatch reclassify` once after upgrading an existing database to fill
-older offers; `--all` recomputes after changing the tables.
-
-### Backups
-
-```sh
-./jobwatch backup ~/backups/jobwatch-$(date +%F).db
-```
-
-This is safe while `serve` is running. The copy is reopened read-only and
-checked (`PRAGMA integrity_check`, `foreign_key_check`, applied
-migrations); a failed copy is removed and the command exits non-zero. The
-backup is a normal SQLite file; point `--db` at it to use it.
-
-### Smoke test
-
-`go test ./internal/api -run TestSmokeFlows -v` runs the documented flow
-(add source → scan a recorded Workable fixture through the real adapter →
-classify → set application state → add a backdated timeline event). The
-manual UI steps for a live source are in
-[docs/SMOKE-TEST.md](docs/SMOKE-TEST.md).
+- **Sources and configuration** — supported source types, recognized
+  board URLs, every `--config` key, bulk registration and the per-URL
+  source decisions: [docs/USAGE.md](docs/USAGE.md#sources).
+- **Manual import** — URL metadata extraction, JSON input and the
+  aggregator workflow: [docs/USAGE.md](docs/USAGE.md#manual-import).
+- **States and classification** — offer and application states, and the
+  deterministic scoring rules: [docs/USAGE.md](docs/USAGE.md#offer-and-application-states)
+  and [docs/USAGE.md](docs/USAGE.md#classification).
+- **REST API** — endpoints, parameters, response shapes and error codes:
+  [docs/API.md](docs/API.md). Errors use
+  `{"error":{"code":"...","message":"..."}}`; `GET /api/health` is the
+  liveness check.
+- **Backups** — a validated copy that is safe while `serve` runs:
+  [docs/USAGE.md](docs/USAGE.md#backups).
+- **Architecture and data model** — components, adapters, scan pipeline
+  and tables: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+  [docs/DATA-MODEL.md](docs/DATA-MODEL.md).
 
 ## Development
 
@@ -349,16 +169,36 @@ cd web && npm run build        # type-check + production bundle
 cd web && npm test             # component tests (Vitest + jsdom)
 ```
 
+Two processes for UI work:
+
+```sh
+./jobwatch serve                 # API on 127.0.0.1:8080
+cd web && npm install && npm run dev
+# open http://127.0.0.1:5173 — Vite proxies /api to the Go server
+```
+
 Tests use recorded fixtures (`internal/sources/testdata`) and never hit
 the network. The API integration tests use a temporary SQLite file per
-handler group.
+handler group. The documented smoke flow runs with
+`go test ./internal/api -run TestSmokeFlows -v`; manual UI steps are in
+[docs/SMOKE-TEST.md](docs/SMOKE-TEST.md).
 
 ## Documentation
 
+- [docs/USAGE.md](docs/USAGE.md): sources, config, web UI, import, states, CLI, backups
 - [docs/SPEC.md](docs/SPEC.md): product specification (source of truth)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): components and data flow
 - [docs/DATA-MODEL.md](docs/DATA-MODEL.md): tables, fingerprints, state machines
 - [docs/API.md](docs/API.md): REST endpoints
 - [docs/MILESTONES.md](docs/MILESTONES.md): progress, deviations, known gaps
 - [docs/SMOKE-TEST.md](docs/SMOKE-TEST.md): automated and manual smoke-test steps
-- [CHANGELOG.md](CHANGELOG.md)
+- [docs/SOURCE-DECISIONS.md](docs/SOURCE-DECISIONS.md): per-URL source decisions
+- [CHANGELOG.md](CHANGELOG.md): session-by-session changes
+
+## Status
+
+Milestones 1–7f are complete, and Milestone 8 is the documentation pass
+recorded here: it restructures this README and adds `docs/USAGE.md`; no
+behavior, schema or API changed. The binary scans, classifies and serves
+the UI and API end to end. Known gaps and deliberate limitations are
+listed in [docs/MILESTONES.md](docs/MILESTONES.md#known-gaps-current).

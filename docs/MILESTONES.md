@@ -3,6 +3,20 @@
 Later milestones are defined by the user's milestone prompts and are
 added here as they start.
 
+## Current state
+
+Milestones 1–7f are complete, and the Milestone 8 documentation pass is
+complete as well. The binary scans the 70 seeded sources plus any
+sources the user adds, detects new/changed/disappeared offers, classifies
+them deterministically, and serves the React UI and REST API from one
+process.
+End to end, a user can add sources, scan, filter and bookmark offers, set
+application states, keep a timeline and notes, browse description
+versions, and merge or split records after explicit confirmation.
+Milestone 8 reorganizes the README and adds `docs/USAGE.md`; it changes no
+behavior, schema or API. Open items and deliberate limitations remain in
+the known-gaps table below.
+
 ## Milestone 1 — Core: bootstrap, database, sources, scan, CLI — DONE
 
 Done criteria (all met):
@@ -571,6 +585,47 @@ Done criteria (all met):
 | The possible-duplicate banner moved into the header's left column | requested by the prompt; the merge dialog and its explicit keep-which-company confirmation are untouched |
 | The shared `Modal` component was reused; no second modal abstraction was added | 7e already extracted the modal shell, and the import form is the only new consumer |
 | `vitest.config.ts` enables CSS processing | the Company layout test reads `styles.css?raw` to assert the 900px breakpoint contract; dev-only config, no runtime effect |
+
+## Milestone 8 — Documentation overhaul — DONE
+
+Documentation-only milestone: no Go, SQL, API or UI change.
+
+Done criteria (all met):
+- [x] `README.md` rewritten visitor-first: title and factual intro,
+      Requirements and Quick start immediately after it, a Core workflow
+      section with a Mermaid flowchart, a trimmed command table, short
+      page summaries and one-sentence reference teasers with links.
+- [x] The milestone-status paragraph moved from the second line to a
+      bottom "Status" section; `docs/MILESTONES.md` gained a "Current
+      state" summary at the top.
+- [x] New `docs/USAGE.md` holds the moved reference material: source
+      types and config keys, recognized URLs, bulk registration, source
+      decisions, polite fetching, web UI details, manual import, offer and
+      application states, classification, backups, the full CLI reference
+      and the smoke test.
+- [x] Cross-links are relative and updated between README, USAGE, API,
+      SPEC, ARCHITECTURE, DATA-MODEL, MILESTONES, SMOKE-TEST and
+      SOURCE-DECISIONS.
+- [x] README examples verified against the built CLI: build commands,
+      quick-start sequence, `--help` flags, `add-source`/`add-sources`,
+      `scan`, `list`, `import`, `reclassify` and `backup`.
+- [x] Mermaid block uses only basic `flowchart TD` syntax and reflects the
+      documented scan pipeline, dedup, classification, offer states,
+      review, bookmark, application tracking and manual-import branch.
+- [x] No information was dropped: moved sections are preserved in
+      `docs/USAGE.md`; no feature or behavior was invented.
+- [x] `go build`, `go vet`, `go test`, `npm run build` and `npm test`
+      remain green (documentation-only change).
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| The README keeps the eight-command table with one-line descriptions | commands are the main CLI surface; the full flag reference and long examples live in USAGE so the landing page stays scannable |
+| Web UI page details moved to USAGE, README keeps five one-line bullets | a visitor needs to know what the pages are, not every modal and disclosure behavior |
+| Source config tables, bulk-file rules and per-URL decisions moved to USAGE; SOURCE-DECISIONS.md remains the decision record | avoids two copies of the same table while preserving the detailed reference |
+| API details stay in API.md; README links to it instead of repeating endpoint shapes | API.md is already the endpoint reference required by AGENTS.md |
+| No screenshots or images; the workflow is text plus one Mermaid diagram | the repository is text-first and the prompt forbids images |
 
 ## Known gaps (current)
 

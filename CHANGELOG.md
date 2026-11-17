@@ -526,3 +526,41 @@
   processes CSS so the layout test can read `styles.css?raw`.
 - ARCHITECTURE, MILESTONES, README and this changelog are updated. No
   schema, API, classifier, adapter, scan-pipeline, notes or event change.
+
+### Milestone 8 — Documentation overhaul
+
+#### Added
+- `docs/USAGE.md`: the practical reference that used to sit in the README.
+  It covers supported source types and recognized board URLs, every
+  `--config` key, RSS/HTML examples, bulk source registration, the per-URL
+  source decisions, polite fetching and scan status, web UI page behavior,
+  manual import, offer and application states, classification, backups,
+  the full command and flag reference, and the smoke test.
+- A Mermaid flowchart in the README showing the real workflow: sources →
+  polite scan → adapter parse → company/fingerprint dedup → deterministic
+  classification → offer states → review/bookmark/apply → timeline and
+  notes, with manual import entering the same dedup path.
+- A "Current state" summary at the top of `docs/MILESTONES.md` and a
+  Milestone 8 entry recording this documentation-only pass.
+
+#### Changed
+- `README.md` is now visitor-first: factual intro, Requirements and Quick
+  start at the top, Core workflow next, then a trimmed command table, five
+  one-line UI summaries, reference teasers with links, development notes
+  and a bottom Status section. The milestone-status paragraph no longer
+  appears near the top.
+- Source configuration tables, bulk-registration rules, source decisions,
+  manual-import details, state definitions, classification notes, backup
+  validation and the long CLI examples moved to `docs/USAGE.md`; the
+  README keeps one-sentence summaries and relative links.
+- Cross-links were refreshed between README, USAGE, API, SPEC,
+  ARCHITECTURE, DATA-MODEL, MILESTONES, SMOKE-TEST and SOURCE-DECISIONS.
+  `docs/API.md` and `docs/SPEC.md` now point to USAGE for source and CLI
+  configuration.
+
+#### Fixed
+- README no longer reads as an internal reference dump, and the command
+  examples, flags and build steps were re-checked against the CLI
+  implementation and the build.
+
+No code, schema, API or behavior changed.
