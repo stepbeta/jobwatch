@@ -25,8 +25,9 @@ func newAddSourceCmd(opts *rootOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add-source <url>",
 		Short: "Register a source (type and config are detected from known ATS URLs)",
-		Long: `Register a source. Greenhouse, Lever, Ashby, Personio, Workable and
-BambooHR board URLs are recognized automatically, e.g.:
+		Long: `Register a source. Greenhouse, Lever, Ashby, Personio, Workable,
+BambooHR and Welcome to the Jungle company careers URLs are recognized
+automatically, e.g.:
 
   jobwatch add-source https://boards.greenhouse.io/gitlab
   jobwatch add-source https://jobs.lever.co/spotify --name Spotify
@@ -34,6 +35,7 @@ BambooHR board URLs are recognized automatically, e.g.:
   jobwatch add-source https://acme.jobs.personio.de
   jobwatch add-source https://apply.workable.com/acme
   jobwatch add-source https://acme.bamboohr.com/careers
+  jobwatch add-source https://www.welcometothejungle.com/en/companies/fabriq/jobs --name Fabriq
 
 RSS/Atom feeds and HTML listing pages need --type plus --config; see the README.`,
 		Args: cobra.ExactArgs(1),
@@ -71,7 +73,7 @@ RSS/Atom feeds and HTML listing pages need --type plus --config; see the README.
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "display name (default: board name from the URL); also the default company name")
-	cmd.Flags().StringVar(&typ, "type", "", "source type: greenhouse|lever|ashby|personio|workable|bamboohr|rss|html (wttj is not implemented)")
+	cmd.Flags().StringVar(&typ, "type", "", "source type: greenhouse|lever|ashby|personio|workable|bamboohr|wttj|rss|html")
 	cmd.Flags().StringVar(&cfgJSON, "config", "", `extra config_json keys, e.g. '{"company":"Acme","rate_limit_ms":5000}'`)
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "register the source disabled")
 	return cmd
@@ -135,6 +137,12 @@ func defaultSourceName(c sources.Config, u *url.URL) string {
 	for _, v := range []string{c.BoardToken, c.Site, c.Org, c.Tenant, c.Account, c.Subdomain} {
 		if v != "" {
 			return v
+		}
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "www.welcometothejungle.com" || host == "welcometothejungle.com" {
+		if slug := sources.WTTJSlug(u.Path); slug != "" {
+			return slug
 		}
 	}
 	return u.Hostname()

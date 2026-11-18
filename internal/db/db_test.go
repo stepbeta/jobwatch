@@ -120,8 +120,8 @@ func TestSeededRemoteSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcs) != 70 {
-		t.Fatalf("seeded sources = %d, want 70 (4 known-hard + 65 from 5a/5b + BambooHR)", len(srcs))
+	if len(srcs) != 71 {
+		t.Fatalf("seeded sources = %d, want 71 (4 known-hard + 65 from 5a/5b + BambooHR + WTTJ Fabriq)", len(srcs))
 	}
 	byURL := make(map[string]model.Source, len(srcs))
 	enabled := 0
@@ -134,8 +134,8 @@ func TestSeededRemoteSources(t *testing.T) {
 			enabled++
 		}
 	}
-	if enabled != 38 {
-		t.Errorf("enabled seeded sources = %d, want 38", enabled)
+	if enabled != 39 {
+		t.Errorf("enabled seeded sources = %d, want 39", enabled)
 	}
 
 	check := func(url, typ, configPart string, wantEnabled bool) {
@@ -182,8 +182,8 @@ func TestSeededRemoteSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcs) != 70 {
-		t.Errorf("sources after re-apply = %d, want 70", len(srcs))
+	if len(srcs) != 71 {
+		t.Errorf("sources after re-apply = %d, want 71", len(srcs))
 	}
 	for _, src := range srcs {
 		switch src.URL {
@@ -216,8 +216,8 @@ func TestSeed5cAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcs) != 70 {
-		t.Fatalf("seeded sources = %d, want 70", len(srcs))
+	if len(srcs) != 71 {
+		t.Fatalf("seeded sources = %d, want 71", len(srcs))
 	}
 	byURL := make(map[string]model.Source, len(srcs))
 	for _, src := range srcs {
@@ -270,8 +270,8 @@ func TestSeed5cAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srcs) != 69 {
-		t.Errorf("sources after re-applying 0004 = %d, want 69 (edited row kept, deleted row not restored)", len(srcs))
+	if len(srcs) != 70 {
+		t.Errorf("sources after re-applying 0004 = %d, want 70 (edited row kept, deleted row not restored)", len(srcs))
 	}
 	for _, src := range srcs {
 		switch src.URL {
@@ -360,6 +360,94 @@ func TestSeedBambooHRSource(t *testing.T) {
 	if n != 1 || src.Name != "Semble" || string(src.Type) != "bamboohr" || !src.Enabled ||
 		src.ConfigJSON != `{"subdomain":"semble"}` {
 		t.Errorf("deleted Semble row not restored: %+v (rows=%d)", src, n)
+	}
+}
+
+const wttjFabriqURL = "https://www.welcometothejungle.com/en/companies/fabriq/jobs"
+
+func TestSeedWTTJSource(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTest(t)
+
+	var recorded int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 11 AND name = 'seed_wttj_sources'`).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Fatalf("migration 0011 recorded %d times, want 1", recorded)
+	}
+
+	byURL := func() (model.Source, int) {
+		t.Helper()
+		srcs, err := ListSources(ctx, sqlDB, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var found model.Source
+		n := 0
+		for _, src := range srcs {
+			if src.URL == wttjFabriqURL {
+				found = src
+				n++
+			}
+		}
+		return found, n
+	}
+
+	src, n := byURL()
+	if n != 1 {
+		t.Fatalf("Fabriq source rows = %d, want 1", n)
+	}
+	if src.Name != "Fabriq" || string(src.Type) != "wttj" || !src.Enabled || src.ConfigJSON != `{}` {
+		t.Errorf("Fabriq row = %+v, want name/type/enabled/config Fabriq/wttj/true/{}", src)
+	}
+
+	// The migration 0002 WTTJ row has a different URL and is never
+	// touched by 0011.
+	var legacyName, legacyConfig string
+	var legacyEnabled bool
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT name, config_json, enabled FROM sources WHERE url = ?`,
+		"https://www.welcometothejungle.com/en/jobs?query=platform%20engineer").
+		Scan(&legacyName, &legacyConfig, &legacyEnabled); err != nil {
+		t.Fatalf("0002 WTTJ row: %v", err)
+	}
+	if legacyName != "Welcome to the Jungle (search)" || legacyEnabled || !strings.Contains(legacyConfig, `"note"`) {
+		t.Errorf("0002 WTTJ row was modified: %q %q %v", legacyName, legacyConfig, legacyEnabled)
+	}
+
+	body, err := migrations.FS.ReadFile("0011_seed_wttj_sources.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-applying the migration twice neither duplicates the row nor
+	// overwrites a user edit.
+	if _, err := sqlDB.ExecContext(ctx,
+		`UPDATE sources SET name = 'Edited Fabriq', config_json = '{"edited":true}', enabled = 0 WHERE url = ?`, wttjFabriqURL); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := sqlDB.ExecContext(ctx, string(body)); err != nil {
+			t.Fatalf("re-apply 0011: %v", err)
+		}
+	}
+	src, n = byURL()
+	if n != 1 || src.Name != "Edited Fabriq" || src.ConfigJSON != `{"edited":true}` || src.Enabled {
+		t.Errorf("re-applying 0011 changed a user-edited row: %+v (rows=%d)", src, n)
+	}
+
+	// A deliberately deleted seed row is restored on the next application.
+	if _, err := sqlDB.ExecContext(ctx, `DELETE FROM sources WHERE url = ?`, wttjFabriqURL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, string(body)); err != nil {
+		t.Fatalf("re-apply 0011 after delete: %v", err)
+	}
+	src, n = byURL()
+	if n != 1 || src.Name != "Fabriq" || string(src.Type) != "wttj" || !src.Enabled {
+		t.Errorf("deleted Fabriq row not restored: %+v (rows=%d)", src, n)
 	}
 }
 

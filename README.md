@@ -3,8 +3,9 @@
 JobWatch is a local, single-user web application that tracks job offers
 during one job search. It is aimed at a full-remote Platform Engineer /
 SRE search in France. It scans ATS boards (Greenhouse, Lever, Ashby,
-Personio, Workable, BambooHR), RSS/Atom feeds and CSS-selector career
-pages, and records new, changed and disappeared offers. Classification is
+Personio, Workable, BambooHR), Welcome to the Jungle company pages,
+RSS/Atom feeds and CSS-selector career pages, and records new, changed
+and disappeared offers. Classification is
 deterministic and rule-based — there is no LLM in the scan loop — and
 offers, states, timeline events, notes and description versions all live
 in one SQLite file. The server binds to localhost, honors `robots.txt`,
@@ -53,12 +54,13 @@ go build -tags ui -ldflags "-X main.version=0.2.0" -o jobwatch ./cmd/jobwatch
 
 ### Add sources and scan
 
-A fresh database already contains the 70 sources decided in Milestones
-5a/5b/6a: 38 enabled ATS/RSS/HTML sources and 32 disabled rows with a
-note. Add your own, then scan headlessly (or use the UI):
+A fresh database already contains the 71 sources decided in Milestones
+5a/5b/6a/10a: 39 enabled ATS/RSS/HTML/WTTJ sources and 32 disabled rows
+with a note. Add your own, then scan headlessly (or use the UI):
 
 ```sh
 ./jobwatch add-source https://boards.greenhouse.io/gitlab --name GitLab
+./jobwatch add-source https://www.welcometothejungle.com/en/companies/fabriq/jobs --name Fabriq
 
 ./jobwatch scan          # headless scan of all enabled sources
 ./jobwatch list          # ID, company, title, location, remote, scores, states

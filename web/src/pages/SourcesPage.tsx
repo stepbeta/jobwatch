@@ -13,6 +13,7 @@ const FETCHABLE: SourceType[] = [
   'personio',
   'workable',
   'bamboohr',
+  'wttj',
   'rss',
   'html',
 ]
@@ -63,7 +64,7 @@ function extraKeys(): string[] {
 }
 
 function canScan(source: Source): boolean {
-  return source.enabled && source.source_type !== 'manual' && source.source_type !== 'wttj'
+  return source.enabled && source.source_type !== 'manual'
 }
 
 function cfgStr(config: Record<string, unknown>, key: string): string {
@@ -272,11 +273,9 @@ export function SourcesPage({
                           title={
                             !s.enabled
                               ? 'Enable the source to scan it'
-                              : s.source_type === 'wttj'
-                                ? 'No adapter for this source type yet'
-                                : s.source_type === 'manual'
-                                  ? 'Manual sources are never fetched'
-                                  : undefined
+                              : s.source_type === 'manual'
+                                ? 'Manual sources are never fetched'
+                                : undefined
                           }
                           onClick={() => void refresh(s)}
                         >
@@ -519,11 +518,12 @@ function SourceForm({
         )}
         {type === 'wttj' && (
           <p className="hint span-2">
-            No adapter for this source type yet: scans skip it without changing its status. Welcome to
-            the Jungle has no public contract; use manual import or an RSS/HTML source instead.
+            Paste a Welcome to the Jungle company careers page, for example
+            https://www.welcometothejungle.com/en/companies/fabriq/jobs. Search credentials are fetched
+            from the page automatically; nothing has to be copied from the browser.
           </p>
         )}
-        {!FETCHABLE.includes(type) && type !== 'manual' && type !== 'wttj' && (
+        {!FETCHABLE.includes(type) && type !== 'manual' && (
           <p className="hint span-2">
             No adapter for this source type yet: scans skip it without changing its status.
           </p>

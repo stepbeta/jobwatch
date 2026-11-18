@@ -63,3 +63,45 @@ func TestSourceFromURLBambooHR(t *testing.T) {
 		})
 	}
 }
+
+func TestSourceFromURLWTTJ(t *testing.T) {
+	tests := []struct {
+		name     string
+		url      string
+		wantName string
+		wantType model.SourceType
+	}{
+		{
+			name:     "company careers page",
+			url:      "https://www.welcometothejungle.com/en/companies/fabriq/jobs",
+			wantName: "fabriq",
+			wantType: model.SourceWTTJ,
+		},
+		{
+			name:     "host without www",
+			url:      "https://welcometothejungle.com/fr/companies/joko",
+			wantName: "joko",
+			wantType: model.SourceWTTJ,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src, err := sourceFromURL(tt.url, "", "", "")
+			if err != nil {
+				t.Fatalf("sourceFromURL: %v", err)
+			}
+			if src.Name != tt.wantName || src.Type != tt.wantType || src.ConfigJSON != "{}" {
+				t.Errorf("sourceFromURL = name %q type %q config %s, want %q %q {}",
+					src.Name, src.Type, src.ConfigJSON, tt.wantName, tt.wantType)
+			}
+		})
+	}
+
+	// The marketplace pages are not company pages and cannot be detected.
+	if _, err := sourceFromURL("https://www.welcometothejungle.com/en/jobs?query=sre", "", "", ""); err == nil {
+		t.Error("marketplace URL was detected as a source")
+	}
+	if _, err := sourceFromURL("https://www.welcometothejungle.com/en/jobs?query=sre", "", "wttj", ""); err != nil {
+		t.Errorf("explicit --type wttj rejected: %v", err)
+	}
+}

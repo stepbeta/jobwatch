@@ -642,3 +642,60 @@ behavior changed.
 
 No offer, event, note, company, classifier, adapter, scan-pipeline or
 migration 0001–0009 behavior changed.
+
+### Milestone 10a — Welcome to the Jungle (WTTJ) source adapter
+
+#### Added
+- `wttj` source adapter for Welcome to the Jungle company careers pages.
+  Each scan calls the page bootstrap once to discover the Algolia index,
+  its filters, the page language and the secured credentials, then pages
+  through `https://{app_id}-dsn.algolia.net/1/indexes/*/queries` (50 hits
+  per request) until `nbPages` is reached. Both calls use the shared
+  polite client, so robots.txt and the per-host rate limit apply to
+  `api.welcometothejungle.com` and `*.algolia.net` as well.
+- The Algolia request reproduces the verified quirks: a mandatory
+  `Referer`, the form content type with a JSON body, and a `params`
+  string built from the discovered filters as
+  `filters=organization.slug:fabriq&hitsPerPage=50&page=N`. The secured
+  key is sent verbatim; it is never decoded and its embedded restrictions
+  are never repeated in the filters.
+- Hit mapping tolerates the two index shapes seen in the wild:
+  `reference` (falling back to `objectID` as a string) as the external
+  UID, `name` as the title, `organization.name` as the company,
+  `offices[]` (falling back to `office`) as the location, and `profile`
+  markdown stored verbatim (falling back to `summary`). Offer URLs are
+  built from the discovered language, company slug and `hit.slug`.
+  Salary, remote and contract type have no offer column and are ignored.
+- A missing `jobs-search` block reports the permanent error
+  "URL is not a WTTJ careers page"; network, HTTP and JSON decoding
+  failures stay retryable errors, and an Algolia 403 marks the source
+  `blocked`.
+- URL detection for `www.welcometothejungle.com/<lang>/companies/<slug>/jobs`
+  (the marketplace paths are not company pages), the `www`-less host, the
+  `add-source` help/example, the source name defaulting to the company
+  slug, and a form hint on the sources page. `wttj` sources can now be
+  scanned from the UI.
+- Data-only migration `0011_seed_wttj_sources.sql` seeds the Fabriq
+  careers page (`wttj`, empty config, enabled). The disabled 0002 WTTJ
+  marketplace row is untouched; the URLs do not collide.
+- Fixtures `wttj_page_fabriq.json`, `wttj_hits_page0.json` and
+  `wttj_hits_page1.json`, and tests for mapping, bootstrap parsing,
+  params/body builders, the full fetch (headers, content type, pagination
+  stop), credential overrides, URL detection and the seed migration. No
+  test hits the network.
+
+#### Changed
+- The shared client can now issue polite POST requests with explicit
+  headers and a per-request User-Agent; GET behavior is unchanged.
+- `docs/SOURCE-DECISIONS.md` documents the two-call flow (with a Mermaid
+  sequence diagram), why credentials are discovered at runtime, the
+  debug-only credential overrides and the three known gaps. `docs/USAGE.md`,
+  `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/API.md`,
+  `docs/MILESTONES.md`, `docs/SPEC.md` and `README.md` follow.
+
+Live check: source 76 (Fabriq) returned `nbHits` 7, created 7 offers
+(`ok`, 7 new), the constructed job URL answers HTTP 200, and a second
+scan reported 0 new, 7 seen, 0 changed, 0 disappeared.
+
+No schema change. No offer, event, note, company, classifier or
+scan-pipeline behavior changed.

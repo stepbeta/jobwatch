@@ -45,6 +45,9 @@ type Config struct {
 	// Note is an optional human-readable explanation shown in the UI,
 	// used by the seeded disabled sources for Workday/SuccessFactors.
 	Note string `json:"note,omitempty"`
+	// URL optionally overrides the source row URL (wttj: the careers
+	// page whose bootstrap is read to discover the search index).
+	URL string `json:"url,omitempty"`
 
 	BoardToken string `json:"board_token,omitempty"` // greenhouse
 	Site       string `json:"site,omitempty"`        // lever
@@ -55,6 +58,11 @@ type Config struct {
 	Language  string `json:"language,omitempty"`  // personio feed language (optional)
 	Account   string `json:"account,omitempty"`   // workable account slug
 	Subdomain string `json:"subdomain,omitempty"` // bamboohr tenant subdomain
+
+	// wttj: debug-only overrides of the Algolia credentials that are
+	// normally discovered from the careers page bootstrap.
+	AlgoliaAppID  string `json:"algolia_app_id,omitempty"`
+	AlgoliaAPIKey string `json:"algolia_api_key,omitempty"`
 
 	// rss: item element and field paths. A path is a chain of child
 	// element local names; "@name" reads an attribute.
@@ -126,6 +134,7 @@ func NewRegistry(client *Client) Registry {
 		model.SourcePersonio:   &Personio{Client: client},
 		model.SourceWorkable:   &Workable{Client: client},
 		model.SourceBambooHR:   &BambooHR{Client: client},
+		model.SourceWTTJ:       &WTTJ{Client: client},
 		model.SourceRSS:        &RSS{Client: client},
 		model.SourceHTML:       &HTML{Client: client},
 	}

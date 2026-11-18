@@ -92,12 +92,13 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
 
 ### Seeded rows
 
-A fresh database seeds every source decided in Milestones 5a/5b/6a: 38
-enabled ATS/RSS/HTML sources (including the Semble BambooHR board) and
-28 disabled not-trackable rows with a `note`, plus the four disabled
-known-hard rows from 0002 (Datadog/Cisco Workday, SAP SuccessFactors,
-WTTJ). The known-hard rows are present only as reminders: no adapter
-reads them. Do not enable them expecting a scan; use manual import or an
-RSS/HTML source instead.
-Deleting `jobwatch.db` and reopening it recreates the same 70 rows
+A fresh database seeds every source decided in Milestones 5a/5b/6a/10a:
+39 enabled ATS/RSS/HTML/WTTJ sources (including the Semble BambooHR board
+and the Fabriq WTTJ company page) and 28 disabled not-trackable rows with
+a `note`, plus the four disabled known-hard rows from 0002 (Datadog/Cisco
+Workday, SAP SuccessFactors, WTTJ marketplace). The known-hard rows are
+present only as reminders: no adapter reads them (the `wttj` adapter only
+reads `/companies/` pages). Do not enable them expecting a scan; use
+manual import or an RSS/HTML source instead.
+Deleting `jobwatch.db` and reopening it recreates the same 71 rows
 without re-running `add-sources`.

@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "hits": [
+        {
+          "objectID": "3e6f18f5-97fb-404a-9ff7-700c7ab6629d",
+          "reference": "3e6f18f5-97fb-404a-9ff7-700c7ab6629d",
+          "name": "Senior Front-end Engineer (F/H)",
+          "slug": "senior-full-stack-engineer-front-end-focus_paris",
+          "language": "en",
+          "published_at": "2026-11-17T17:07:44Z",
+          "profile": "### What we're looking for\n\nTechnical excellence\n\nYou have a strong **software craftsmanship** mindset and a real **eye for UI/UX detail**: you care about clean, well-tested code as much as about the experience of the people using it.\n\nYou bring:\n\n* **5+ years of experience** as a software engineer,...",
+          "summary": "Join Fabriq, a SaaS platform revolutionizing the manufacturing industry. As a Senior Front-end Engineer, you'll be at the forefront of our product development, focusing on UI/UX and full-stack enginee...",
+          "offices": [
+            {
+              "city": "Paris",
+              "country": "France"
+            }
+          ],
+          "organization": {
+            "name": "Fabriq",
+            "slug": "fabriq"
+          },
+          "remote": "punctual",
+          "contract_type": "full_time",
+          "salary_yearly_minimum": 60000,
+          "salary_minimum": 60000.0,
+          "salary_maximum": 80000.0,
+          "salary_currency": "EUR"
+        }
+      ],
+      "nbHits": 2,
+      "nbPages": 2,
+      "page": 0,
+      "hitsPerPage": 50
+    }
+  ]
+}

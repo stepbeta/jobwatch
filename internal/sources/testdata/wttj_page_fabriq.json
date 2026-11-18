@@ -1,0 +1,63 @@
+{
+  "page": {
+    "id": 30183,
+    "reference": "jobs",
+    "path": [
+      {
+        "slug": "/jobs",
+        "rendered_language": "en"
+      }
+    ],
+    "sections": [
+      {
+        "id": 1,
+        "position": 0,
+        "containers": [
+          {
+            "id": 1,
+            "blocks": [
+              {
+                "id": 400999,
+                "position": 16384.0,
+                "kind": "jobs-search",
+                "contents": [
+                  {
+                    "id": 475391,
+                    "position": 1,
+                    "kind": "jobs-search",
+                    "properties": {
+                      "filters": {
+                        "organization.slug": [
+                          "fabriq"
+                        ]
+                      },
+                      "language": "en",
+                      "organization": {
+                        "name": "Fabriq",
+                        "reference": "w9QNlLd"
+                      },
+                      "website_organization": {
+                        "slug": "fabriq"
+                      },
+                      "default_job": {
+                        "reference": "FABRI_A4MM8Pd",
+                        "slug": "candidatures-spontanees"
+                      },
+                      "algolia_api_key": "NDU3MmUxZGRjODdiZDQ5ZTZlOWUzODE5MmUxNjRhMzU1NzRjZGJjZWRiNzM5OGRjN2YwOTM3MTg5NjRiNzI1N2ZpbHRlcnM9d2Vic2l0ZS5yZWZlcmVuY2UlM0F3dHRqX2Zy",
+                      "algolia_index_name": "wk_cms_jobs_production",
+                      "algolia_app_id": "CSEKHVMS53",
+                      "multi_organization": false
+                    }
+                  }
+                ],
+                "properties": {
+                  "columns": 3
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

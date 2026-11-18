@@ -30,3 +30,16 @@ Fixtures recorded from the public APIs/sites on 2026-11-15/16 and trimmed
 - `html_listing.html`: hand-written listing page (there is no public
   fixture API) covering relative/absolute links, optional selectors and
   a missing link that must be skipped
+- `wttj_page_fabriq.json`: api.welcometothejungle.com/api/v1/pages?path=/en/companies/fabriq/jobs
+  (recorded 2026-11-18, trimmed to the `jobs-search` block with its real
+  `contents[].properties`: app id, secured key, index, filters, language;
+  other blocks removed)
+- `wttj_hits_page0.json`: Algolia multi-query response, CMS-index shape
+  (reference and objectID are UUIDs, `salary_yearly_maximum` null while
+  `salary_maximum` is 80000; the `_highlightResult`/`_snippetResult`/
+  sectors fields and the long profile are trimmed)
+- `wttj_hits_page1.json`: Algolia multi-query response, job-index shape
+  (reference `FABRI_wqJ1xND`, numeric objectID 4386482, salary 60000 to
+  80000 EUR, one office; same trimming). The two response files are
+  served by one httptest server as result pages 0 and 1, which proves
+  pagination and that the mapper tolerates both shapes.

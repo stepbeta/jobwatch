@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -118,6 +119,35 @@ func (c *Client) GetJSON(ctx context.Context, src model.Source, u string, v any)
 
 // Get fetches u politely and returns the body of a 2xx response.
 func (c *Client) Get(ctx context.Context, src model.Source, u, accept string) ([]byte, error) {
+	return c.fetch(ctx, src, http.MethodGet, u, map[string]string{"Accept": accept}, nil)
+}
+
+// PostJSON sends raw (already encoded JSON) to u politely and decodes the
+// JSON reply into v. contentType is sent verbatim so callers can
+// reproduce non-obvious content types; headers are added after the
+// defaults (Accept and Content-Type).
+func (c *Client) PostJSON(ctx context.Context, src model.Source, u, contentType string, headers map[string]string, raw []byte, v any) error {
+	h := map[string]string{
+		"Accept":       "application/json",
+		"Content-Type": contentType,
+	}
+	for k, val := range headers {
+		h[k] = val
+	}
+	body, err := c.fetch(ctx, src, http.MethodPost, u, h, raw)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(body, v); err != nil {
+		return fmt.Errorf("decode %s: %w", u, err)
+	}
+	return nil
+}
+
+// fetch performs one polite request for src and returns the body of a
+// 2xx response. robots.txt rules and the per-host interval apply to
+// every method, not only to GET.
+func (c *Client) fetch(ctx context.Context, src model.Source, method, u string, headers map[string]string, body []byte) ([]byte, error) {
 	cfg, err := ParseConfig(src)
 	if err != nil {
 		return nil, err
@@ -146,7 +176,7 @@ func (c *Client) Get(ctx context.Context, src model.Source, u, accept string) ([
 	if err := c.wait(ctx, parsed.Host, interval); err != nil {
 		return nil, err
 	}
-	resp, err := c.do(ctx, u, accept)
+	resp, err := c.do(ctx, method, u, headers, body)
 	if err != nil {
 		return nil, err
 	}
@@ -155,25 +185,35 @@ func (c *Client) Get(ctx context.Context, src model.Source, u, accept string) ([
 		io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
 		return nil, &HTTPError{URL: u, Status: resp.StatusCode}
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	reply, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", u, err)
 	}
-	return body, nil
+	return reply, nil
 }
 
-func (c *Client) do(ctx context.Context, u, accept string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+// do sends the request. The client User-Agent is the default; a
+// "User-Agent" entry in headers overrides it for adapters that must
+// present a browser UA. Empty header values are skipped.
+func (c *Client) do(ctx context.Context, method, u string, headers map[string]string, body []byte) (*http.Response, error) {
+	var rdr io.Reader
+	if body != nil {
+		rdr = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, rdr)
 	if err != nil {
 		return nil, fmt.Errorf("build request %s: %w", u, err)
 	}
 	req.Header.Set("User-Agent", c.UserAgent)
-	if accept != "" {
-		req.Header.Set("Accept", accept)
+	for k, v := range headers {
+		if v == "" {
+			continue
+		}
+		req.Header.Set(k, v)
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", u, err)
+		return nil, fmt.Errorf("%s %s: %w", method, u, err)
 	}
 	return resp, nil
 }
@@ -195,7 +235,7 @@ func (c *Client) robotsFor(ctx context.Context, u *url.URL, interval time.Durati
 	if err := c.wait(ctx, u.Host, interval); err != nil {
 		return nil, err
 	}
-	resp, err := c.do(ctx, robotsURL, "text/plain")
+	resp, err := c.do(ctx, http.MethodGet, robotsURL, map[string]string{"Accept": "text/plain"}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("robots.txt unreachable: %w", err)
 	}

@@ -5,7 +5,7 @@ added here as they start.
 
 ## Current state
 
-Milestones 1–10 are complete. The binary scans the 70 seeded sources
+Milestones 1–10a are complete. The binary scans the 71 seeded sources
 plus any sources the user adds, detects new/changed/disappeared offers,
 classifies them deterministically, and serves the React UI and REST API
 from one process.
@@ -18,8 +18,9 @@ Milestone 8 reorganizes the README and adds `docs/USAGE.md`; it changes no
 behavior, schema or API. Milestone 9 adds the standalone interview-prep
 table, REST resource and page. Milestone 10 adds entry categories,
 section/entry drag-and-drop, the redesigned answer dialog and a slightly
-larger base font. Open items and deliberate limitations remain in the
-known-gaps table below.
+larger base font. Milestone 10a adds the Welcome to the Jungle company
+page adapter and seeds the Fabriq source. Open items and deliberate
+limitations remain in the known-gaps table below.
 
 ## Milestone 1 — Core: bootstrap, database, sources, scan, CLI — DONE
 
@@ -723,6 +724,77 @@ Done criteria (all met):
 | Section order is browser-local only | it is a presentation preference; keeping it out of the API/database avoids inventing a second persistence model |
 | The "No answer" cue is the literal empty-string check (after trim) | whitespace-only answers are just as unprepared, and the badge is only a scan aid |
 
+## Milestone 10a — Welcome to the Jungle (WTTJ) source adapter — DONE
+
+Done criteria (all met):
+- [x] `wttj` source type registered in model validation, the adapter
+      registry, the API enum and the UI type list; `add-source` detects
+      any `welcometothejungle.com` URL whose path contains `/companies/`
+      (the marketplace paths stay unrecognized) and names the source
+      after the company slug.
+- [x] Two-call adapter: one bootstrap `GET
+      https://api.welcometothejungle.com/api/v1/pages?path=<careers path>`
+      per scan, then `POST
+      https://{app_id}-dsn.algolia.net/1/indexes/*/queries` per result
+      page. Both requests go through the shared polite client, so
+      robots.txt and the per-host rate limit apply to each host; the
+      browser User-Agent is used only for these two endpoints.
+- [x] Algolia request reproduces the verified quirks: mandatory
+      `Referer`, form content type with a JSON body, `params` built as
+      `filters=<discovered filters>&hitsPerPage=50&page=N` (filters
+      joined with spaces, key never decoded), pagination until
+      `page >= nbPages`.
+- [x] Mapping: `reference` → `ExternalUID` (`objectID` as a string when
+      absent), `name` → title, `organization.name` → company,
+      `offices[]`/`office` → location, `profile` markdown verbatim
+      (`summary` fallback), URL from the discovery language, company
+      slug and `hit.slug`; salary/remote/contract_type are ignored (no
+      offer column, no schema change).
+- [x] Discovery failure modes: a missing `jobs-search` block returns the
+      permanent `URL is not a WTTJ careers page`; HTTP/network errors and
+      undecodable JSON are retryable and surface in the scan result.
+- [x] Fixtures: `wttj_page_fabriq.json` (trimmed live bootstrap),
+      `wttj_hits_page0.json` (reference-UUID shape) and
+      `wttj_hits_page1.json` (`FABRI_wqJ1xND`, numeric `objectID`, salary
+      and contract fields) under `internal/sources/testdata`, documented
+      in its README. No test touches the network (httptest only).
+- [x] Tests: hit mapping (UID and `objectID` fallback, offices/office,
+      empty profile → summary, several offices, slug fallback, language
+      fallback, dropped hits, both timestamps, null extras), bootstrap
+      parsing (live shape, direct properties, missing block, malformed
+      JSON, bad filters), params/body builders, the full fetch over
+      httptest (exact headers, form content type with JSON body, page 0
+      and 1 only), config credential overrides and the error matrix.
+- [x] Data-only migration `0011_seed_wttj_sources.sql` inserts Fabriq
+      (`wttj`, `{}`, enabled) with `INSERT … WHERE NOT EXISTS` by URL.
+      The 0002 WTTJ marketplace row keeps its own URL and is untouched;
+      `TestSeedWTTJSource` proves there is no collision, that re-applying
+      preserves user edits and restores a deleted row.
+- [x] Live verification (2026-11-18): discovery returned app id
+      `CSEKHVMS53`, index `wk_cms_jobs_production`, language `en`,
+      filters `organization.slug:fabriq`; Algolia returned `nbHits` 7;
+      the first scan of source 76 created 7 offers with the expected
+      titles, locations and URLs and a `profile`-filled description; the
+      constructed URL
+      `.../en/companies/fabriq/jobs/senior-full-stack-engineer-front-end-focus_paris`
+      answers HTTP 200; a second scan reported 0 new, 7 seen, 0 changed,
+      0 disappeared, 7 provenance rows and 7 snapshots.
+- [x] `go build`, `go vet`, `go test ./...`, `npm run build` green; no
+      schema change.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| The parser searches the whole `jobs-search` block for the `algolia_*` keys instead of reading `block.properties` directly | on the live response the credentials are in `block.contents[*].properties` while `block.properties` only holds layout keys; searching the subtree accepts both that shape and the documented one |
+| The Algolia `params` string is prefixed with `filters=` | verified live: without the prefix Algolia replies `400 Unknown parameter: organizationslugfabriq`; the prefix is what the site's client sends |
+| The offer URL uses the discovered page language, not `hit.language` | follows the verified construction (and the expected Fabriq URL); French-language hits still resolve under `/en/`, and a per-hit language would make the URL depend on a mutable hit attribute. The hit language is the fallback when discovery has none |
+| The company slug falls back to the discovered `organization.slug` filter (and `website_organization.slug`) | one observed index shape omits `organization.slug` from the hits, and the URL cannot be built without it |
+| `published_at` is decoded but not stored | `job_offers` has no publication-date column and 10a adds no schema change; `first_seen_at` remains the scan time |
+| Salary, `remote` and `contract_type` are ignored | no offer column exists for them and mapping them into an unrelated field (description, location) would corrupt data |
+| The discovery response is not cached beyond the scan | the prompt asks for in-memory, per-run caching only; one extra GET per scan is acceptable and credentials can rotate between runs |
+| `algolia_app_id`/`algolia_api_key` config overrides still trigger discovery | the index name, filters and language are only available from the bootstrap; the overrides are documented as a debug tool |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -730,7 +802,7 @@ Done criteria (all met):
 | ATS workplace hints discarded | §6 | Open. Lever/Ashby `workplaceType` is not carried in `RawOffer`; Workable's `telecommuting` and BambooHR's `isRemote` are used, and `remote_policy` is otherwise derived from location and description text |
 | BambooHR offers have no description | §7 | Open. The public listing has no description and per-offer pages are not fetched; `raw_text` stays empty unless the offer is imported from its detail URL |
 | Title change of a posting creates a new offer | §5 | Open. Identity is the fingerprint only (external UID not used) |
-| WTTJ adapter missing | §7 | By design. A disabled seeded row exists; scans report `skipped` and leave its status unchanged |
+| WTTJ adapter has undocumented dependencies | §7 | Open. Credentials are discovered from the `kind: "jobs-search"` block of the bootstrap page tree; a CMS restructure breaks discovery (permanent scan error). The secured key is referrer-restricted, and two index shapes are known. See `docs/SOURCE-DECISIONS.md` |
 | Workday/SuccessFactors adapters missing | §7 | By design for v1. Disabled seeded rows carry an explanation |
 | HTML adapter is listing-only | §7 | Open. It fetches one page per scan; descriptions are whatever the configured selector exposes |
 | RSS/Atom item heuristics | §7 | Open. Titles such as “Company: Role” are not split automatically; mapping is configurable per source |
@@ -744,9 +816,9 @@ Done criteria (all met):
 | Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, the offers import modal, the company two-column layout, hash routing and interview prep (sections, cue, drag-and-drop payloads, Edit/View, new category, accordion, add/edit/delete, escaped markdown) | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); offers filters/pagination, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
-| Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |
+| Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked, plus the Fabriq WTTJ company page from 10a; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ marketplace pages, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |
 | Workable public search is not tracked | §7 | By design after 5c. The France+remote query URL is robots-disallowed; allowed category pages are incomplete. Track the company's `apply.workable.com/<account>` board instead |
-| Aggregator offers require manual import | §7 | By design after 5c. FlexJobs, RemoteMore, the `my.greenhouse.io` dashboard, The Product Crew, WTTJ matches and Jobgether are never scraped; use `jobwatch import` or the UI import form |
+| Aggregator offers require manual import | §7 | By design after 5c. FlexJobs, RemoteMore, the `my.greenhouse.io` dashboard, The Product Crew, WTTJ marketplace pages and Jobgether are never scraped; use `jobwatch import` or the UI import form |
 | Teamtailor offers created before the mapping fix have no location | §7 | Open data artifact. The `locations/location/name` mapping is correct and fixture-tested; scans do not update the location of an existing offer, so only new offers carry it |
 | Murena "Other positions" table is not tracked | §7 | By design. The second table has a different column layout; the engineering table is tracked |
 | No scheduled scans or notifications | §10 | Out of scope for v1 |

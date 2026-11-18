@@ -41,28 +41,32 @@ Adapters (`sources.NewRegistry`):
 | personio | `GET https://{tenant}.jobs.personio.{de,com}/xml` | `position` elements; office is the location, `id` builds `{tenant}/job/{id}`, `jobDescriptions` joined as titled HTML→text blocks; optional `language` query |
 | workable | `GET https://apply.workable.com/api/v1/widget/accounts/{account}?details=true` | keyless widget API; entries with the same `shortcode` are grouped, all `locations` joined, `telecommuting` adds a remote marker; `name` is the company |
 | bamboohr | `GET https://{subdomain}.bamboohr.com/careers/list` | public JSON listing; `id` is the external UID and builds `/careers/{id}`, `jobOpeningName` the title, `location`/`atsLocation` fields joined (empty parts and repeated city/state dropped), `isRemote` adds a remote marker; no per-offer description fetch, so `Description` stays empty |
+| wttj | `GET https://api.welcometothejungle.com/api/v1/pages?path={careers path}`, then `POST https://{app_id}-dsn.algolia.net/1/indexes/*/queries` | credentials, index, filters and page language are discovered from the page tree at every scan; the Algolia call sends a browser `User-Agent`, the fixed `Referer` and the form content type with a JSON body; `reference` is the external UID (`objectID` fallback), `profile` markdown is stored verbatim, offers are paged at 50 hits with the discovered filters |
 | rss | `GET <source url>` | RSS 2.0 and Atom; item/field mapping in config (`item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field`); paths are child local names joined with `/` (e.g. `locations/location/name`) with `@attr` and `#text`; Atom alternate links and HTML descriptions handled |
 | html | `GET <source url>` | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); cascadia supports `:has()` and `:haschild()` for row containers; one request per scan, no per-offer page fetches; minimum interval 5 s |
 
-`wttj` and `manual` have no fetcher; `wttj` scans are skipped and manual
-offers come from the import path. Disabled seeded rows are `html`/`wttj`
-sources with a `note` in `config_json`: the known-hard
-Workday/SuccessFactors/WTTJ rows from migration 0002 and the 28
-not-trackable decisions from 5b. Migration 0003 seeds the 65 sources
+`manual` has no fetcher; manual offers come from the import path.
+Disabled seeded rows are `html`/`wttj` sources with a `note` in
+`config_json`: the known-hard Workday/SuccessFactors and WTTJ
+marketplace rows from migration 0002 and the 28 not-trackable decisions
+from 5b. Migration 0003 seeds the 65 sources
 registered in 5a/5b with their decided config. Migration 0004 is an
 audit-only no-op: the 5c-decided rows (We Work Remotely, Workable search
 and the aggregator notes) were already in 0003, so it inserts nothing.
 Migration 0005 is a data-only seed for the BambooHR source added in 6a
 (Semble, `bamboohr`, `{"subdomain":"semble"}`). Migration 0006 is a
 data-only, in-place rename of the old `reply_received` event value to
-`message_received`; no schema or source rows change.
+`message_received`; no schema or source rows change. Migration 0011 is a
+data-only seed for the WTTJ source added in 10a (Fabriq,
+`wttj`, empty config; the page URL is the only setting).
 
 `sources.Detect(url)` maps public board URLs (`boards.greenhouse.io/x`,
 `job-boards[.eu].greenhouse.io/x`, `jobs[.eu].lever.co/x`,
 `jobs.ashbyhq.com/x`, `{tenant}.jobs.personio.{de,com}`,
 `apply.workable.com/{account}`, `{account}.workable.com`,
-`{subdomain}.bamboohr.com/careers[/list|/{id}]`, and the API URLs) to a
-type + config. Adapters use config keys first, then fall back
+`{subdomain}.bamboohr.com/careers[/list|/{id}]`,
+`www.welcometothejungle.com/<lang>/companies/<slug>/jobs`, and the API
+URLs) to a type + config. Adapters use config keys first, then fall back
 to detection on the source URL. The Greenhouse corporate site and the
 candidate dashboard (`www.greenhouse.io`, `my.greenhouse.io`) are not
 boards and are rejected.
@@ -73,7 +77,7 @@ boards and are rejected.
 `cmd/jobwatch/addsource.go`: HTTP(S) validation, `sources.Detect`, the
 `--type` override (single URL only), config merging and the default
 name (`board_token` / `site` / `org` / `tenant` / `account`, else the
-hostname). Both reject `manual` and check `sources.url` for duplicates
+WTTJ company slug or the hostname). Both reject `manual` and check `sources.url` for duplicates
 through `db.FindSourceByURL`.
 
 `add-sources` first parses the file: blank lines and `#`-prefixed lines

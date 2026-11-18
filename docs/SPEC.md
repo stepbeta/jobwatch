@@ -224,14 +224,17 @@ Priority of implementations for v1:
 6. `bamboohr`    — JSON listing at `{subdomain}.bamboohr.com/careers/list`
 7. `rss`         — generic RSS/Atom
 8. `html`        — last resort, CSS-selector config per source
-9. `manual`      — no fetch; user-entered offers only
+9. `wttj`        — WTTJ company pages: page bootstrap + Algolia index
+10. `manual`     — no fetch; user-entered offers only
 
 Notes on known sources:
 - Datadog & Cisco run on Workday, SAP on SuccessFactors: skip in v1
   (complex POST APIs); leave the rows disabled with a comment.
-- Welcome to the Jungle uses an internal API without public guarantees:
-  implement cautiously behind rate limits, expect breakage. v1 leaves a
-  disabled source row with an explanation instead of shipping a scraper.
+- Welcome to the Jungle company pages use an internal Algolia-backed API
+  without public guarantees: implement cautiously behind rate limits and
+  expect breakage. Since Milestone 10a a `wttj` adapter reads company
+  pages (credentials discovered at runtime); the marketplace rows stay
+  disabled with an explanation.
 - A source that fails N consecutive times is flagged `error` in the UI
   (visible indicator on the sources list) without blocking other sources.
 
@@ -410,3 +413,15 @@ plain React + a lightweight table component is fine.
   dialog uses one large markdown editor with an Edit/View toggle and a
   category dropdown instead of side-by-side textarea/preview panes; the
   application base font size is 15px.
+- 2026-11-18 (after Milestone 10a): `wttj` is implemented for company
+  careers pages (`/<lang>/companies/<slug>/jobs`). Each scan performs one
+  bootstrap `GET https://api.welcometothejungle.com/api/v1/pages?path=...`
+  to discover the Algolia index, the filters, the page language and the
+  secured credentials, then pages the Algolia index
+  (`https://{app_id}-dsn.algolia.net/1/indexes/*/queries`, 50 hits per
+  request). Credentials are never hardcoded and the secured key is never
+  decoded; `algolia_app_id`/`algolia_api_key` in `config_json` are
+  debug-only overrides. Offers are identified by `hit.reference`
+  (`objectID` fallback). `published_at` is not stored because 10a adds no
+  schema change; salary, remote and contract type are ignored. Migration
+  0011 seeds the Fabriq page (data only).

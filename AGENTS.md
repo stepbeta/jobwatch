@@ -9,10 +9,11 @@ by the user.
 **JobWatch** — a local, single-user web application that tracks job
 offers for a person looking for a full-remote Platform Engineer / SRE
 role in France. It scans configured sources (ATS boards such as
-Greenhouse, Lever, Ashby; career sites; RSS feeds), detects new /
-changed / disappeared offers, classifies them with a deterministic
-rule-based engine, and tracks the application lifecycle (timeline,
-notes, states) per offer and per company.
+Greenhouse, Lever, Ashby; career sites including Welcome to the Jungle
+company pages; RSS feeds), detects new / changed / disappeared offers,
+classifies them with a deterministic rule-based engine, and tracks the
+application lifecycle (timeline, notes, states) per offer and per
+company.
 
 ## Hard constraints (never violate)
 

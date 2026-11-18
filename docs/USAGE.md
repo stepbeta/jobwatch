@@ -8,9 +8,9 @@ the endpoint reference is [API.md](API.md) and the product specification is
 
 ## Sources
 
-A fresh database already contains the 70 sources decided in Milestones
-5a/5b/6a: 38 enabled ATS/RSS/HTML sources and 32 disabled rows with a
-`note` explaining why they are not tracked. Add your own with
+A fresh database already contains the 71 sources decided in Milestones
+5a/5b/6a/10a: 39 enabled ATS/RSS/HTML/WTTJ sources and 32 disabled rows
+with a `note` explaining why they are not tracked. Add your own with
 `add-source` or register a bookmark list with `add-sources`. Existing
 rows are never overwritten by the seed migrations, so local edits
 survive upgrades.
@@ -31,7 +31,7 @@ config.
 | `bamboohr` | Public JSON listing `{subdomain}.bamboohr.com/careers/list` |
 | `rss` | An RSS 2.0 or Atom feed, with an optional field mapping |
 | `html` | A server-rendered listing page, with CSS selectors |
-| `wttj` | No adapter. Disabled seeded rows only; scans report `skipped` |
+| `wttj` | Welcome to the Jungle company careers page: the page bootstrap is read for the Algolia index and credentials, then the index is queried |
 | `manual` | No source. Offers enter through manual import (`source_id` is NULL) |
 
 ### Recognized board URLs
@@ -45,12 +45,33 @@ config.
 - Workable: `apply.workable.com/<account>`, `<account>.workable.com`
 - BambooHR: `<subdomain>.bamboohr.com/careers` (the `/careers/list`
   JSON endpoint is read; the board carries no descriptions)
+- Welcome to the Jungle: `www.welcometothejungle.com/<lang>/companies/<slug>/jobs`
+  (any path containing `/companies/`; the marketplace pages such as
+  `/en/jobs` or `/fr/jobs-matches` are not company pages)
 
 Some public API URLs are recognized too, for example
 `boards-api.greenhouse.io/v1/boards/<token>` and
 `api.lever.co/v0/postings/<site>`. RSS/Atom and HTML sources need
 `--type`; RSS has a default mapping and accepts `--config`, while HTML
 requires `--config` with at least `item_selector` and `title_selector`.
+
+### Welcome to the Jungle company pages
+
+Paste a WTTJ company careers page as the source URL and give it the
+company name; nothing has to be extracted from the browser:
+
+```sh
+./jobwatch add-source https://www.welcometothejungle.com/en/companies/fabriq/jobs --name Fabriq
+```
+
+Each scan reads the page bootstrap once to discover the Algolia index,
+its filters and its secured credentials, then pages through the index
+(50 hits per request). The credentials rotate server-side and are
+re-read on every scan, so there is never a key to paste or refresh. Two
+debug-only config keys, `algolia_app_id` and `algolia_api_key`, override
+the discovered credentials; use them only to reproduce a failure. The
+flow, its rationale and its known gaps are documented in
+[SOURCE-DECISIONS.md](SOURCE-DECISIONS.md#welcome-to-the-jungle-milestone-10a).
 
 ### Config keys
 
@@ -70,6 +91,8 @@ Optional `--config` keys:
 | `tenant` + `language` | Personio tenant (if not in the URL) and optional feed language |
 | `account` | Workable account slug (if not in the URL) |
 | `subdomain` | BambooHR tenant subdomain (if not in the URL) |
+| `url` | Optional careers page override (WTTJ); defaults to the source URL |
+| `algolia_app_id`, `algolia_api_key` | WTTJ debug-only overrides of the credentials discovered from the page bootstrap |
 | `item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field` | RSS/Atom mapping. Paths are child element local names joined with `/` (e.g. `locations/location/name`); `@name` reads an attribute and `#text` reads text. Defaults cover RSS `<item>` and Atom `<entry>` |
 | `item_selector`, `title_selector`, `link_selector`, `link_attr`, `location_selector`, `description_selector`, `company_selector`, `uid_selector`, `uid_attr` | HTML listing page CSS selectors. `item_selector` and `title_selector` are required; only the listing page is fetched, at most every 5 s. Selectors use cascadia's CSS support, including `:has()` and `:haschild()` for item containers |
 
@@ -102,8 +125,8 @@ RSS/Atom and HTML sources need `--type`:
              "link_selector":"a[href^=\"/jobs/\"]"}'
 ```
 
-`wttj` has no adapter. A fresh database also contains disabled rows for
-Datadog/Cisco (Workday), SAP (SuccessFactors) and WTTJ with an
+A fresh database also contains disabled rows for Datadog/Cisco
+(Workday), SAP (SuccessFactors) and the WTTJ marketplace pages with an
 explanatory `note`; they are never scanned unless you enable them and
 configure selectors.
 
@@ -141,8 +164,8 @@ polite fetch at a time. The outcome is recorded per URL in
 [SOURCE-DECISIONS.md](SOURCE-DECISIONS.md): 19 underlying ATS boards, 5
 RSS feeds, 5 server-rendered HTML listings, and 28 disabled sources with
 an explanatory `note` (JS-only SPAs, Notion, candidate logins,
-Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt disallows,
-aggregators). Disabled sources are never scanned; their offers enter
+Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ marketplace pages,
+robots.txt disallows, aggregators). Disabled sources are never scanned; their offers enter
 through manual import. The Workable public search is one of them: its
 France+remote query URL is disallowed by robots.txt, and the allowed
 category pages are incomplete, so the per-company Workable boards remain
@@ -183,8 +206,9 @@ Built with React + TypeScript (Vite). The pages are:
   header Refresh all, and an add/edit modal whose config fields depend on
   the source type (Personio tenant, Workable account, BambooHR subdomain,
   RSS field mapping, HTML CSS selectors). Disabled seeded rows for the
-  known-hard Workday/SuccessFactors/WTTJ links and the not-trackable
-  sources show their explanation.
+  known-hard Workday/SuccessFactors rows, the WTTJ marketplace rows and
+  the not-trackable sources show their explanation; the seeded Fabriq
+  WTTJ company page is enabled and scannable.
 - **Offer detail** — a bookmark toggle, editable application/offer state
   and location, score badges, collapsed provenance links with explicit
   merge into another offer and split (select links for a second offer), a
@@ -329,14 +353,16 @@ All commands accept the global `--db <path>` flag (default
 ### Command examples
 
 ```sh
-# A fresh database already seeds the 70 sources decided in Milestones
-# 5a/5b/6a (38 enabled ATS/RSS/HTML, 32 disabled with a note). Add extras:
+# A fresh database already seeds the 71 sources decided in Milestones
+# 5a/5b/6a/10a (39 enabled ATS/RSS/HTML/WTTJ, 32 disabled with a note).
+# Add extras:
 ./jobwatch add-source https://boards.greenhouse.io/gitlab --name GitLab
 ./jobwatch add-source https://jobs.lever.co/spotify --name Spotify
 ./jobwatch add-source https://jobs.ashbyhq.com/linear --name Linear
 ./jobwatch add-source https://acme.jobs.personio.de --name Acme
 ./jobwatch add-source https://apply.workable.com/acme --name Acme
 ./jobwatch add-source https://acme.bamboohr.com/careers --name Acme
+./jobwatch add-source https://www.welcometothejungle.com/en/companies/fabriq/jobs --name Fabriq
 
 # or register every recognized URL from another bookmark list
 ./jobwatch add-sources docs/REMOTE-SOURCES.txt

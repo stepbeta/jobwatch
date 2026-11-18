@@ -74,6 +74,12 @@ func Detect(rawURL string) (typ model.SourceType, cfg Config, ok bool) {
 	case strings.HasSuffix(host, ".bamboohr.com") && host != "www.bamboohr.com" && len(segs) >= 1 && segs[0] == "careers":
 		// /careers, /careers/list and /careers/{id} are all the tenant board.
 		return model.SourceBambooHR, Config{Subdomain: strings.TrimSuffix(host, ".bamboohr.com")}, true
+	case (host == "www.welcometothejungle.com" || host == "welcometothejungle.com") &&
+		strings.Contains(u.Path, "/companies/"):
+		// Company careers page, e.g. /en/companies/fabriq/jobs. The
+		// marketplace paths (/en/jobs, /fr/jobs-matches, ...) are not
+		// company pages and stay unrecognized.
+		return model.SourceWTTJ, Config{}, true
 	}
 	return "", Config{}, false
 }

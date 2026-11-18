@@ -21,6 +21,7 @@ require a table rebuild.
 | 0008 | `0008_offer_saved_at.sql` | Additive schema change for Milestone 7e: `ALTER TABLE job_offers ADD COLUMN saved_at TEXT`. NULL means not bookmarked; a value is the UTC RFC3339 bookmark time. Existing offers keep every column and read as not saved. No row is deleted or rewritten |
 | 0009 | `0009_interview_entries.sql` | Additive schema change for Milestone 9: creates `interview_entries` for the personal interview-prep FAQ. No existing table or row changes |
 | 0010 | `0010_interview_entry_category.sql` | Additive schema change for Milestone 10: `ALTER TABLE interview_entries ADD COLUMN category TEXT`. NULL means uncategorized; existing entries keep every column and read as uncategorized. No row is deleted or rewritten |
+| 0011 | `0011_seed_wttj_sources.sql` | Data-only seed: the Fabriq Welcome to the Jungle careers page verified in Milestone 10a (`wttj`, `{}` config, enabled). The 0002 WTTJ marketplace row has a different URL and is left untouched. `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -29,10 +30,11 @@ Milestones 2 and 3 needed no schema change; Milestone 4 adds the
 disabled-source rows from 0002 and Milestone 5 ships the 65 registered
 sources from 5a/5b in 0003 (both data only, no table or column changes).
 Milestone 5c's source decisions were already part of 0003, so 0004 is an
-audit-only no-op. Milestone 6a adds one enabled BambooHR row in 0005, so
-the seeded total is 70 rows (38 enabled, 32 disabled). Milestone 7b
-renames the old `reply_received` event value in place in 0006; it changes
-no source row and no schema. Milestone 7c adds the snapshot `origin`
+audit-only no-op. Milestone 6a adds one enabled BambooHR row in 0005 and
+Milestone 10a one enabled WTTJ row in 0011, so the seeded total is 71
+rows (39 enabled, 32 disabled). Milestone 7b renames the old
+`reply_received` event value in place in 0006; it changes no source row
+and no schema. Milestone 7c adds the snapshot `origin`
 column in 0007 (additive, default `scan`) so every future snapshot records
 whether it came from a scan/import or a manual description edit.
 Milestone 7e adds the nullable `job_offers.saved_at` bookmark in 0008;
@@ -81,8 +83,11 @@ company), `rate_limit_ms` (min interval between requests, default 2000;
 HTML sources are capped at a 5 s minimum), `note` (human-readable
 explanation shown in the UI), `board_token` (greenhouse), `site` +
 `region` (`""`/`"eu"`, lever), `org` (ashby), `tenant` + `language`
-(personio), `account` (workable), `subdomain` (bamboohr). Board keys are
-derived from the source URL when absent.
+(personio), `account` (workable), `subdomain` (bamboohr), `url`
+(optional wttj careers page override; defaults to the source URL) and
+`algolia_app_id` + `algolia_api_key` (wttj debug-only overrides of the
+credentials discovered from the page bootstrap). Board keys are derived
+from the source URL when absent.
 
 RSS mapping keys: `item` (item element; auto-detects `item`/`entry`),
 `title_field`, `link_field`, `description_field`, `location_field`,
@@ -98,15 +103,17 @@ HTML selector keys: `item_selector` and `title_selector` are required;
 supported by cascadia; only the listing page is fetched, once per scan.
 
 Seeded source rows from migration 0002 are disabled and carry a `note`.
-They exist so the known-hard Workday/SuccessFactors links and WTTJ are
-visible without pretending an adapter can read them. Migration 0003
+They exist so the known-hard Workday/SuccessFactors links and the WTTJ
+marketplace pages are visible without pretending an adapter can read
+them. Migration 0003
 seeds the 65 sources registered in Milestones 5a/5b with the exact
 configuration decided there: the enabled ATS boards and RSS/HTML
 listings keep their board tokens, field mappings and selectors, while
 the 28 not-trackable rows are disabled and carry their explanatory
-`note`. Migration 0005 adds the enabled Semble BambooHR source. All seeds
-only insert missing URLs and never update an existing row, so
-re-applying them or keeping a user-edited source is safe.
+`note`. Migration 0005 adds the enabled Semble BambooHR source and
+migration 0011 the enabled Fabriq WTTJ company page. All seeds only
+insert missing URLs and never update an existing row, so re-applying
+them or keeping a user-edited source is safe.
 
 ### job_offers
 | Column | Type | Notes |

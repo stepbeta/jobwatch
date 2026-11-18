@@ -1,11 +1,12 @@
-# Source decisions (Milestones 5b–5c)
+# Source decisions (Milestones 5b–5c, 10a)
 
 Every URL in `docs/REMOTE-SOURCES.txt` that `sources.Detect` could not
 classify was investigated with exactly one polite fetch through the
 shared client (robots.txt, rate limit, no retries, no anti-bot
 bypassing). Each row records the single action taken. Milestone 5c
 revisited the Aggregators section; see [Aggregators](#aggregators-milestone-5c)
-below.
+below. Milestone 10a's Welcome to the Jungle company-page decision is at
+the end of the file.
 
 The decided rows are now shipped by data-only migration
 `0003_seed_remote_sources.sql`, alongside the 8 boards registered in 5a:
@@ -173,3 +174,135 @@ pre-fills missing company/title fields for manual entry. A manual import
 is matched to an existing offer when company and title agree, and its
 provenance row has `source_id = NULL`. These aggregator rows remain
 disabled and are never scanned.
+
+## Welcome to the Jungle (Milestone 10a)
+
+Company careers pages on WTTJ (`/<lang>/companies/<slug>/jobs`) became a
+`wttj` source in Milestone 10a, so the 5b decision "not-trackable" is
+superseded for company pages only. The two 5b URLs stay disabled and are
+never scanned: `.../en/companies-v1/joko/jobs` (a legacy `companies-v1`
+path that is not a `/companies/` page) and `.../fr/jobs-matches` (the
+marketplace, not a company page). The seeded Fabriq page is the live
+reference source:
+
+```
+https://www.welcometothejungle.com/en/companies/fabriq/jobs
+```
+
+### The two-call flow
+
+The careers page HTML is a shell; the offer list is an Algolia index. The
+index credentials are not hardcoded in JobWatch: they are published per
+company page by the site's own bootstrap endpoint.
+
+```mermaid
+sequenceDiagram
+    participant Adapter as wttj adapter
+    participant API as api.welcometothejungle.com
+    participant Algolia as "{app_id}-dsn.algolia.net"
+    Adapter->>API: GET /api/v1/pages?path=/en/companies/fabriq/jobs
+    API-->>Adapter: 200 JSON page tree
+    Note over Adapter: find kind == "jobs-search"<br/>read algolia_app_id, algolia_api_key,<br/>algolia_index_name, filters, language
+    loop page 0, 1, ... up to nbPages
+        Adapter->>Algolia: POST /1/indexes/*/queries<br/>x-algolia-application-id, x-algolia-api-key,<br/>Referer, form content type, JSON body
+        Algolia-->>Adapter: results[0].hits[], nbPages
+    end
+    Note over Adapter: hits become RawOffer; no offer page is fetched
+```
+
+1. **Discovery** — `GET https://api.welcometothejungle.com/api/v1/pages?path=<careers path>`
+   with a normal browser User-Agent. The block with `kind == "jobs-search"`
+   carries the settings. On the live response they sit in the block's
+   `contents[*].properties` (the block's own `properties` only holds
+   layout keys such as `columns`), so the adapter searches the whole
+   `jobs-search` subtree for the object holding `algolia_app_id`; both
+   that shape and a directly populated `properties` are accepted.
+   A missing block is a permanent error (`URL is not a WTTJ careers page`).
+   HTTP or network failures and undecodable JSON are retryable errors.
+2. **Algolia multi-query** —
+   `POST https://{app_id}-dsn.algolia.net/1/indexes/*/queries`.
+
+Request quirks, all verified against the live site (2026-11) and
+deliberately replicated:
+
+| Quirk | Why it is reproduced as is |
+|---|---|
+| The `Referer: https://www.welcometothejungle.com/` header is mandatory | the secured key is referrer-restricted; without it Algolia answers 403 |
+| `Content-Type: application/x-www-form-urlencoded` with a JSON body | this is what the site's Algolia JS client 4.x sends; changing it to `application/json` is unnecessary and untested against the site |
+| `params` starts with `filters=` | Algolia parses `params` as a query string; `filters=organization.slug:fabriq&hitsPerPage=50&page=N` is the verified form |
+| Filters come verbatim from discovery | Algolia enforces the restrictions embedded in the secured key server-side; the adapter never decodes the key nor repeats those restrictions in `filters` |
+| A browser User-Agent for both calls | the bootstrap endpoint and Algolia reject the identifying JobWatch UA; every other adapter keeps it |
+| Pagination is `hitsPerPage=50`, `page=0..nbPages-1` | same page size as the site; the loop stops at `nbPages` or the first empty page |
+
+Hit mapping (both index shapes observed in the wild are tolerated):
+
+| RawOffer field | Source |
+|---|---|
+| ExternalUID | `hit.reference`; fallback `hit.objectID` as a string (numeric on some indexes) |
+| Title | `hit.name` |
+| Company | `hit.organization.name` |
+| Location | `offices[]` joined as `City, Country` (`; ` between offices); fallback `office.*` |
+| Description | `hit.profile` (markdown) verbatim; fallback `hit.summary` |
+| URL | `https://www.welcometothejungle.com/{language}/companies/{organization.slug}/jobs/{hit.slug}` with the discovery `language`; the slug falls back to the discovered `organization.slug` filter, and the hit language is only used when discovery has none |
+| PublishedAt | `hit.published_at` (RFC3339 with `Z` or a numeric offset); parsed and validated but not stored — `job_offers` has no publication-date column and 10a adds none |
+
+`salary_yearly_minimum/maximum`, `salary_currency`, `remote` and
+`contract_type` are explicitly out of scope: there is no offer column for
+them, so they are ignored rather than mapped into an unrelated field.
+
+### Why the credentials are discovered at runtime
+
+WTTJ can rotate the secured Algolia key (and change the index behind a
+careers page) at any time without notice. Copying the key into a config
+file would break every source the next time they do, with a 403 that
+looks like a bug in JobWatch. Reading the bootstrap on every scan makes
+rotation transparent and keeps the only user setting a URL.
+
+The escape hatch — `config_json` keys `algolia_app_id` and
+`algolia_api_key` — overrides the discovered values. It exists for
+debugging a failure (reproducing a request outside JobWatch, or isolating
+a discovery problem from an Algolia problem) and is not a supported way
+to run a source. Discovery still runs when the overrides are present,
+because the index name, filters and language are needed anyway.
+
+The discovery response is held in memory only, for the duration of one
+scan; nothing is persisted and the next scan discovers again (one extra
+GET per scan per source).
+
+### Known gaps
+
+1. **The bootstrap response shape is undocumented.** The adapter depends
+   on the `kind: "jobs-search"` block and its `algolia_*` keys. If WTTJ
+   restructures its CMS, discovery breaks; the scan then reports the
+   permanent error `URL is not a WTTJ careers page` (or a missing-credential
+   error) instead of silently returning zero offers.
+2. **The secured key is referrer-restricted.** The adapter must keep
+   sending the fixed `Referer`. If WTTJ tightens the restriction to an
+   `Origin`/session pair, the Algolia call returns 403 and the scan marks
+   the source `blocked`.
+3. **Two index shapes have been observed.** `reference`/`objectID` may be
+   a business id (`FABRI_...`) or a CMS row id (a UUID or a number),
+   organizations may or may not carry a slug, and locations may come as
+   `offers[]` or `office`. The mapper tolerates both, but a third shape
+   (for example a renamed `profile` field) would need a code change.
+
+A fourth, smaller gap: offers are identified by `reference` (or the
+`objectID` fallback). The two observed shapes use different values for
+the same job on different indexes, so switching a source to a different
+index would change external UIDs. Offer identity does not depend on the
+UID (it is company+title+location), so no duplicates would be created.
+
+### Live verification (2026-11-18)
+
+- Discovery returned the Fabriq `jobs-search` block: app id
+  `CSEKHVMS53`, index `wk_cms_jobs_production`, language `en`, filters
+  `{"organization.slug":["fabriq"]}`.
+- Algolia reported `nbHits: 7` for `filters=organization.slug:fabriq`.
+- The first scan of source 76 (`Fabriq`) fetched 7 offers and created 7:
+  `ok`, 7 new, 0 changed, 0 disappeared, `raw_text` filled from
+  `profile`, location `Paris, France` on all seven.
+- `https://www.welcometothejungle.com/en/companies/fabriq/jobs/senior-full-stack-engineer-front-end-focus_paris`
+  resolves with HTTP 200 in a browser.
+- A second scan fetched the same 7 offers: 0 new, 7 seen, 0 changed, 0
+  disappeared, still 7 provenance rows and 7 snapshots — no duplicates
+  and no false "changed".

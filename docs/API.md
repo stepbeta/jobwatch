@@ -68,10 +68,11 @@ Pings the database. `200`:
 
 ### GET /api/sources
 
-All sources, ordered by ID. A fresh database includes 70 seeded rows:
-the 38 sources decided in Milestones 5a/5b/6a (ATS boards including
-Semble on BambooHR, RSS feeds and HTML listings) and 32 disabled rows
-(four known-hard Workday/SuccessFactors/WTTJ rows plus 28 not-trackable
+All sources, ordered by ID. A fresh database includes 71 seeded rows:
+the 39 sources decided in Milestones 5a/5b/6a/10a (ATS boards including
+Semble on BambooHR, the Fabriq WTTJ company page, RSS feeds and HTML
+listings) and 32 disabled rows (four known-hard
+Workday/SuccessFactors/WTTJ-marketplace rows plus 28 not-trackable
 URLs). Every disabled row has a `config.note` explaining why. Their IDs
 sit before any source you add; migrations only insert missing URLs and
 never overwrite edits.
