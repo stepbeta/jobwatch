@@ -13,17 +13,18 @@ import (
 
 // ---------- interview entries ----------
 
-const interviewEntryColumns = `id, question, answer, answer_format, display_order, created_at, updated_at`
+const interviewEntryColumns = `id, question, answer, answer_format, category, display_order, created_at, updated_at`
 
 func scanInterviewEntry(row interface{ Scan(...any) error }) (model.InterviewEntry, error) {
 	var e model.InterviewEntry
 	var format string
+	var category, created, updated sql.NullString
 	var order sql.NullInt64
-	var created, updated sql.NullString
-	if err := row.Scan(&e.ID, &e.Question, &e.Answer, &format, &order, &created, &updated); err != nil {
+	if err := row.Scan(&e.ID, &e.Question, &e.Answer, &format, &category, &order, &created, &updated); err != nil {
 		return model.InterviewEntry{}, err
 	}
 	e.AnswerFormat = model.AnswerFormat(format)
+	e.Category = strPtr(category)
 	e.DisplayOrder = intPtr(order)
 	e.CreatedAt = parseNullTime(created)
 	e.UpdatedAt = parseNullTime(updated)
@@ -32,7 +33,8 @@ func scanInterviewEntry(row interface{ Scan(...any) error }) (model.InterviewEnt
 
 // InsertInterviewEntry stores a new interview-prep entry. The question is
 // trimmed and must not be empty; the answer may be empty at creation.
-// An unset answer format defaults to markdown.
+// An unset answer format defaults to markdown. A category is optional;
+// when supplied it is trimmed and must not be blank.
 func InsertInterviewEntry(ctx context.Context, q Querier, e model.InterviewEntry, now time.Time) (model.InterviewEntry, error) {
 	e.Question = strings.TrimSpace(e.Question)
 	if e.Question == "" {
@@ -44,11 +46,18 @@ func InsertInterviewEntry(ctx context.Context, q Querier, e model.InterviewEntry
 	if !e.AnswerFormat.Valid() {
 		return model.InterviewEntry{}, fmt.Errorf("insert interview entry: invalid answer_format %q", e.AnswerFormat)
 	}
+	if e.Category != nil {
+		category := strings.TrimSpace(*e.Category)
+		if category == "" {
+			return model.InterviewEntry{}, fmt.Errorf("insert interview entry: empty category")
+		}
+		e.Category = &category
+	}
 	ts := model.FormatTime(now)
 	res, err := q.ExecContext(ctx,
-		`INSERT INTO interview_entries(question, answer, answer_format, display_order, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		e.Question, e.Answer, string(e.AnswerFormat), nullIntFromInt(e.DisplayOrder), ts, ts)
+		`INSERT INTO interview_entries(question, answer, answer_format, category, display_order, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		e.Question, e.Answer, string(e.AnswerFormat), nullStr(e.Category), nullIntFromInt(e.DisplayOrder), ts, ts)
 	if err != nil {
 		return model.InterviewEntry{}, fmt.Errorf("insert interview entry: %w", err)
 	}
@@ -73,12 +82,15 @@ func GetInterviewEntry(ctx context.Context, q Querier, id int64) (model.Intervie
 	return e, nil
 }
 
-// ListInterviewEntries returns every entry: rows with an explicit
+// ListInterviewEntries returns every entry grouped by category: categories
+// sort alphabetically (case-insensitive) with uncategorized rows last.
+// Within a category the rule is unchanged: rows with an explicit
 // display_order first (ascending), then rows without one by id.
 func ListInterviewEntries(ctx context.Context, q Querier) ([]model.InterviewEntry, error) {
 	rows, err := q.QueryContext(ctx,
 		`SELECT `+interviewEntryColumns+` FROM interview_entries
-		 ORDER BY display_order IS NULL, display_order, id`)
+		 ORDER BY category IS NULL, category COLLATE NOCASE,
+		          display_order IS NULL, display_order, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list interview entries: %w", err)
 	}
@@ -95,10 +107,13 @@ func ListInterviewEntries(ctx context.Context, q Querier) ([]model.InterviewEntr
 }
 
 // InterviewEntryUpdate is a partial update. nil fields are left
-// unchanged; ClearDisplayOrder removes the manual position.
+// unchanged; ClearDisplayOrder removes the manual position and
+// ClearCategory moves the entry back to uncategorized.
 type InterviewEntryUpdate struct {
 	Question          *string
 	Answer            *string
+	Category          *string
+	ClearCategory     bool
 	DisplayOrder      *int
 	ClearDisplayOrder bool
 }
@@ -118,6 +133,17 @@ func UpdateInterviewEntry(ctx context.Context, q Querier, id int64, u InterviewE
 	if u.Answer != nil {
 		sets = append(sets, "answer = ?")
 		args = append(args, *u.Answer)
+	}
+	switch {
+	case u.ClearCategory:
+		sets = append(sets, "category = NULL")
+	case u.Category != nil:
+		category := strings.TrimSpace(*u.Category)
+		if category == "" {
+			return fmt.Errorf("update interview entry %d: empty category", id)
+		}
+		sets = append(sets, "category = ?")
+		args = append(args, category)
 	}
 	switch {
 	case u.ClearDisplayOrder:

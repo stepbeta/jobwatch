@@ -396,3 +396,17 @@ plain React + a lightweight table component is fine.
   application stays in Saved until un-bookmarked. The Applications
   Refresh scans only the enabled sources behind non-`todo` applications,
   sequentially through the existing per-source endpoint.
+- 2026-11-18 (after Milestone 10): interview-prep entries may carry one
+  free-form category via the nullable `interview_entries.category` column
+  (additive migration 0010). There is deliberately no categories table or
+  `/categories` endpoint; the category set is derived from the rows and
+  `NULL` means "Uncategorized". List responses group rows by category
+  (case-insensitive alphabetical, uncategorized last) and keep the
+  existing explicit-`display_order`-then-id rule inside each section. The
+  page groups entries into sections, allows entry drag-and-drop to
+  reorder or change category (persisted through `display_order` and
+  `category` PATCHes) and section drag-and-drop whose order is a
+  browser-local `localStorage` preference, never API data. The Add/Edit
+  dialog uses one large markdown editor with an Edit/View toggle and a
+  category dropdown instead of side-by-side textarea/preview panes; the
+  application base font size is 15px.

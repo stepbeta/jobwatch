@@ -599,3 +599,46 @@ No code, schema, API or behavior changed.
 
 No offer, event, note, company, classifier, adapter or scan-pipeline
 behavior changed.
+
+### Milestone 10 — Interview prep categories, reordering and dialog UX
+
+#### Added
+- Additive migration 0010 adds a nullable `interview_entries.category`.
+  There is no categories table: the category set is derived from the rows,
+  and `NULL` means "Uncategorized". Existing entries keep every value and
+  read as uncategorized.
+- `category` in the interview-prep API: returned by list/single responses;
+  accepted by POST (trimmed, non-blank; omitted/`null` stores `NULL`) and
+  PATCH (string replaces, `null` clears, `""` rejected). Listing now sorts
+  categories alphabetically (case-insensitive) with uncategorized last,
+  applying the existing `display_order`-then-id rule inside each section.
+- Category sections on the interview-prep page, an amber "No answer"
+  badge for entries with an empty answer, and native HTML5 drag-and-drop:
+  entries reorder within a section or move to another section (persisting
+  fresh `display_order` values and a category change through PATCH), while
+  section headers reorder the presentation-only section list.
+- The section order is saved as a JSON category array in `localStorage`,
+  restored on load, ignores stale names, appends new categories
+  alphabetically and always keeps "Uncategorized" last. A "Reset to
+  alphabetical" control clears the preference.
+- The Add/Edit dialog now has a question input, a category dropdown with
+  an inline "Add new category…" option, and one large markdown area with
+  an Edit/View toggle instead of the cramped side-by-side textarea and
+  preview.
+- The application base font size is raised from 14px to 15px (inherited
+  by form controls), keeping tables, badges and dialogs dense.
+- Tests: a 0010 migration-upgrade test (old rows survive, category NULL,
+  re-apply is a no-op), API tests for category trimming/blank/null and
+  per-section ordering, and component tests for section grouping, the
+  empty-answer cue, both drag-and-drop PATCH payloads, the Edit/View
+  toggle and new-category creation.
+
+#### Changed
+- `docs/API.md`, `docs/DATA-MODEL.md`, `docs/ARCHITECTURE.md`,
+  `docs/USAGE.md`, `docs/MILESTONES.md`, `docs/SPEC.md` and this
+  changelog document the category column, ordering rules, page behavior
+  and dialog change. The Milestone 9 "no reordering controls" gap is
+  closed.
+
+No offer, event, note, company, classifier, adapter, scan-pipeline or
+migration 0001–0009 behavior changed.

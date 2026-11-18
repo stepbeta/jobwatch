@@ -263,7 +263,7 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `pages/OfferPage.tsx` | bookmark toggle in the header, editable states/location, score badges with reason tooltips, collapsed provenance disclosure with explicit merge and split actions (open state stored per offer in localStorage), timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save) |
 | `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note) |
 | `pages/CompanyPage.tsx` | one two-column header block: company identity, actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; the offers list stays below. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
-| `pages/InterviewPrepPage.tsx` | personal interview FAQ: accordion of anticipated questions, rendered markdown answer when expanded, per-entry Edit/Delete, and an Add/Edit modal with a textarea plus a live preview pane |
+| `pages/InterviewPrepPage.tsx` | personal interview FAQ grouped into category sections, with an empty-answer cue, native HTML5 drag-and-drop for entries and sections (persisting `display_order`/`category` through PATCH; section order in `localStorage`), per-entry Edit/Delete, and an Add/Edit modal with a category dropdown and an Edit/View answer toggle |
 | `components/Markdown.tsx` | deliberately small markdown renderer for interview answers: headings, bold, italic, inline code, fenced code blocks and lists, emitted as React elements (never HTML) |
 | `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source/event/note/company) |
 | `components/Modal.tsx` | shared dialog shell (fixed backdrop, titled head, Escape/backdrop close, wide variant) used by the source add/edit form and the offer import dialog |
@@ -291,14 +291,23 @@ offers table remains a separate panel below. Both columns stack at
 `max-width: 900px`, the breakpoint already used by `.detail-columns`.
 
 The interview-prep page (`#/interview-prep`) is independent of offers and
-companies. It lists the personal FAQ as an accordion; the question is the
-always-visible header row with Edit and Delete actions, and expanding it
-renders the stored markdown answer. Add and Edit share one modal with a
-question input, a markdown textarea and a live preview pane. The renderer
-in `components/Markdown.tsx` supports only headings, bold, italic, inline
-code, fenced code blocks and lists, and returns React text nodes instead
-of HTML, so raw HTML in an answer is shown literally and never executed.
-Delete goes through the shared `ConfirmDialog`.
+companies. It groups the personal FAQ into one section per category
+(alphabetically, uncategorized last) and shows a small amber "No answer"
+badge on entries whose answer is empty. The question is the always-visible
+header row with Edit and Delete actions; expanding it renders the stored
+markdown answer. Entries and section headers use native HTML5 drag-and-drop
+(no dependency). Dropping an entry assigns fresh `display_order` values in
+the affected section(s) and PATCHes its `category` when it crosses
+sections; dropping a section header reorders the presentation-only section
+list, saved as a JSON category array in `localStorage` with a "Reset to
+alphabetical" control. Add and Edit share one modal with a question input,
+a category dropdown (existing names plus an inline "Add new category…"
+input) and a single large answer area with an Edit/View toggle; View uses
+the same markdown renderer. The renderer in `components/Markdown.tsx`
+supports only headings, bold, italic, inline code, fenced code blocks and
+lists, and returns React text nodes instead of HTML, so raw HTML in an
+answer is shown literally and never executed. Delete goes through the
+shared `ConfirmDialog`.
 
 The Sources header owns "Refresh all"; the top bar only navigates. The
 Dashboard's Applications Refresh is a client-side fan-out over

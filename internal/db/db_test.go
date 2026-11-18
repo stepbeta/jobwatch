@@ -760,6 +760,99 @@ func TestMigrationAddsInterviewEntries(t *testing.T) {
 	}
 }
 
+// TestMigrationAddsInterviewEntryCategory upgrades a 0009 database that
+// already contains an entry: the row survives untouched and reads as
+// uncategorized (NULL), and re-applying the migrations is a no-op.
+func TestMigrationAddsInterviewEntryCategory(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "category.db")
+	sqlDB, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+
+	base := fstest.MapFS{}
+	for _, name := range []string{
+		"0001_init.sql",
+		"0002_known_hard_sources.sql",
+		"0003_seed_remote_sources.sql",
+		"0004_seed_5c_sources.sql",
+		"0005_seed_bamboohr_sources.sql",
+		"0006_event_message_types.sql",
+		"0007_snapshot_origin.sql",
+		"0008_offer_saved_at.sql",
+		"0009_interview_entries.sql",
+	} {
+		body, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base[name] = &fstest.MapFile{Data: body}
+	}
+	if err := Migrate(ctx, sqlDB, base); err != nil {
+		t.Fatalf("apply migrations 0001-0009: %v", err)
+	}
+	if _, err := sqlDB.ExecContext(ctx,
+		`INSERT INTO interview_entries(question, answer, answer_format, display_order, created_at, updated_at)
+		 VALUES ('Old question', 'old answer', 'markdown', 7, '2026-11-16T09:00:00Z', '2026-11-16T09:00:00Z')`); err != nil {
+		t.Fatalf("insert pre-0010 row: %v", err)
+	}
+
+	if err := Migrate(ctx, sqlDB, migrations.FS); err != nil {
+		t.Fatalf("upgrade with embedded migrations: %v", err)
+	}
+	entries, err := ListInterviewEntries(ctx, sqlDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("upgraded database has %d entries, want 1", len(entries))
+	}
+	got := entries[0]
+	if got.Question != "Old question" || got.Answer != "old answer" ||
+		got.AnswerFormat != model.AnswerFormatMarkdown || got.DisplayOrder == nil || *got.DisplayOrder != 7 {
+		t.Errorf("existing row changed by 0010: %+v", got)
+	}
+	if got.Category != nil {
+		t.Errorf("existing row category = %q, want NULL", *got.Category)
+	}
+
+	// Re-applying the embedded set must not rerun 0010 or duplicate rows.
+	if err := Migrate(ctx, sqlDB, migrations.FS); err != nil {
+		t.Fatalf("re-apply embedded migrations: %v", err)
+	}
+	var recorded int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 10 AND name = 'interview_entry_category'`).
+		Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Errorf("migration 0010 recorded %d times, want 1", recorded)
+	}
+	entries, err = ListInterviewEntries(ctx, sqlDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID != got.ID {
+		t.Errorf("entries after re-apply = %+v", entries)
+	}
+
+	// The upgraded table accepts a category (trimmed on insert).
+	category := " Behavioural "
+	created, err := InsertInterviewEntry(ctx, sqlDB, model.InterviewEntry{
+		Question: "New question",
+		Category: &category,
+	}, time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Category == nil || *created.Category != "Behavioural" {
+		t.Errorf("created category = %v, want Behavioural", created.Category)
+	}
+}
+
 func boolPtr(v bool) *bool { return &v }
 
 func countSnapshotsByOrigin(t *testing.T, sqlDB *sql.DB, offerID int64) map[model.SnapshotOrigin]int {

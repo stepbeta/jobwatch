@@ -215,6 +215,7 @@ type interviewEntryJSON struct {
 	Question     string  `json:"question"`
 	Answer       string  `json:"answer"`
 	AnswerFormat string  `json:"answer_format"`
+	Category     *string `json:"category"`
 	DisplayOrder *int    `json:"display_order"`
 	CreatedAt    *string `json:"created_at"`
 	UpdatedAt    *string `json:"updated_at"`
@@ -226,6 +227,7 @@ func interviewEntryToJSON(e model.InterviewEntry) interviewEntryJSON {
 		Question:     e.Question,
 		Answer:       e.Answer,
 		AnswerFormat: string(e.AnswerFormat),
+		Category:     e.Category,
 		DisplayOrder: e.DisplayOrder,
 		CreatedAt:    timeString(e.CreatedAt),
 		UpdatedAt:    timeString(e.UpdatedAt),

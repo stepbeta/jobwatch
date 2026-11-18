@@ -199,13 +199,22 @@ Built with React + TypeScript (Vite). The pages are:
   stays below. Merging always asks which company row to keep; nothing is
   merged automatically.
 - **Interview prep** (`#/interview-prep`) — a personal FAQ of anticipated
-  interview questions and prepared answers. Questions form an accordion;
-  expanding one renders its answer. Add and Edit share a modal with a
-  question input, a markdown textarea and a live preview pane; Delete asks
-  for confirmation. Duplicate questions are allowed. Answers are stored as
-  markdown plaintext and rendered by a small built-in renderer (headings,
-  bold, italic, inline code, fenced code blocks and lists) that never
-  injects HTML, so raw HTML is displayed literally.
+  interview questions and prepared answers. Entries are grouped into one
+  section per category, sorted alphabetically with "Uncategorized" last; a
+  small amber "No answer" badge marks entries still waiting for a prepared
+  answer. Drag an entry within its section to reorder it, or onto another
+  section to change its category; the new order/category is saved through
+  the API and survives a reload. Drag a section header to reorder the
+  sections themselves — that order is only a browser preference stored in
+  `localStorage` and restored on load, and "Reset to alphabetical" clears
+  it. Questions form an accordion; expanding one renders its answer. Add
+  and Edit share a modal with a question input, a category dropdown
+  (existing names plus "Add new category…"), and one large markdown
+  editor with an Edit/View toggle; Delete asks for confirmation. Duplicate
+  questions are allowed. Answers are stored as markdown plaintext and
+  rendered by a small built-in renderer (headings, bold, italic, inline
+  code, fenced code blocks and lists) that never injects HTML, so raw HTML
+  is displayed literally.
 
 The bookmark is personal interest, not an application state. Saving an
 offer never changes its application or offer state, and if a saved offer

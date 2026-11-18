@@ -570,28 +570,41 @@ allowed: this is a personal notebook, not a deduplicated domain.
   "question": "Tell me about a production incident.",
   "answer": "**Situation**\n\n- alert fired\n- rolled back",
   "answer_format": "markdown",
+  "category": "Behavioural",
   "display_order": null,
   "created_at": "2026-11-17T09:00:00Z",
   "updated_at": "2026-11-17T09:00:00Z"
 }
 ```
 
+`category` is a free-form display name or `null` (uncategorized). There is
+no categories table and no `/categories` endpoint: the set of categories
+is derived from the stored rows.
+
 ### GET /api/interview-entries
 
-`200 { "interview_entries": [...] }`. Rows with an explicit
-`display_order` come first in ascending order; rows without one follow by
-`id`.
+`200 { "interview_entries": [...] }`. Rows are grouped by category.
+Categories sort alphabetically (case-insensitive) with uncategorized rows
+last. Within each category, rows with an explicit `display_order` come
+first in ascending order; rows without one follow by `id`.
 
 ### POST /api/interview-entries
 
 ```json
-{ "question": "Why this company?", "answer": "optional markdown" }
+{
+  "question": "Why this company?",
+  "answer": "optional markdown",
+  "category": "Motivation"
+}
 ```
 
 - `question` required and non-blank; it is trimmed.
 - `answer` optional (defaults to the empty string). It may be empty at
   creation.
 - `answer_format` optional, defaults to `markdown`; any other value is
+  `400 validation_failed`.
+- `category` optional: when supplied it is trimmed and must not be blank;
+  omitted or `null` stores `null` (uncategorized). A blank string is
   `400 validation_failed`.
 - `display_order` optional integer.
 - `201 { "interview_entry": {...} }`.
@@ -602,10 +615,13 @@ allowed: this is a personal notebook, not a deduplicated domain.
 
 ### PATCH /api/interview-entries/:id
 
-Any of `question`, `answer`, `display_order`.
+Any of `question`, `answer`, `category`, `display_order`.
 
 - `question` must be non-blank when supplied; it is trimmed.
 - `answer` replaces the stored markdown; `""` clears it.
+- `category` is a string (trimmed, must not be blank) or `null` to clear
+  it back to uncategorized. `""` and non-string values are
+  `400 validation_failed`.
 - `display_order` is an integer, or `null` to remove the manual position.
 - `answer_format` is not patchable (sending it is `400 invalid_json`).
 - An empty patch is `400 validation_failed`.

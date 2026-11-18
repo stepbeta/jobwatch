@@ -51,7 +51,7 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 a {
@@ -498,6 +498,10 @@ td.scores {
 
 .form-grid .span-2 {
   grid-column: span 2;
+}
+
+.form-grid .span-full {
+  grid-column: 1 / -1;
 }
 
 .form-grid label.checkbox {
@@ -1181,6 +1185,68 @@ details.panel > summary {
 }
 
 /* interview prep */
+.interview-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.interview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px dashed transparent;
+  border-radius: var(--radius);
+  padding: 2px;
+}
+
+.interview-section.is-drop-target {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--blue-bg) 45%, transparent);
+}
+
+.interview-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border: 1px dashed transparent;
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+
+.interview-section-head.can-drop {
+  border-color: var(--border);
+}
+
+.interview-section-head[draggable='true'] {
+  cursor: grab;
+}
+
+.interview-section-head.is-drop-target {
+  border-color: var(--accent);
+}
+
+.interview-section-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.interview-section-count {
+  font-size: 12px;
+}
+
+.interview-grip {
+  flex: 0 0 auto;
+  color: var(--muted);
+  cursor: grab;
+  letter-spacing: -2px;
+  user-select: none;
+}
+
 .interview-list {
   display: flex;
   flex-direction: column;
@@ -1191,6 +1257,10 @@ details.panel > summary {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--panel-alt);
+}
+
+.interview-entry.is-drop-target {
+  border-color: var(--accent);
 }
 
 .interview-head {
@@ -1226,6 +1296,19 @@ details.panel > summary {
   color: var(--muted);
 }
 
+.interview-cue {
+  flex: 0 0 auto;
+  margin-left: auto;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 7px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
 .interview-actions {
   display: flex;
   align-items: center;
@@ -1240,15 +1323,41 @@ details.panel > summary {
   border-radius: 0 0 var(--radius) var(--radius);
 }
 
-/* answer editor: textarea on the left, live preview on the right */
-.answer-editor {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px 14px;
-  align-items: stretch;
+/* answer editor: one large editable textarea, or its rendered preview */
+.answer-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
-.answer-editor label {
+.answer-tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.answer-tabs button {
+  border: none;
+  border-radius: 0;
+  padding: 3px 14px;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.answer-tabs button + button {
+  border-left: 1px solid var(--border);
+}
+
+.answer-tabs button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.answer-field {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1256,40 +1365,22 @@ details.panel > summary {
   color: var(--muted);
 }
 
-.answer-editor textarea {
-  flex: 1;
-  min-height: 220px;
+.answer-field textarea {
+  width: 100%;
+  min-height: 320px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
+  resize: vertical;
 }
 
-.answer-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.preview-label {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.answer-preview-body {
-  flex: 1;
-  min-height: 220px;
-  max-height: 360px;
+.answer-view {
+  min-height: 320px;
+  max-height: 480px;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--panel-alt);
   padding: 8px 10px;
-}
-
-@media (max-width: 720px) {
-  .answer-editor {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 /* rendered markdown (interview answers): dense, theme-aware, never HTML */

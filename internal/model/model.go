@@ -269,6 +269,7 @@ type InterviewEntry struct {
 	Question     string
 	Answer       string
 	AnswerFormat AnswerFormat
+	Category     *string
 	DisplayOrder *int
 	CreatedAt    time.Time
 	UpdatedAt    time.Time

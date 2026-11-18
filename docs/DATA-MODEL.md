@@ -20,6 +20,7 @@ require a table rebuild.
 | 0007 | `0007_snapshot_origin.sql` | Additive schema change for Milestone 7c: `ALTER TABLE snapshots ADD COLUMN origin TEXT NOT NULL DEFAULT 'scan'`. Existing snapshots keep their text/timestamps and read as `scan`; new inserts record `scan` or `manual`. No row is deleted or rewritten |
 | 0008 | `0008_offer_saved_at.sql` | Additive schema change for Milestone 7e: `ALTER TABLE job_offers ADD COLUMN saved_at TEXT`. NULL means not bookmarked; a value is the UTC RFC3339 bookmark time. Existing offers keep every column and read as not saved. No row is deleted or rewritten |
 | 0009 | `0009_interview_entries.sql` | Additive schema change for Milestone 9: creates `interview_entries` for the personal interview-prep FAQ. No existing table or row changes |
+| 0010 | `0010_interview_entry_category.sql` | Additive schema change for Milestone 10: `ALTER TABLE interview_entries ADD COLUMN category TEXT`. NULL means uncategorized; existing entries keep every column and read as uncategorized. No row is deleted or rewritten |
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -37,7 +38,9 @@ whether it came from a scan/import or a manual description edit.
 Milestone 7e adds the nullable `job_offers.saved_at` bookmark in 0008;
 it is orthogonal to `offer_state` and `application_state`.
 Milestone 9 adds the standalone `interview_entries` table in 0009; it is
-not linked to offers, companies or the application lifecycle.
+not linked to offers, companies or the application lifecycle. Milestone
+10 adds the nullable `interview_entries.category` column in 0010; there is
+no categories table, so the category set is derived from the rows.
 
 ## Tables
 
@@ -222,15 +225,19 @@ when that event is deleted). The pin must belong to the note's entity
 | question | TEXT NOT NULL | plain-text anticipated question; trimmed, must not be blank |
 | answer | TEXT NOT NULL DEFAULT '' | prepared answer as **markdown plaintext**, never HTML; may be empty at creation |
 | answer_format | TEXT NOT NULL DEFAULT 'markdown' | enum-like, validated in Go; `markdown` is the only value for now |
+| category | TEXT | free-form category name or NULL (uncategorized); trimmed, non-blank when supplied. No categories table: the set is derived from the rows |
 | display_order | INTEGER | optional manual position; NULL falls back to id order |
 | created_at, updated_at | TEXT | |
 
 Written by the interview-prep API (`/api/interview-entries`). Duplicate
-questions are allowed. Listing returns explicit `display_order` rows first
-in ascending order, then the remaining rows by id. The web UI renders the
-answer with a small in-house markdown renderer that emits React text nodes
-(no `dangerouslySetInnerHTML`), so raw HTML in an answer is displayed
-literally and cannot execute.
+questions are allowed. Listing groups rows by category: categories sort
+alphabetically (case-insensitive), uncategorized rows last, and within each
+category explicit `display_order` rows come first in ascending order, then
+the remaining rows by id. The web UI renders the answer with a small
+in-house markdown renderer that emits React text nodes (no
+`dangerouslySetInnerHTML`), so raw HTML in an answer is displayed literally
+and cannot execute. The chosen section order is a presentation-only
+preference stored in the browser's `localStorage`, never in the database.
 
 ### Manual import metadata
 

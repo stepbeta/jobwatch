@@ -13,18 +13,23 @@ import (
 
 // interviewEntryInput is the POST body. question is required; answer may
 // be empty at creation. answer_format is enum-like and validated in Go.
+// category is optional; omitted or null stores NULL (uncategorized).
 type interviewEntryInput struct {
-	Question     string `json:"question"`
-	Answer       string `json:"answer"`
-	AnswerFormat string `json:"answer_format"`
-	DisplayOrder *int   `json:"display_order"`
+	Question     string  `json:"question"`
+	Answer       string  `json:"answer"`
+	AnswerFormat string  `json:"answer_format"`
+	Category     *string `json:"category"`
+	DisplayOrder *int    `json:"display_order"`
 }
 
 // interviewEntryPatch is the PATCH body. answer_format is intentionally
 // absent: changing the stored format is not part of this milestone.
+// category is a raw message so an absent field, null and a string are
+// distinguishable.
 type interviewEntryPatch struct {
 	Question     *string         `json:"question"`
 	Answer       *string         `json:"answer"`
+	Category     json.RawMessage `json:"category"`
 	DisplayOrder json.RawMessage `json:"display_order"`
 }
 
@@ -59,10 +64,20 @@ func (s *Server) createInterviewEntry(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", fmt.Sprintf("invalid answer_format %q", format))
 		return
 	}
+	var category *string
+	if in.Category != nil {
+		trimmed := strings.TrimSpace(*in.Category)
+		if trimmed == "" {
+			writeError(w, http.StatusBadRequest, "validation_failed", "category must not be blank")
+			return
+		}
+		category = &trimmed
+	}
 	e, err := db.InsertInterviewEntry(r.Context(), s.DB, model.InterviewEntry{
 		Question:     question,
 		Answer:       in.Answer,
 		AnswerFormat: format,
+		Category:     category,
 		DisplayOrder: in.DisplayOrder,
 	}, s.now())
 	if err != nil {
@@ -119,6 +134,23 @@ func (s *Server) patchInterviewEntry(w http.ResponseWriter, r *http.Request) {
 	if in.Answer != nil {
 		u.Answer = in.Answer
 	}
+	if len(in.Category) > 0 {
+		if string(in.Category) == "null" {
+			u.ClearCategory = true
+		} else {
+			var category string
+			if err := json.Unmarshal(in.Category, &category); err != nil {
+				writeError(w, http.StatusBadRequest, "validation_failed", "category must be a string or null")
+				return
+			}
+			category = strings.TrimSpace(category)
+			if category == "" {
+				writeError(w, http.StatusBadRequest, "validation_failed", "category must not be blank")
+				return
+			}
+			u.Category = &category
+		}
+	}
 	if len(in.DisplayOrder) > 0 {
 		if string(in.DisplayOrder) == "null" {
 			u.ClearDisplayOrder = true
@@ -131,9 +163,10 @@ func (s *Server) patchInterviewEntry(w http.ResponseWriter, r *http.Request) {
 			u.DisplayOrder = &order
 		}
 	}
-	if u.Question == nil && u.Answer == nil && u.DisplayOrder == nil && !u.ClearDisplayOrder {
+	if u.Question == nil && u.Answer == nil && u.Category == nil && !u.ClearCategory &&
+		u.DisplayOrder == nil && !u.ClearDisplayOrder {
 		writeError(w, http.StatusBadRequest, "validation_failed",
-			"nothing to update: provide question, answer or display_order")
+			"nothing to update: provide question, answer, category or display_order")
 		return
 	}
 	if err := db.UpdateInterviewEntry(ctx, s.DB, id, u, s.now()); err != nil {

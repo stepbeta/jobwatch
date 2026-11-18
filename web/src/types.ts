@@ -134,6 +134,7 @@ export interface InterviewEntry {
   question: string
   answer: string
   answer_format: AnswerFormat
+  category: string | null
   display_order: number | null
   created_at: string | null
   updated_at: string | null

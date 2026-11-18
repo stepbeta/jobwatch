@@ -5,18 +5,21 @@ added here as they start.
 
 ## Current state
 
-Milestones 1–9 are complete. The binary scans the 70 seeded sources
+Milestones 1–10 are complete. The binary scans the 70 seeded sources
 plus any sources the user adds, detects new/changed/disappeared offers,
 classifies them deterministically, and serves the React UI and REST API
 from one process.
 End to end, a user can add sources, scan, filter and bookmark offers, set
 application states, keep a timeline and notes, browse description
 versions, merge or split records after explicit confirmation, and build a
-personal interview-prep FAQ with markdown answers.
+personal interview-prep FAQ with categorized markdown answers and
+drag-and-drop ordering.
 Milestone 8 reorganizes the README and adds `docs/USAGE.md`; it changes no
 behavior, schema or API. Milestone 9 adds the standalone interview-prep
-table, REST resource and page. Open items and deliberate limitations
-remain in the known-gaps table below.
+table, REST resource and page. Milestone 10 adds entry categories,
+section/entry drag-and-drop, the redesigned answer dialog and a slightly
+larger base font. Open items and deliberate limitations remain in the
+known-gaps table below.
 
 ## Milestone 1 — Core: bootstrap, database, sources, scan, CLI — DONE
 
@@ -673,6 +676,53 @@ Done criteria (all met):
 | `display_order` is supported by the API but there are no up/down reordering controls yet | the prompt marks reordering optional and forbids drag-and-drop; adding reliable mixed-NULL ordering controls was not cheap enough for this milestone |
 | Rows with an explicit `display_order` sort before rows without one | SQLite's default would put NULLs first, which makes a partially ordered list confusing; the fallback to id stays defined |
 
+## Milestone 10 — Interview prep categories, reordering and dialog UX — DONE
+
+Done criteria (all met):
+- [x] Additive migration 0010 adds nullable `interview_entries.category`;
+      existing entries keep every column and read as uncategorized. No
+      categories table, no `/categories` endpoint: the category set is
+      derived from the rows.
+- [x] `category` is returned by list/single responses and accepted by
+      POST (trimmed, non-blank; omitted/`null` means uncategorized) and
+      PATCH (string replaces, `null` clears, `""`/non-string rejected).
+      Unknown fields are still rejected.
+- [x] List ordering is per section: categories alphabetically
+      (case-insensitive), uncategorized last, and within each section the
+      existing explicit-`display_order`-then-id rule.
+- [x] The interview-prep page groups entries into visible category
+      sections, flags empty answers with an amber cue, and supports native
+      HTML5 drag-and-drop: entries reorder within a section, cross-section
+      drops change the category, and fresh `display_order` values plus the
+      moved category are persisted through PATCH.
+- [x] Section headers are draggable; the presentation-only section order
+      is stored in `localStorage`, restored on load, ignores stale names,
+      appends new categories alphabetically and keeps "Uncategorized"
+      last. "Reset to alphabetical" restores the default.
+- [x] Add/Edit modal now has a question input, a category dropdown with an
+      inline "Add new category…" option, and one large markdown area with
+      an Edit/View toggle (no side-by-side panes). Save/Cancel,
+      validation, errors and the shared Modal shell are unchanged.
+- [x] Base font size raised from 14px to 15px for body and inherited form
+      controls, keeping tables, badges and dialogs dense.
+- [x] Tests: migration-upgrade test for 0010, API tests for category
+      round-trips/validation and per-section ordering, and Vitest tests
+      for section grouping, the empty-answer cue, both drag-and-drop
+      payloads, the Edit/View toggle and new-category creation.
+- [x] `go build`, `go vet`, `go test`, `npm run build` and `npm test`
+      green; offers/events/notes/companies, the classifier, adapters,
+      scan pipeline and migrations 0001–0009 are unchanged.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| Categories are free-form row values, not a table | the prompt forbids a categories table and a `/categories` endpoint; deriving the set keeps the schema additive and avoids orphan cleanup |
+| Native HTML5 drag-and-drop, no dependency | fits the zero-dependency UI constraint; the drag state is held in React rather than relying on `DataTransfer`, which jsdom does not fully implement |
+| Entry drops always rewrite `display_order` for the affected section(s) | guarantees a deterministic order that survives reload even when some rows previously had no explicit position |
+| Section order is browser-local only | it is a presentation preference; keeping it out of the API/database avoids inventing a second persistence model |
+| The "No answer" cue is the literal empty-string check (after trim) | whitespace-only answers are just as unprepared, and the badge is only a scan aid |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -691,8 +741,7 @@ Done criteria (all met):
 | Pre-7c snapshot origins are all `scan` | §9 | By design after 7c. The old schema had no reliable manual marker; only snapshots written from 7c onward carry an exact origin |
 | Manual description edits do not refresh classifier scores | §6 | Open. Scores keep their previous values until the next sighting or `jobwatch reclassify --all`; the edit itself is versioned normally |
 | Offer merge does not carry the absorbed offer's bookmark | §9 | Open. The kept offer keeps its own `saved_at`; the absorbed bookmark is not copied. Merge semantics were left unchanged in 7e |
-| Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, the offers import modal, the company two-column layout, hash routing and interview prep (accordion, add/edit/delete, escaped markdown) | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); offers filters/pagination, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
-| Interview prep has no reordering controls | §9 | Open. `display_order` is stored and patchable through the API, but the UI has no up/down buttons; entries without one fall back to id order |
+| Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, the offers import modal, the company two-column layout, hash routing and interview prep (sections, cue, drag-and-drop payloads, Edit/View, new category, accordion, add/edit/delete, escaped markdown) | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); offers filters/pagination, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
 | Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |

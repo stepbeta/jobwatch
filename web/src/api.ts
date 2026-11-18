@@ -202,11 +202,19 @@ export const api = {
   // interview prep
   listInterviewEntries: () =>
     request<{ interview_entries: InterviewEntry[] }>('/interview-entries'),
-  createInterviewEntry: (input: { question: string; answer?: string }) =>
-    request<{ interview_entry: InterviewEntry }>('/interview-entries', body('POST', input)),
+  createInterviewEntry: (input: {
+    question: string
+    answer?: string
+    category?: string | null
+  }) => request<{ interview_entry: InterviewEntry }>('/interview-entries', body('POST', input)),
   updateInterviewEntry: (
     id: number,
-    patch: { question?: string; answer?: string; display_order?: number | null },
+    patch: {
+      question?: string
+      answer?: string
+      category?: string | null
+      display_order?: number | null
+    },
   ) => request<{ interview_entry: InterviewEntry }>(`/interview-entries/${id}`, body('PATCH', patch)),
   deleteInterviewEntry: (id: number) =>
     request<void>(`/interview-entries/${id}`, { method: 'DELETE' }),

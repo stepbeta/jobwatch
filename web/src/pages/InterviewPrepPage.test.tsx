@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { InterviewPrepPage } from './InterviewPrepPage'
 import { api } from '../api'
@@ -15,11 +15,14 @@ vi.mock('../api', () => ({
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }))
 
+const CATEGORY_ORDER_KEY = 'jobwatch.interview.categoryOrder'
+
 const incident: InterviewEntry = {
   id: 1,
   question: 'Tell me about a production incident.',
   answer: 'Two years of on-call rotation.',
   answer_format: 'markdown',
+  category: 'Behavioural',
   display_order: null,
   created_at: '2026-11-16T09:00:00Z',
   updated_at: '2026-11-16T09:00:00Z',
@@ -30,9 +33,32 @@ const motivation: InterviewEntry = {
   question: 'Why this company?',
   answer: '',
   answer_format: 'markdown',
+  category: 'Behavioural',
   display_order: null,
   created_at: '2026-11-16T09:05:00Z',
   updated_at: '2026-11-16T09:05:00Z',
+}
+
+const values: InterviewEntry = {
+  id: 3,
+  question: 'What are your core values?',
+  answer: 'Ownership and pragmatism.',
+  answer_format: 'markdown',
+  category: 'Values',
+  display_order: null,
+  created_at: '2026-11-16T09:10:00Z',
+  updated_at: '2026-11-16T09:10:00Z',
+}
+
+const uncategorized: InterviewEntry = {
+  id: 4,
+  question: 'Any other question?',
+  answer: '',
+  answer_format: 'markdown',
+  category: null,
+  display_order: null,
+  created_at: '2026-11-16T09:15:00Z',
+  updated_at: '2026-11-16T09:15:00Z',
 }
 
 function renderPage(entries: InterviewEntry[] = [incident, motivation]) {
@@ -42,11 +68,20 @@ function renderPage(entries: InterviewEntry[] = [incident, motivation]) {
   return { ...view, onNotice }
 }
 
+function regionNames(): string[] {
+  return screen
+    .getAllByRole('region')
+    .map((region) => region.getAttribute('aria-label') ?? '')
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(api.listInterviewEntries).mockResolvedValue({ interview_entries: [incident, motivation] })
+  localStorage.clear()
+  vi.mocked(api.listInterviewEntries).mockResolvedValue({
+    interview_entries: [incident, motivation],
+  })
   vi.mocked(api.createInterviewEntry).mockResolvedValue({
-    interview_entry: { ...incident, id: 3, question: 'New question' },
+    interview_entry: { ...incident, id: 5, question: 'New question', category: null },
   })
   vi.mocked(api.updateInterviewEntry).mockResolvedValue({
     interview_entry: { ...incident, question: 'Updated question' },
@@ -75,8 +110,100 @@ describe('InterviewPrepPage accordion', () => {
   it('shows a hint for an entry without an answer', async () => {
     const user = userEvent.setup()
     renderPage()
+    const cue = await screen.findByText('No answer')
+    expect(cue.className).toContain('interview-cue')
+
     await user.click(await screen.findByRole('button', { name: motivation.question }))
     expect(screen.getByText(/No answer yet/)).toBeTruthy()
+  })
+})
+
+describe('InterviewPrepPage sections', () => {
+  it('groups entries by category, sorts categories alphabetically and puts uncategorized last', async () => {
+    renderPage([uncategorized, values, incident, motivation])
+    await screen.findByRole('region', { name: 'Behavioural' })
+
+    expect(regionNames()).toEqual(['Behavioural', 'Values', 'Uncategorized'])
+
+    const behavioural = screen.getByRole('region', { name: 'Behavioural' })
+    const valuesSection = screen.getByRole('region', { name: 'Values' })
+    const uncategorizedSection = screen.getByRole('region', { name: 'Uncategorized' })
+    expect(within(behavioural).getByRole('button', { name: incident.question })).toBeTruthy()
+    expect(within(valuesSection).getByRole('button', { name: values.question })).toBeTruthy()
+    expect(
+      within(uncategorizedSection).getByRole('button', { name: uncategorized.question }),
+    ).toBeTruthy()
+  })
+
+  it('persists a dragged section order and resets to alphabetical', async () => {
+    const user = userEvent.setup()
+    const first = renderPage([incident, values])
+    await screen.findByRole('region', { name: 'Behavioural' })
+
+    const valuesHeader = screen.getByRole('heading', { name: 'Values' }).parentElement
+    const behaviouralSection = screen.getByRole('region', { name: 'Behavioural' })
+    expect(valuesHeader).not.toBeNull()
+
+    fireEvent.dragStart(valuesHeader!)
+    fireEvent.dragOver(behaviouralSection)
+    fireEvent.drop(behaviouralSection)
+
+    await waitFor(() =>
+      expect(localStorage.getItem(CATEGORY_ORDER_KEY)).toBe(
+        JSON.stringify(['Values', 'Behavioural']),
+      ),
+    )
+    expect(regionNames()).toEqual(['Values', 'Behavioural'])
+
+    // A fresh mount restores the saved presentation order.
+    first.unmount()
+    renderPage([incident, values])
+    await screen.findByRole('region', { name: 'Values' })
+    expect(regionNames()).toEqual(['Values', 'Behavioural'])
+
+    await user.click(screen.getByRole('button', { name: 'Reset to alphabetical' }))
+    expect(localStorage.getItem(CATEGORY_ORDER_KEY)).toBeNull()
+    await waitFor(() => expect(regionNames()).toEqual(['Behavioural', 'Values']))
+  })
+})
+
+describe('InterviewPrepPage drag and drop', () => {
+  it('reorders entries inside a section with fresh display_order values', async () => {
+    const { container } = renderPage([incident, motivation])
+    await screen.findByRole('button', { name: incident.question })
+
+    const dragged = container.querySelector('[data-entry-id="2"]')
+    const target = container.querySelector('[data-entry-id="1"]')
+    expect(dragged).not.toBeNull()
+    expect(target).not.toBeNull()
+
+    fireEvent.dragStart(dragged!)
+    fireEvent.dragOver(target!)
+    fireEvent.drop(target!)
+
+    await waitFor(() => expect(api.updateInterviewEntry).toHaveBeenCalledTimes(2))
+    expect(api.updateInterviewEntry).toHaveBeenCalledWith(2, { display_order: 1 })
+    expect(api.updateInterviewEntry).toHaveBeenCalledWith(1, { display_order: 2 })
+  })
+
+  it('moves an entry across sections and patches its category', async () => {
+    const { container } = renderPage([incident, values])
+    await screen.findByRole('region', { name: 'Values' })
+
+    const dragged = container.querySelector('[data-entry-id="1"]')
+    const targetSection = screen.getByRole('region', { name: 'Values' })
+    expect(dragged).not.toBeNull()
+
+    fireEvent.dragStart(dragged!)
+    fireEvent.dragOver(targetSection)
+    fireEvent.drop(targetSection)
+
+    await waitFor(() => expect(api.updateInterviewEntry).toHaveBeenCalledTimes(2))
+    expect(api.updateInterviewEntry).toHaveBeenCalledWith(3, { display_order: 1 })
+    expect(api.updateInterviewEntry).toHaveBeenCalledWith(1, {
+      display_order: 2,
+      category: 'Values',
+    })
   })
 })
 
@@ -111,25 +238,53 @@ describe('InterviewPrepPage markdown', () => {
 })
 
 describe('InterviewPrepPage editor', () => {
-  it('creates an entry from the add modal with a live preview', async () => {
+  it('toggles the answer area between Edit and View', async () => {
     const user = userEvent.setup()
-    const { onNotice } = renderPage()
+    renderPage([incident])
+
+    await user.click(await screen.findByRole('button', { name: `Edit ${incident.question}` }))
+    const dialog = await screen.findByRole('dialog')
+
+    const answer = within(dialog).getByLabelText('Answer (markdown)')
+    await user.clear(answer)
+    await user.type(answer, '**prepared** answer')
+
+    await user.click(within(dialog).getByRole('tab', { name: 'View' }))
+    expect(within(dialog).queryByLabelText('Answer (markdown)')).toBeNull()
+    expect(within(dialog).getByText('prepared').tagName).toBe('STRONG')
+
+    await user.click(within(dialog).getByRole('tab', { name: 'Edit' }))
+    expect((within(dialog).getByLabelText('Answer (markdown)') as HTMLTextAreaElement).value).toBe(
+      '**prepared** answer',
+    )
+  })
+
+  it('creates an entry with a new category from the add modal', async () => {
+    const user = userEvent.setup()
+    const { onNotice } = renderPage([incident, values])
 
     await screen.findByRole('button', { name: incident.question })
     await user.click(screen.getByRole('button', { name: 'Add' }))
     const dialog = await screen.findByRole('dialog')
 
-    await user.type(within(dialog).getByLabelText('Question'), 'New question')
-    await user.type(within(dialog).getByLabelText('Answer (markdown)'), '**prepared** answer')
-
-    // The preview pane renders the markdown while typing.
-    expect(within(dialog).getByText('prepared').tagName).toBe('STRONG')
+    await user.type(within(dialog).getByLabelText('Question'), 'Tell me about a conflict')
+    const category = within(dialog).getByLabelText('Category') as HTMLSelectElement
+    expect([...category.options].map((option) => option.textContent)).toEqual([
+      'Uncategorized',
+      'Behavioural',
+      'Values',
+      'Add new category…',
+    ])
+    await user.selectOptions(category, '__new__')
+    await user.type(within(dialog).getByLabelText('New category'), 'STAR')
+    await user.type(within(dialog).getByLabelText('Answer (markdown)'), 'Use **STAR**')
 
     await user.click(within(dialog).getByRole('button', { name: 'Add entry' }))
     await waitFor(() =>
       expect(api.createInterviewEntry).toHaveBeenCalledWith({
-        question: 'New question',
-        answer: '**prepared** answer',
+        question: 'Tell me about a conflict',
+        answer: 'Use **STAR**',
+        category: 'STAR',
       }),
     )
     expect(onNotice).toHaveBeenCalledWith('success', 'Interview entry added.')
@@ -144,6 +299,9 @@ describe('InterviewPrepPage editor', () => {
     const dialog = await screen.findByRole('dialog')
     const question = within(dialog).getByLabelText('Question') as HTMLInputElement
     expect(question.value).toBe(incident.question)
+    expect((within(dialog).getByLabelText('Category') as HTMLSelectElement).value).toBe(
+      'Behavioural',
+    )
 
     await user.clear(question)
     await user.type(question, 'Updated question')
@@ -156,6 +314,7 @@ describe('InterviewPrepPage editor', () => {
       expect(api.updateInterviewEntry).toHaveBeenCalledWith(incident.id, {
         question: 'Updated question',
         answer: 'Updated **answer**',
+        category: 'Behavioural',
       }),
     )
     expect(onNotice).toHaveBeenCalledWith('success', 'Interview entry saved.')
