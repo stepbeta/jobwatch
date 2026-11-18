@@ -2,13 +2,64 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
 import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
 import { Link } from '../components/Link'
-import { OfferTable } from '../components/OfferTable'
+import { OFFER_SORT_LABELS, OFFER_SORT_VALUES, OfferTable, defaultOfferSortOrder } from '../components/OfferTable'
+import { PageSizeSelect, isPageSize, toggleSort, useDebouncedValue, type SortOrder } from '../components/TableControls'
 import { fmtDateTime } from '../format'
+import { currentRouteQuery, enumParam, intParam, replaceRouteQuery } from '../router'
 import type { NoticeKind } from '../App'
-import type { CompanyCandidate, CompanyDetail } from '../types'
+import type { CompanyCandidate, CompanyDetail, OfferList } from '../types'
 
 function dismissedKey(companyID: number): string {
   return `jobwatch.dismissed-duplicates:${companyID}`
+}
+
+const COMPANY_PER_PAGE_KEY = 'companyOffers.perPage'
+const COMPANY_DEFAULT_PER_PAGE = 20
+const COMPANY_DEFAULT_SORT = 'last_seen'
+
+interface CompanyOffersView {
+  q?: string
+  sort: string
+  order: SortOrder
+  page: number
+  perPage: number
+}
+
+function readCompanyPerPage(): number {
+  try {
+    const raw = window.localStorage.getItem(COMPANY_PER_PAGE_KEY)
+    const n = raw === null ? undefined : Number(raw)
+    if (isPageSize(n)) return n
+  } catch {
+    // fall through to the default
+  }
+  return COMPANY_DEFAULT_PER_PAGE
+}
+
+function readCompanyOffersView(): CompanyOffersView {
+  const params = currentRouteQuery()
+  const sort = enumParam(params, 'sort', OFFER_SORT_VALUES) ?? COMPANY_DEFAULT_SORT
+  const perPage = intParam(params, 'per_page')
+  const page = intParam(params, 'page')
+  return {
+    q: params.get('q')?.trim() || undefined,
+    sort,
+    order: enumParam(params, 'order', ['asc', 'desc'] as const) ?? defaultOfferSortOrder(sort),
+    page: page !== undefined && page > 0 ? page : 1,
+    perPage: isPageSize(perPage) ? perPage : readCompanyPerPage(),
+  }
+}
+
+function writeCompanyURL(view: CompanyOffersView): void {
+  const params = new URLSearchParams()
+  if (view.q) params.set('q', view.q)
+  if (view.sort !== COMPANY_DEFAULT_SORT || view.order !== defaultOfferSortOrder(COMPANY_DEFAULT_SORT)) {
+    params.set('sort', view.sort)
+    params.set('order', view.order)
+  }
+  if (view.page > 1) params.set('page', String(view.page))
+  params.set('per_page', String(view.perPage))
+  replaceRouteQuery(params)
 }
 
 export function CompanyPage({
@@ -26,6 +77,12 @@ export function CompanyPage({
   const [name, setName] = useState('')
   const [website, setWebsite] = useState('')
   const [dismissed, setDismissed] = useState<number[]>([])
+  const [offers, setOffers] = useState<OfferList | null>(null)
+  const [offersView, setOffersView] = useState<CompanyOffersView>(readCompanyOffersView)
+  const [offerSearch, setOfferSearch] = useState(() => offersView.q ?? '')
+  const [offersLoading, setOffersLoading] = useState(false)
+  const [offersToken, setOffersToken] = useState(0)
+  const debouncedOfferSearch = useDebouncedValue(offerSearch)
 
   const [mergeTarget, setMergeTarget] = useState<CompanyCandidate | null>(null)
   const [keepID, setKeepID] = useState<number>(id)
@@ -55,6 +112,49 @@ export function CompanyPage({
     setDismissed(readDismissed(id))
     void load()
   }, [id, load])
+
+  useEffect(() => {
+    const next = readCompanyOffersView()
+    setOffersView(next)
+    setOfferSearch(next.q ?? '')
+  }, [id])
+
+  useEffect(() => {
+    setOffersView((v) => {
+      const q = debouncedOfferSearch.trim() || undefined
+      return v.q === q ? v : { ...v, q, page: 1 }
+    })
+  }, [debouncedOfferSearch])
+
+  useEffect(() => {
+    writeCompanyURL(offersView)
+  }, [offersView])
+
+  useEffect(() => {
+    let cancelled = false
+    setOffersLoading(true)
+    api
+      .listOffers({
+        company_id: id,
+        q: offersView.q,
+        sort: offersView.sort,
+        order: offersView.order,
+        limit: offersView.perPage,
+        offset: (offersView.page - 1) * offersView.perPage,
+      })
+      .then((r) => {
+        if (!cancelled) setOffers(r)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(errorMessage(e))
+      })
+      .finally(() => {
+        if (!cancelled) setOffersLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id, offersView, offersToken])
 
   async function addNote(e: FormEvent) {
     e.preventDefault()
@@ -139,6 +239,7 @@ export function CompanyPage({
         await api.mergeCompany(mergeTarget.id, detail.company.id)
         setMergeTarget(null)
         await load()
+        setOffersToken((t) => t + 1)
       } else {
         const res = await api.mergeCompany(detail.company.id, keepID)
         window.location.hash = `#/companies/${res.company.id}`
@@ -148,6 +249,34 @@ export function CompanyPage({
     } finally {
       setMergeBusy(false)
     }
+  }
+
+  function handleOfferSort(sortKey: string) {
+    setOffersView((v) => ({
+      ...v,
+      ...toggleSort(v.sort, v.order, sortKey, defaultOfferSortOrder),
+      page: 1,
+    }))
+  }
+
+  function changeCompanyPerPage(value: number) {
+    try {
+      window.localStorage.setItem(COMPANY_PER_PAGE_KEY, String(value))
+    } catch {
+      // presentation-only preference
+    }
+    setOffersView((v) => ({ ...v, perPage: value, page: 1 }))
+  }
+
+  function resetOfferFilters() {
+    setOfferSearch('')
+    setOffersView((v) => ({
+      q: undefined,
+      sort: COMPANY_DEFAULT_SORT,
+      order: defaultOfferSortOrder(COMPANY_DEFAULT_SORT),
+      page: 1,
+      perPage: v.perPage,
+    }))
   }
 
   if (loading && !detail) {
@@ -297,13 +426,89 @@ export function CompanyPage({
       <section className="panel">
         <div className="section-head">
           <h2>Offers</h2>
-          <span className="muted">{detail.offers.length} shown</span>
+          <span className="muted">
+            {offers?.total ?? 0} match{(offers?.total ?? 0) === 1 ? '' : 'es'}
+          </span>
         </div>
-        <OfferTable
-          offers={detail.offers}
-          showCompany={false}
-          emptyText="This company has no offers yet."
-        />
+        <div className="filters">
+          <label>
+            Search
+            <input
+              type="search"
+              placeholder="title or description (FTS)"
+              value={offerSearch}
+              onChange={(e) => setOfferSearch(e.target.value)}
+            />
+          </label>
+          <label>
+            Sort
+            <select
+              value={offersView.sort}
+              onChange={(e) => {
+                const sort = e.target.value
+                setOffersView((v) => ({ ...v, sort, order: defaultOfferSortOrder(sort), page: 1 }))
+              }}
+            >
+              {OFFER_SORT_VALUES.map((s) => (
+                <option key={s} value={s}>
+                  {OFFER_SORT_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="filter-actions">
+            <button type="button" onClick={resetOfferFilters}>
+              Reset
+            </button>
+          </div>
+        </div>
+        {offersLoading && !offers ? (
+          <p className="muted" aria-busy="true">
+            Loading offers…
+          </p>
+        ) : (
+          <OfferTable
+            offers={offers?.offers ?? []}
+            showCompany={false}
+            emptyText={
+              offersView.q ? 'No offers match this search.' : 'This company has no offers yet.'
+            }
+            sort={offersView.sort}
+            order={offersView.order}
+            onSort={handleOfferSort}
+          />
+        )}
+        <div className="pagination">
+          <button
+            type="button"
+            disabled={offersView.page <= 1}
+            onClick={() =>
+              setOffersView((v) => ({ ...v, page: Math.max(1, v.page - 1) }))
+            }
+          >
+            ← Previous
+          </button>
+          <span className="muted">
+            {(offers?.total ?? 0) === 0
+              ? '0'
+              : `${(offersView.page - 1) * offersView.perPage + 1}–${Math.min(
+                  offersView.page * offersView.perPage,
+                  offers?.total ?? 0,
+                )}`}{' '}
+            of {offers?.total ?? 0}
+          </span>
+          <button
+            type="button"
+            disabled={
+              (offers?.total ?? 0) === 0 ||
+              offersView.page * offersView.perPage >= (offers?.total ?? 0)
+            }
+            onClick={() => setOffersView((v) => ({ ...v, page: v.page + 1 }))}
+          >
+            Next →
+          </button>
+          <PageSizeSelect value={offersView.perPage} onChange={changeCompanyPerPage} />
+        </div>
       </section>
 
       {confirm && <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />}

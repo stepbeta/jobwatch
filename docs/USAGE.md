@@ -194,34 +194,44 @@ Built with React + TypeScript (Vite). The pages are:
   Saved shows every bookmarked offer regardless of application state;
   its "Show all" link opens the offers page with the saved filter preset.
 - **Offers** (`#/offers`) — the full table with filters (application/offer
-  state, remote policy, saved/unsaved, score minima, company, full-text
-  search), sorting and pagination, a star bookmark toggle on every row,
-  and a header **Add offer** button that opens a modal import form (URL
-  fetch-and-prefill or manual fields). A successful import closes the
-  modal, shows the success toast, refreshes the data and opens the new or
-  matched offer's detail page. Score badges show 0–100
-  title/location confidences; hover one to see the matched keywords from
-  the classifier.
-- **Sources** — enable/disable, scan status, per-source Refresh, a
-  header Refresh all, and an add/edit modal whose config fields depend on
-  the source type (Personio tenant, Workable account, BambooHR subdomain,
-  RSS field mapping, HTML CSS selectors). Disabled seeded rows for the
-  known-hard Workday/SuccessFactors rows, the WTTJ marketplace rows and
-  the not-trackable sources show their explanation; the seeded Fabriq
-  WTTJ company page is enabled and scannable.
-- **Offer detail** — a bookmark toggle, editable application/offer state
-  and location, score badges, collapsed provenance links with explicit
-  merge into another offer and split (select links for a second offer), a
-  vertical timeline with backdating, notes optionally pinned to an event,
-  and a single-version description browser (prev/next, version dropdown,
-  Scan/Manual origin badge, diff against the previous version, Add/Edit
-  manual description).
+  state, remote policy, saved/unsaved, score minima, a searchable company
+  combobox, and debounced full-text search), a column picker, header-click
+  sorting, a per-page selector and pagination. Every row has a star
+  bookmark toggle, and the header **Add offer** button opens a modal import
+  form (URL fetch-and-prefill or manual fields). A successful import closes
+  the modal, shows the success toast, refreshes the data and opens the new
+  or matched offer's detail page. Score badges show 0–100 title/location
+  confidences; hover one to see the matched keywords from the classifier.
+- **Sources** — enable/disable with a row-end toggle switch, scan status,
+  filters (enabled/disabled/all, type, scan status, debounced name search),
+  a column picker, client-side header sorting, and a per-page selector.
+  Selecting rows on the left enables **Delete selected** (one shared
+  confirmation listing the names; offers and provenance links are kept and
+  their `source_id` is detached) and **Refresh selected** (sequential scans
+  through the same batch helper as Refresh all). Per-row Refresh/Edit/Delete
+  are icon buttons with accessible labels. A source name links to its
+  company page when a company with the same normalized name exists.
+  Add/edit uses a modal whose config fields depend on the source type
+  (Personio tenant, Workable account, BambooHR subdomain, RSS field
+  mapping, HTML CSS selectors). Disabled seeded rows for the known-hard
+  Workday/SuccessFactors rows, the WTTJ marketplace rows and the
+  not-trackable sources show their explanation; the seeded Fabriq WTTJ
+  company page is enabled and scannable.
+- **Offer detail** — a two-column header panel: identity (company, title,
+  editable application/offer state and location, score badges, bookmark,
+  Merge/Split actions) on the left and an always-visible compact provenance
+  list (links, source names, external UID, first/last seen) on the right.
+  Below it: a vertical timeline with backdating, notes optionally pinned to
+  an event, and a single-version description browser (prev/next, version
+  dropdown, Scan/Manual origin badge, diff against the previous version)
+  whose Add/Edit action uses the shared Edit/View editor.
 - **Company detail** — one two-column header block: identity (name,
   website, offer count, created time, Edit/Delete company) and the
   dismissible possible-duplicate banner on the left; company notes (list,
-  add, delete) on the right. The columns stack at 900px. The offers list
-  stays below. Merging always asks which company row to keep; nothing is
-  merged automatically.
+  add, delete) on the right. The columns stack at 900px. The offers panel
+  below has its own debounced search, header-click sorting (server-side
+  `company_id` query), per-page selector and pagination. Merging always
+  asks which company row to keep; nothing is merged automatically.
 - **Interview prep** (`#/interview-prep`) — a personal FAQ of anticipated
   interview questions and prepared answers. Entries are grouped into one
   section per category, sorted alphabetically with "Uncategorized" last; a
@@ -239,6 +249,21 @@ Built with React + TypeScript (Vite). The pages are:
   rendered by a small built-in renderer (headings, bold, italic, inline
   code, fenced code blocks and lists) that never injects HTML, so raw HTML
   is displayed literally.
+
+The table pages keep their view in the hash-route query string.
+`#/offers`, `#/sources` and `#/companies/:id` restore active filters,
+search, `sort`, `order`, `page` and `per_page` on load and rewrite the
+URL as the user changes them. Unknown or invalid values fall back to the
+defaults, and clearing filters removes their parameters. Examples:
+`#/offers?q=sre&remote_policy=remote&saved=true&sort=title&order=asc&page=2&per_page=20`
+and `#/sources?enabled=disabled&status=error&q=board`. The existing
+`#/offers?saved=true` preset still works. Page-size defaults are 50 for
+the Offers page, 20 for the Sources page and 20 for the company-page
+offers panel; the choice is also remembered in `localStorage`
+(`offers.perPage`, `sources.perPage`, `companyOffers.perPage`). Column
+pickers store the hidden column names in `offers.columns` and
+`sources.columns`, so newly added columns stay visible for existing
+users, and the last visible column cannot be hidden.
 
 The bookmark is personal interest, not an application state. Saving an
 offer never changes its application or offer state, and if a saved offer

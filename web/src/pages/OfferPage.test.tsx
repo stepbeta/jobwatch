@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { OfferPage } from './OfferPage'
+import styles from '../styles.css?raw'
 import { api } from '../api'
 import type { Note, OfferDetail } from '../types'
 
@@ -195,5 +196,94 @@ describe('OfferPage timeline events', () => {
       expect(screen.queryByTitle('Show this event in the timeline')).toBeNull(),
     )
     expect(screen.getByText('prep notes')).toBeTruthy()
+  })
+})
+
+describe('OfferPage header and description editor', () => {
+  it('keeps identity and provenance side by side in the header panel', async () => {
+    vi.mocked(api.getOffer).mockResolvedValue(
+      makeDetail({
+        provenance: [
+          {
+            id: 1,
+            source_id: 1,
+            source_name: 'Acme board',
+            external_uid: 'uid-1',
+            url: 'https://boards.greenhouse.io/acme/jobs/1',
+            first_seen_at: '2026-11-01T00:00:00Z',
+            last_seen_at: '2026-11-02T00:00:00Z',
+          },
+          {
+            id: 2,
+            source_id: 2,
+            source_name: 'Acme careers',
+            external_uid: null,
+            url: 'https://acme.example/jobs/1',
+            first_seen_at: '2026-11-01T00:00:00Z',
+            last_seen_at: '2026-11-03T00:00:00Z',
+          },
+        ],
+      }),
+    )
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'Site Reliability Engineer' })
+    const header = document.querySelector('.offer-header') as HTMLElement
+    expect(header).toBeTruthy()
+    const identity = header.querySelector('.offer-identity') as HTMLElement
+    const provenance = header.querySelector('.offer-provenance-panel') as HTMLElement
+    expect(identity).toBeTruthy()
+    expect(provenance).toBeTruthy()
+
+    expect(within(identity).getByRole('heading', { name: 'Site Reliability Engineer' })).toBeTruthy()
+    expect(within(identity).getByRole('button', { name: 'Merge into another offer…' })).toBeTruthy()
+    expect(within(identity).getByRole('button', { name: 'Split offer…' })).toBeTruthy()
+
+    expect(within(provenance).getByRole('heading', { name: 'Provenance' })).toBeTruthy()
+    expect(within(provenance).getByText('boards.greenhouse.io')).toBeTruthy()
+    expect(within(provenance).getByText(/Acme board/)).toBeTruthy()
+    expect(within(provenance).getByText(/uid-1/)).toBeTruthy()
+    expect(document.querySelector('details.panel.offer-header')).toBeNull()
+    expect(styles).toMatch(
+      /\.offer-header\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1\.1fr\);/,
+    )
+    expect(styles).toMatch(
+      /@media \(max-width: 900px\) \{[\s\S]*?\.offer-header\s*\{\s*grid-template-columns: 1fr;/,
+    )
+  })
+
+  it('edits the description through the shared Edit/View toggle and saves a manual snapshot', async () => {
+    const user = userEvent.setup()
+    const snap = {
+      id: 3,
+      origin: 'scan' as const,
+      raw_text: 'old description',
+      captured_at: '2026-11-01T00:00:00Z',
+    }
+    const withSnapshot = makeDetail({
+      snapshots: [{ id: 3, origin: 'scan', captured_at: snap.captured_at, text_length: 15, raw_text: 'old description' }],
+      latest_snapshot: snap,
+      snapshot_count: 1,
+    })
+    vi.mocked(api.getOffer).mockResolvedValue(withSnapshot)
+    vi.mocked(api.patchOffer).mockResolvedValue({ offer: withSnapshot.offer })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Edit description' }))
+    const snapshotPanel = document.querySelector('details.snapshot') as HTMLElement
+    expect(within(snapshotPanel).getByRole('tab', { name: 'Edit' })).toBeTruthy()
+    expect(within(snapshotPanel).getByRole('tab', { name: 'View' })).toBeTruthy()
+
+    const textarea = within(snapshotPanel).getByLabelText('Description') as HTMLTextAreaElement
+    expect(textarea.value).toBe('old description')
+    await user.clear(textarea)
+    await user.type(textarea, 'new description')
+    await user.click(within(snapshotPanel).getByRole('tab', { name: 'View' }))
+    expect(within(snapshotPanel).getByText('new description')).toBeTruthy()
+
+    await user.click(within(snapshotPanel).getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.patchOffer).toHaveBeenCalledWith(7, { description: 'new description' }),
+    )
   })
 })

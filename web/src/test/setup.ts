@@ -11,4 +11,5 @@ if (!Element.prototype.scrollIntoView) {
 
 afterEach(() => {
   cleanup()
+  window.localStorage.clear()
 })

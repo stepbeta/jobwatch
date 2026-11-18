@@ -75,6 +75,8 @@ func TestListOffers(t *testing.T) {
 		{"full text", "/api/offers?q=kubernetes", 1, 1},
 		{"pagination", "/api/offers?limit=2&offset=2", 4, 2},
 		{"limit capped response", "/api/offers?limit=200", 4, 4},
+		{"title confidence sort", "/api/offers?sort=title_confidence&order=asc", 4, 4},
+		{"location sort", "/api/offers?sort=location&order=desc", 4, 4},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,8 +101,18 @@ func TestListOffers(t *testing.T) {
 		}
 	}
 
+	rec = ts.do(t, "GET", "/api/offers?sort=title&order=desc", nil)
+	wantCode(t, rec, 200)
+	got = decodeBody[offerListResp](t, rec)
+	for i := 1; i < len(got.Offers); i++ {
+		if strings.ToLower(got.Offers[i-1].Title) < strings.ToLower(got.Offers[i].Title) {
+			t.Errorf("title desc sort: %q before %q", got.Offers[i-1].Title, got.Offers[i].Title)
+		}
+	}
+
 	bad := []string{
 		"/api/offers?sort=nope",
+		"/api/offers?order=nope",
 		"/api/offers?application_state=nope",
 		"/api/offers?offer_state=nope",
 		"/api/offers?remote_policy=nope",

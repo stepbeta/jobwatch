@@ -259,20 +259,23 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | Path | Content |
 |---|---|
 | `App.tsx` | top bar with navigation only, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
-| `router.ts` | hash routing (`#/`, `#/offers`, `#/offers?saved=true`, `#/sources`, `#/interview-prep`, `#/offers/:id`, `#/companies/:id`) |
+| `router.ts` | hash routing (`#/`, `#/offers`, `#/offers?saved=true`, `#/sources`, `#/interview-prep`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with a Refresh button that fans out over the enabled sources behind those applications, and a Saved section (bookmarks, `saved=true`, `sort=saved`) |
-| `pages/OffersPage.tsx` | full offers table: filters (including saved/unsaved), sorting, pagination, bookmark toggle per row, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
-| `pages/SourcesPage.tsx` | source list, enable toggle, scan status, per-source refresh, header Refresh all, and an add/edit modal with type-dependent config fields (personio/workable/rss/html included) and explanatory notes on seeded sources |
-| `pages/OfferPage.tsx` | bookmark toggle in the header, editable states/location, score badges with reason tooltips, collapsed provenance disclosure with explicit merge and split actions (open state stored per offer in localStorage), timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save) |
-| `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note) |
-| `pages/CompanyPage.tsx` | one two-column header block: company identity, actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; the offers list stays below. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
-| `pages/InterviewPrepPage.tsx` | personal interview FAQ grouped into category sections, with an empty-answer cue, native HTML5 drag-and-drop for entries and sections (persisting `display_order`/`category` through PATCH; section order in `localStorage`), per-entry Edit/Delete, and an Add/Edit modal with a category dropdown and an Edit/View answer toggle |
+| `pages/OffersPage.tsx` | full offers table: URL-restored filters (including saved/unsaved and a searchable company combobox), debounced FTS search, header-click server sorting, column picker, per-page selector and pagination, bookmark toggle per row, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
+| `pages/SourcesPage.tsx` | source list with enabled/type/status/name filters, URL-restored client sorting and pagination, column picker, row selection with bulk refresh/delete, right-aligned enable switch, icon row actions, company links resolved from the local company list, header Refresh all, and an add/edit modal with type-dependent config fields (personio/workable/rss/html included) and explanatory notes on seeded sources |
+| `pages/OfferPage.tsx` | two-column header: identity (bookmark, editable states/location, score badges, merge/split actions) on the left and an always-visible compact provenance list on the right; timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save through the shared Edit/View editor) |
+| `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note, refresh) |
+| `pages/CompanyPage.tsx` | one two-column header block: company identity, actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; a separate offers panel below with URL-restored FTS search, server-side sorting, per-page selector and pagination. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
+| `pages/InterviewPrepPage.tsx` | personal interview FAQ grouped into category sections, with an empty-answer cue, native HTML5 drag-and-drop for entries and sections (persisting `display_order`/`category` through PATCH; section order in `localStorage`), per-entry Edit/Delete, and an Add/Edit modal with a category dropdown and the shared Edit/View answer editor |
 | `components/Markdown.tsx` | deliberately small markdown renderer for interview answers: headings, bold, italic, inline code, fenced code blocks and lists, emitted as React elements (never HTML) |
-| `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source/event/note/company) |
+| `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source(s)/event/note/company) |
 | `components/Modal.tsx` | shared dialog shell (fixed backdrop, titled head, Escape/backdrop close, wide variant) used by the source add/edit form and the offer import dialog |
 | `components/BookmarkButton.tsx` | dependency-free star toggle used in offer rows and the offer detail header |
-| `components/OfferTable.tsx` | reusable offers table with optional company/application columns and an optional bookmark toggle |
+| `components/OfferTable.tsx` | reusable offers table with optional/selectable columns, optional company/application columns, optional bookmark toggle, and clickable sortable headers driven by the caller's server sort key |
+| `components/TableControls.tsx` | shared column picker with localStorage persistence of hidden columns, `SortHeader`, per-page selector, debounced-value hook and sort toggle helper |
+| `components/CompanyCombobox.tsx` | searchable client-side company selector for the offers filter; keeps the `company_id` parameter unchanged |
+| `components/EditViewEditor.tsx` | shared Edit/View tabbed editor (textarea plus caller-rendered view), used by interview answers and offer descriptions |
 
 The dashboard (`#/`) contains only Applications and Saved. The full
 filtered/paginated offers table and the manual import dialog live on
@@ -286,6 +289,30 @@ prefills the extracted fields for manual entry. The bookmark (`saved_at`)
 is independent of both state machines: saving never changes
 `offer_state` or `application_state`, and a saved offer that becomes an
 application stays in Saved until the user un-bookmarks it.
+
+The Offers and Sources tables share `components/TableControls.tsx`.
+Column pickers persist the hidden column ids (`offers.columns`,
+`sources.columns`) rather than the visible set, so an unknown saved name
+is ignored and a column added later is visible by default; the last
+visible column cannot be hidden. Header clicks toggle ascending and
+descending order. On Offers and the company page the sort is server-side
+(`GET /api/offers?sort=...&order=...`); on Sources it is a client-side
+sort of the already loaded list. Search inputs are debounced by 300 ms
+before they trigger a request or a URL rewrite. Active filters, sort,
+order, page and `per_page` live in the hash-route query string and are
+restored on load via `replaceState`, so the page state does not depend on
+the URL parser in `App.tsx`.
+
+Sources resolve a company link by the effective company name (the
+`config.company` override, else the source name) against the local
+company list (`GET /api/companies?limit=500`, exact normalized name).
+The sources payload does not carry the board-reported company, so a board
+whose reported company differs from its configured/source name stays
+plain text until an override is set; this avoids adding an endpoint for a
+display-only link. Deleting sources (single or bulk) keeps offers and
+provenance rows; the provenance URL and external UID are untouched and
+`source_id` is detached by the existing delete endpoint. Bulk refresh
+reuses `scanBatch` and runs one request at a time.
 
 The company page (`#/companies/:id`) renders identity and notes in one
 two-column header panel: company name/website/offer count/created time,

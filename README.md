@@ -131,14 +131,18 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
   other than `todo`, most recent timeline activity first) and Saved
   (bookmarked offers).
 - **Offers** (`#/offers`) — the full filterable, sortable table with score
-  badges, a bookmark toggle on every row, and the **Add offer** import
-  dialog.
-- **Sources** — enable/disable, scan status, per-source Refresh, Refresh
-  all, and add/edit in a modal with type-dependent config fields.
-- **Offer detail** — states, provenance, timeline, notes and a
-  single-version description browser with Scan/Manual origin and diffs.
+  badges, a searchable company filter, persisted column picker, per-page
+  selector, URL-restored filters, a bookmark toggle on every row, and the
+  **Add offer** import dialog.
+- **Sources** — enable/disable switch, filters, scan status, selectable
+  rows with bulk refresh/delete, icon row actions, Refresh all, and
+  add/edit in a modal with type-dependent config fields.
+- **Offer detail** — two-column identity/provenance header, timeline,
+  notes and a single-version description browser with Scan/Manual origin
+  and diffs.
 - **Company detail** — identity and company notes in one two-column
-  header, offers below, and an explicit possible-duplicate merge prompt.
+  header, a searchable/sortable/paginated offers panel below, and an
+  explicit possible-duplicate merge prompt.
 - **Interview prep** (`#/interview-prep`) — a personal FAQ of anticipated
   interview questions grouped into draggable category sections, with
   markdown answers and an Edit/View editor.
@@ -174,6 +178,14 @@ cd web && npm run build        # type-check + production bundle
 cd web && npm test             # component tests (Vitest + jsdom)
 ```
 
+A root `Makefile` wraps the full UI-embedded build:
+
+```sh
+make ui       # cd web && npm ci && npm run build
+make build    # make ui, then go build -tags ui -o jobwatch ./cmd/jobwatch
+make serve    # make build, then ./jobwatch serve
+```
+
 Two processes for UI work:
 
 ```sh
@@ -202,10 +214,11 @@ handler group. The documented smoke flow runs with
 
 ## Status
 
-Milestones 1–10 are complete, including the Milestone 8 documentation pass
+Milestones 1–11 are complete, including the Milestone 8 documentation pass
 that restructured this README and added `docs/USAGE.md`. The binary
 scans, classifies and serves the UI and API end to end; Milestone 9 adds
-the personal interview-prep FAQ and Milestone 10 adds its categories,
-drag-and-drop ordering and Edit/View answer dialog. Known gaps and
-deliberate limitations are listed in
+the personal interview-prep FAQ, Milestone 10 its categories,
+drag-and-drop ordering and Edit/View answer dialog, and Milestone 11 the
+shared table controls, sources bulk actions and two-column offer header.
+Known gaps and deliberate limitations are listed in
 [docs/MILESTONES.md](docs/MILESTONES.md#known-gaps-current).

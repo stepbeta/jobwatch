@@ -699,3 +699,64 @@ scan reported 0 new, 7 seen, 0 changed, 0 disappeared.
 
 No schema change. No offer, event, note, company, classifier or
 scan-pipeline behavior changed.
+
+### Milestone 11 — table controls, sources upgrade, detail layout, Makefile
+
+#### Added
+- Shared table controls for the Offers list and Sources list: a column
+  picker persisted per page in `localStorage` (hidden-column storage, so
+  new columns stay visible for existing users and the last visible column
+  cannot be hidden), header-click sorting with a directional indicator, a
+  10/20/50 per-page selector, and URL query-string state for filters,
+  sort, order, page and page size. The Offers page uses server-side
+  sorting through the new `location`, `title_confidence` and
+  `location_confidence` sort values plus an `order=asc|desc` parameter;
+  the Sources list sorts client-side.
+- Sources list filters (enabled/disabled/all, type, scan status, debounced
+  name search), a right-aligned enable switch, left-edge row selection
+  with a select-all-visible checkbox, and bulk **Delete selected** /
+  **Refresh selected** actions. Bulk refresh reuses the existing
+  sequential batch helper and aggregate toast; bulk delete uses one
+  confirmation that lists the names and explains that offers and
+  provenance rows are kept with `source_id` detached.
+- Source row actions are now icon-only (refresh/edit/delete) with
+  `aria-label` and `title`, and the source name links to the company page
+  when a company with the same normalized name exists.
+- A searchable company combobox on the Offers page and a searchable,
+  sortable, paginated offers panel on the company page.
+- The offer detail header is now two-column: identity and merge/split
+  actions on the left, an always-visible compact provenance list on the
+  right. It stacks at the same 900px breakpoint as the company header.
+- A shared `EditViewEditor` component, extracted from the interview-prep
+  modal, now also backs the offer description Add/Edit flow.
+- A root `Makefile` with `ui`, `build` and `serve` targets, documented in
+  the README development section.
+
+#### Changed
+- Offers full-text search is now search-as-you-type with a 300 ms
+  debounce; no Enter or Search button is required. The offers table splits
+  the combined score column into separate sortable Title score and
+  Location score columns.
+- The offer provenance block no longer uses a per-offer collapsed
+  disclosure; `localStorage` provenance-open keys are no longer read or
+  written.
+- `GET /api/offers` accepts `order=asc|desc` and the three new sort
+  values; existing sorts and their historical default directions are
+  unchanged when `order` is absent. No schema change.
+
+#### Fixed
+- Source name/company links no longer depend on the offers payload; the
+  lookup failure leaves the name as plain text instead of breaking the
+  list.
+
+#### Tests
+- Backend: table-driven DB tests for the new sort values, explicit
+  directions, defaults and NULL/empty values; API tests for `order`
+  validation and descending title ordering.
+- Frontend (Vitest + jsdom): column-picker persistence and the
+  last-column guard, header-click sort requests, URL parameter round-trip
+  and invalid-value fallbacks, debounced search, page-size persistence,
+  searchable company selection, source filters, client sorting, switch
+  PATCH, icon actions, company links, bulk delete payloads and bulk
+  refresh, company-page table controls, offer header/provenance layout,
+  and the shared description Edit/View save payload.

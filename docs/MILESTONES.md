@@ -5,7 +5,7 @@ added here as they start.
 
 ## Current state
 
-Milestones 1–10a are complete. The binary scans the 71 seeded sources
+Milestones 1–11 are complete. The binary scans the 71 seeded sources
 plus any sources the user adds, detects new/changed/disappeared offers,
 classifies them deterministically, and serves the React UI and REST API
 from one process.
@@ -19,8 +19,10 @@ behavior, schema or API. Milestone 9 adds the standalone interview-prep
 table, REST resource and page. Milestone 10 adds entry categories,
 section/entry drag-and-drop, the redesigned answer dialog and a slightly
 larger base font. Milestone 10a adds the Welcome to the Jungle company
-page adapter and seeds the Fabriq source. Open items and deliberate
-limitations remain in the known-gaps table below.
+page adapter and seeds the Fabriq source. Milestone 11 adds shared table
+controls, the sources bulk workflow, the two-column offer header and the
+root Makefile. Open items and deliberate limitations remain in the
+known-gaps table below.
 
 ## Milestone 1 — Core: bootstrap, database, sources, scan, CLI — DONE
 
@@ -795,6 +797,53 @@ Done criteria (all met):
 | The discovery response is not cached beyond the scan | the prompt asks for in-memory, per-run caching only; one extra GET per scan is acceptable and credentials can rotate between runs |
 | `algolia_app_id`/`algolia_api_key` config overrides still trigger discovery | the index name, filters and language are only available from the bootstrap; the overrides are documented as a debug tool |
 
+## Milestone 11 — table controls, sources upgrade, detail layout, Makefile — DONE
+
+Done criteria (all met):
+- [x] Offers and Sources both have a persisted column picker, header-click
+      sorting, debounced search-as-you-type, URL query-string state and a
+      10/20/50 per-page selector. The picker stores hidden ids, ignores
+      unknown saved names, appends newly added columns and refuses to hide
+      the last visible one. Offers sorting is server-side; Sources sorting
+      is client-side.
+- [x] `GET /api/offers` supports `sort=location`, `sort=title_confidence`,
+      `sort=location_confidence` and `order=asc|desc`; all previous sort
+      values and their default directions still work. Invalid values are
+      rejected with `400 validation_failed`.
+- [x] Sources filters (enabled/disabled/all, type present in the list,
+      status ok/error/blocked/never, debounced name), right-aligned enable
+      switch, left selection checkbox, select-all-visible, sequential bulk
+      delete with one confirmation and sequential bulk refresh through the
+      shared batch helper. Row actions are icon-only with accessible labels.
+- [x] Source names link to `#/companies/:id` when the effective name
+      (`config.company` override, else source name) matches a company;
+      otherwise they render as plain text. No new endpoint.
+- [x] Offers company filter is a searchable combobox; the `company_id`
+      parameter is unchanged.
+- [x] Offer detail has a two-column header (identity + always-visible
+      compact provenance) that stacks at `max-width: 900px`, with merge and
+      split still reachable. The description Add/Edit flow uses the shared
+      `EditViewEditor`; the save payload, manual snapshot selection and
+      version browser are unchanged.
+- [x] The company-page offers panel has debounced FTS search, header-click
+      server sorting, pagination, a per-page selector and URL state.
+- [x] Root `Makefile` provides `ui`, `build` and `serve`, documented in the
+      README.
+- [x] `go build ./...`, `go vet ./...`, `go test ./...`, `npm test` and
+      `npm run build` green; no schema change.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| `order` is an explicit `GET /api/offers` parameter alongside the new sort values | server-side header toggling needs a direction; defaults reproduce the old ordering exactly when it is absent, and the URL example in the prompt includes `order` |
+| Sources enabled filter defaults to `all` | preserves the current "every source visible" behavior and avoids hiding disabled seeded rows that carry explanations |
+| Sources name link resolves against the local company list by exact normalized name | the sources payload has no board-reported company, and adding an endpoint for a display-only link was out of scope; a mismatch leaves plain text |
+| The offer provenance disclosure was removed, not kept in the two-column header | the right column already gives the list permanent space; an always-visible compact list keeps merge/split easier to reach and avoids a per-offer localStorage key |
+| Offers score cells are split into Title score and Location score | each new confidence sort needs its own clickable header; a combined "Scores" header could only sort one of the two |
+| Company-page offers default to 20 rows; Offers keeps 50 and Sources uses 20 | the company panel previously showed every offer and had no page size; 20 keeps it compact, while Offers preserves the existing default |
+| Company-page offers reuse the `offers.perPage` row size only through its own `companyOffers.perPage` key | the company panel is a different table and its per-page choice should not silently change the full Offers page |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -813,7 +862,8 @@ Done criteria (all met):
 | Pre-7c snapshot origins are all `scan` | §9 | By design after 7c. The old schema had no reliable manual marker; only snapshots written from 7c onward carry an exact origin |
 | Manual description edits do not refresh classifier scores | §6 | Open. Scores keep their previous values until the next sighting or `jobwatch reclassify --all`; the edit itself is versioned normally |
 | Offer merge does not carry the absorbed offer's bookmark | §9 | Open. The kept offer keeps its own `saved_at`; the absorbed bookmark is not copied. Merge semantics were left unchanged in 7e |
-| Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, the offers import modal, the company two-column layout, hash routing and interview prep (sections, cue, drag-and-drop payloads, Edit/View, new category, accordion, add/edit/delete, escaped markdown) | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); offers filters/pagination, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
+| Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, offers import modal, offers table controls (columns, sort requests, URL round-trip, debounced search, page size, company combobox), sources filters/bulk/switch/icons/company links, company two-column layout and offers-table controls, offer header/provenance layout and description Edit/View save, hash routing and interview prep (sections, cue, drag-and-drop payloads, Edit/View, new category, accordion, add/edit/delete, escaped markdown) | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); real-browser drag-and-drop, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
+| Source names link by override/source name only, not the board-reported company | §9 | Open. The sources payload has no board-reported company and Milestone 11 avoided a display-only endpoint; a source whose offers use a different company stays unlinked unless `config.company` is set |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
 | Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked, plus the Fabriq WTTJ company page from 10a; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ marketplace pages, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |

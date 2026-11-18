@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { CompanyPage } from './CompanyPage'
 import styles from '../styles.css?raw'
-import type { CompanyDetail } from '../types'
+import type { CompanyDetail, Offer } from '../types'
 
 vi.mock('../api', () => ({
   api: {
     getCompany: vi.fn(),
+    listOffers: vi.fn(),
   },
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }))
@@ -42,8 +44,33 @@ const detail: CompanyDetail = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.location.hash = '#/companies/5'
   vi.mocked(api.getCompany).mockResolvedValue(detail)
+  vi.mocked(api.listOffers).mockResolvedValue({ offers: [], total: 0, limit: 20, offset: 0 })
 })
+
+function makeOffer(overrides: Partial<Offer> = {}): Offer {
+  return {
+    id: 7,
+    company_id: 5,
+    company_name: 'Acme',
+    title: 'Site Reliability Engineer',
+    location: 'Paris, France',
+    remote_policy: 'remote',
+    url: null,
+    offer_state: 'active',
+    application_state: 'applied',
+    first_seen_at: '2026-11-01T00:00:00Z',
+    last_seen_at: '2026-11-02T00:00:00Z',
+    updated_at: '2026-11-02T00:00:00Z',
+    title_confidence: 90,
+    location_confidence: 85,
+    match_reasons: null,
+    last_event_at: null,
+    saved_at: null,
+    ...overrides,
+  }
+}
 
 describe('CompanyPage header layout', () => {
   it('renders identity and notes in one two-column block', async () => {
@@ -84,5 +111,58 @@ describe('CompanyPage header layout', () => {
     expect(styles).toMatch(
       /@media \(max-width: 900px\) \{[\s\S]*?\.company-header\s*\{\s*grid-template-columns: 1fr;/,
     )
+  })
+})
+
+describe('CompanyPage offers table', () => {
+  it('loads offers server-side with the company filter and restores URL controls', async () => {
+    window.location.hash = '#/companies/5?q=sre&sort=title&order=asc&page=2&per_page=20'
+    render(<CompanyPage id={5} onNotice={vi.fn()} />)
+
+    await screen.findByRole('heading', { name: 'Acme' })
+    await waitFor(() =>
+      expect(api.listOffers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          company_id: 5,
+          q: 'sre',
+          sort: 'title',
+          order: 'asc',
+          limit: 20,
+          offset: 20,
+        }),
+      ),
+    )
+    expect((screen.getByLabelText('Search') as HTMLInputElement).value).toBe('sre')
+  })
+
+  it('searches as you type, sorts from headers and changes page size', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.listOffers).mockResolvedValue({
+      offers: [makeOffer()],
+      total: 1,
+      limit: 20,
+      offset: 0,
+    })
+    render(<CompanyPage id={5} onNotice={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Acme' })
+
+    await user.type(screen.getByLabelText('Search'), 'sre')
+    await waitFor(() => expect(vi.mocked(api.listOffers).mock.lastCall?.[0]).toMatchObject({ q: 'sre' }))
+
+    await user.click(screen.getByRole('button', { name: 'Title' }))
+    await waitFor(() =>
+      expect(vi.mocked(api.listOffers).mock.lastCall?.[0]).toMatchObject({
+        company_id: 5,
+        sort: 'title',
+        order: 'asc',
+      }),
+    )
+    expect(window.location.hash).toContain('sort=title&order=asc')
+
+    await user.selectOptions(screen.getByLabelText('Per page'), '50')
+    await waitFor(() =>
+      expect(vi.mocked(api.listOffers).mock.lastCall?.[0]).toMatchObject({ limit: 50, offset: 0 }),
+    )
+    expect(window.location.hash).toContain('per_page=50')
   })
 })

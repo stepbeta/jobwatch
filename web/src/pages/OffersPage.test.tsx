@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ApiError } from '../api'
+import { ApiError, type OfferQuery } from '../api'
 import { OffersPage } from './OffersPage'
+import type { Company, Offer } from '../types'
 
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>()
@@ -22,10 +23,10 @@ import { api } from '../api'
 function renderPage() {
   const onDataChanged = vi.fn()
   const onNotice = vi.fn()
-  render(
+  const view = render(
     <OffersPage refreshToken={0} onDataChanged={onDataChanged} onNotice={onNotice} />,
   )
-  return { onDataChanged, onNotice }
+  return { onDataChanged, onNotice, view }
 }
 
 beforeEach(() => {
@@ -105,6 +106,184 @@ describe('OffersPage add-offer modal', () => {
     expect(onNotice).not.toHaveBeenCalled()
     expect(onDataChanged).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toBeTruthy()
-    expect(window.location.hash).toBe('#/offers')
+    expect(window.location.hash.startsWith('#/offers')).toBe(true)
+    expect(window.location.hash).not.toContain('#/offers/')
+  })
+})
+
+function makeOffer(overrides: Partial<Offer> = {}): Offer {
+  return {
+    id: 7,
+    company_id: 1,
+    company_name: 'Acme',
+    title: 'Site Reliability Engineer',
+    location: 'Paris, France',
+    remote_policy: 'remote',
+    url: null,
+    offer_state: 'active',
+    application_state: 'applied',
+    first_seen_at: '2026-11-01T00:00:00Z',
+    last_seen_at: '2026-11-02T00:00:00Z',
+    updated_at: '2026-11-02T00:00:00Z',
+    title_confidence: 90,
+    location_confidence: 85,
+    match_reasons: null,
+    last_event_at: null,
+    saved_at: null,
+    ...overrides,
+  }
+}
+
+function makeCompany(id: number, name: string): Company {
+  return {
+    id,
+    name,
+    name_normalized: name.toLowerCase(),
+    website: null,
+    created_at: null,
+    offer_count: 1,
+    note_count: 0,
+  }
+}
+
+function lastOfferQuery(): OfferQuery {
+  const calls = vi.mocked(api.listOffers).mock.calls
+  return calls[calls.length - 1][0] ?? {}
+}
+
+describe('OffersPage table controls', () => {
+  beforeEach(() => {
+    vi.mocked(api.listOffers).mockResolvedValue({
+      offers: [makeOffer()],
+      total: 1,
+      limit: 20,
+      offset: 0,
+    })
+  })
+
+  it('restores filters, sort, page and page size from the URL', async () => {
+    window.location.hash =
+      '#/offers?q=sre&remote_policy=remote&saved=true&sort=title&order=asc&page=2&per_page=20'
+    renderPage()
+
+    await waitFor(() =>
+      expect(api.listOffers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          q: 'sre',
+          remote_policy: 'remote',
+          saved: true,
+          sort: 'title',
+          order: 'asc',
+          limit: 20,
+          offset: 20,
+        }),
+      ),
+    )
+    expect((screen.getByLabelText('Search') as HTMLInputElement).value).toBe('sre')
+    expect(window.location.hash).toContain('q=sre')
+  })
+
+  it('ignores invalid URL parameter values instead of failing', async () => {
+    window.location.hash =
+      '#/offers?remote_policy=nope&saved=maybe&sort=nope&order=sideways&page=-3&per_page=999'
+    renderPage()
+
+    await waitFor(() => expect(api.listOffers).toHaveBeenCalled())
+    expect(lastOfferQuery()).toMatchObject({ sort: 'last_seen', order: 'desc', limit: 50, offset: 0 })
+    expect(lastOfferQuery().remote_policy).toBeUndefined()
+    expect(lastOfferQuery().saved).toBeUndefined()
+  })
+
+  it('filters as the user types and reflects the debounced search in the URL', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.type(screen.getByLabelText('Search'), 'sre')
+
+    await waitFor(() => expect(lastOfferQuery().q).toBe('sre'))
+    await waitFor(() => expect(window.location.hash).toContain('q=sre'))
+
+    await user.click(screen.getByRole('button', { name: 'Reset' }))
+    await waitFor(() => expect(lastOfferQuery().q).toBeUndefined())
+    await waitFor(() => expect(window.location.hash).not.toContain('q=sre'))
+  })
+
+  it('sorts by clicking a column header and toggles asc then desc', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    const titleHeader = await screen.findByRole('button', { name: 'Title' })
+    await user.click(titleHeader)
+    await waitFor(() => expect(lastOfferQuery()).toMatchObject({ sort: 'title', order: 'asc' }))
+
+    await user.click(screen.getByRole('button', { name: 'Title' }))
+    await waitFor(() => expect(lastOfferQuery()).toMatchObject({ sort: 'title', order: 'desc' }))
+  })
+
+  it('persists hidden columns and never allows hiding every column', async () => {
+    const user = userEvent.setup()
+    const { view } = renderPage()
+    await screen.findByRole('button', { name: 'Columns' })
+
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    const menu = screen.getByRole('group', { name: 'Visible columns' })
+    await user.click(within(menu).getByRole('checkbox', { name: 'Location' }))
+
+    expect(within(menu).getByRole('checkbox', { name: 'Location' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Location' })).toBeNull()
+    expect(window.localStorage.getItem('offers.columns')).toBe('["location"]')
+
+    await user.click(within(menu).getByRole('checkbox', { name: 'Bookmark' }))
+    await user.click(within(menu).getByRole('checkbox', { name: 'Company' }))
+    await user.click(within(menu).getByRole('checkbox', { name: 'Title' }))
+    await user.click(within(menu).getByRole('checkbox', { name: 'Remote' }))
+    await user.click(within(menu).getByRole('checkbox', { name: 'Offer' }))
+    await user.click(within(menu).getByRole('checkbox', { name: 'Application' }))
+    await user.click(within(menu).getByRole('checkbox', { name: 'Title score' }))
+    await user.click(within(menu).getByRole('checkbox', { name: 'Location score' }))
+    expect((within(menu).getByRole('checkbox', { name: 'Last seen' }) as HTMLInputElement).disabled).toBe(true)
+
+    view.unmount()
+    renderPage()
+    await screen.findByRole('button', { name: 'Columns' })
+    expect(screen.queryByRole('button', { name: 'Location' })).toBeNull()
+  })
+
+  it('ignores unknown column names in a stale saved preference', async () => {
+    window.localStorage.setItem('offers.columns', JSON.stringify(['retired_column']))
+    renderPage()
+    await screen.findByRole('button', { name: 'Columns' })
+    expect(screen.getByRole('button', { name: 'Location' })).toBeTruthy()
+  })
+
+  it('filters the company dropdown and sends company_id', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.listCompanies).mockResolvedValue({
+      companies: [makeCompany(1, 'Acme'), makeCompany(2, 'Other')],
+      total: 2,
+      limit: 500,
+      offset: 0,
+    })
+    renderPage()
+
+    const input = await screen.findByLabelText('Company')
+    await user.click(input)
+    await user.type(input, 'Ac')
+    expect(screen.getByRole('option', { name: 'Acme' })).toBeTruthy()
+    expect(screen.queryByRole('option', { name: 'Other' })).toBeNull()
+
+    await user.click(screen.getByRole('option', { name: 'Acme' }))
+    await waitFor(() => expect(lastOfferQuery().company_id).toBe(1))
+    await waitFor(() => expect(window.location.hash).toContain('company_id=1'))
+  })
+
+  it('changes the page size, sends it to the API and stores the personal default', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.selectOptions(await screen.findByLabelText('Per page'), '20')
+    await waitFor(() => expect(lastOfferQuery()).toMatchObject({ limit: 20, offset: 0 }))
+    await waitFor(() => expect(window.location.hash).toContain('per_page=20'))
+    expect(window.localStorage.getItem('offers.perPage')).toBe('20')
   })
 })

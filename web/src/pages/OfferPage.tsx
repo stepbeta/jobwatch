@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
 import { BookmarkButton } from '../components/BookmarkButton'
 import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
+import { EditViewEditor } from '../components/EditViewEditor'
 import { Link } from '../components/Link'
 import { ScoreBadge } from '../components/ScoreBadge'
 import { ActionIcon, EventIcon } from '../components/icons'
@@ -40,26 +41,6 @@ function diffPrefix(op: 'equal' | 'added' | 'removed'): string {
   if (op === 'added') return '+'
   if (op === 'removed') return '−'
   return ' '
-}
-
-function provenanceStorageKey(offerId: number): string {
-  return `jobwatch:provenance-open:${offerId}`
-}
-
-function readProvenanceOpen(offerId: number): boolean {
-  try {
-    return window.localStorage.getItem(provenanceStorageKey(offerId)) === '1'
-  } catch {
-    return false
-  }
-}
-
-function writeProvenanceOpen(offerId: number, open: boolean): void {
-  try {
-    window.localStorage.setItem(provenanceStorageKey(offerId), open ? '1' : '0')
-  } catch {
-    // Private browsing or a disabled storage API: keep the in-memory state.
-  }
 }
 
 function originLabel(origin: SnapshotOrigin): string {
@@ -116,7 +97,6 @@ export function OfferPage({
   const [mergeError, setMergeError] = useState('')
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
 
-  const [provenanceOpen, setProvenanceOpen] = useState(false)
   const [editingDescription, setEditingDescription] = useState(false)
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [savingDescription, setSavingDescription] = useState(false)
@@ -157,7 +137,6 @@ export function OfferPage({
     setEditingEvent(null)
     setExpandedEventNotes([])
     setHighlightEventID(null)
-    setProvenanceOpen(readProvenanceOpen(id))
     setSelectedSnapshotID(null)
     setSnapshotTexts({})
     setSnapshotDiffs({})
@@ -234,11 +213,6 @@ export function OfferPage({
     } finally {
       setSavingDescription(false)
     }
-  }
-
-  function setProvenanceExpanded(open: boolean) {
-    setProvenanceOpen(open)
-    writeProvenanceOpen(id, open)
   }
 
   // Fetch the selected version's text only when it is not the latest one
@@ -589,166 +563,167 @@ export function OfferPage({
       )}
 
       <section className="panel offer-header">
-        <div className="offer-title">
-          <h1>{detail.offer.title}</h1>
-          <div className="muted">
-            {detail.offer.location ?? 'No location'} · {detail.offer.remote_policy} · first seen{' '}
-            {fmtDateTime(detail.offer.first_seen_at)}
+        <div className="offer-identity">
+          <div className="offer-title">
+            <h1>{detail.offer.title}</h1>
+            <div className="muted">
+              {detail.offer.location ?? 'No location'} · {detail.offer.remote_policy} · first seen{' '}
+              {fmtDateTime(detail.offer.first_seen_at)}
+            </div>
           </div>
-        </div>
-        <div className="badges">
-          <BookmarkButton
-            saved={Boolean(detail.offer.saved_at)}
-            disabled={savedBusy}
-            size="large"
-            onClick={() => void toggleSaved()}
-          />
-          <ScoreBadge
-            label="Title"
-            value={detail.offer.title_confidence}
-            reasons={detail.offer.match_reasons}
-            kind="title"
-          />
-          <ScoreBadge
-            label="Location"
-            value={detail.offer.location_confidence}
-            reasons={detail.offer.match_reasons}
-            kind="location"
-          />
-        </div>
-        <form className="state-controls" onSubmit={(e) => void saveStates(e)}>
-          <label>
-            Application
-            <select value={appState} onChange={(e) => setAppState(e.target.value as ApplicationState)}>
-              {APP_STATES.map((s) => (
-                <option key={s} value={s}>
-                  {appLabel(s)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Offer
-            <select value={offerState} onChange={(e) => setOfferState(e.target.value as OfferState)}>
-              {OFFER_STATES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Location
-            <input
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="correct the location"
+          <div className="badges">
+            <BookmarkButton
+              saved={Boolean(detail.offer.saved_at)}
+              disabled={savedBusy}
+              size="large"
+              onClick={() => void toggleSaved()}
             />
-          </label>
-          <button type="submit" className="primary" disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </form>
-      </section>
-
-      <details
-        className="panel"
-        open={provenanceOpen}
-        onToggle={(e) => setProvenanceExpanded(e.currentTarget.open)}
-      >
-        <summary>
-          Provenance ({detail.provenance.length} link{detail.provenance.length === 1 ? '' : 's'})
-        </summary>
-        <div className="actions">
-          <button type="button" onClick={() => void openMerge()} disabled={mergeLoading}>
-            Merge into another offer…
-          </button>
-          {detail.provenance.length > 1 &&
-            (splitMode ? (
-              <button type="button" onClick={cancelSplit}>
-                Cancel split
-              </button>
-            ) : (
-              <button type="button" onClick={startSplit}>
-                Split offer…
-              </button>
-            ))}
-        </div>
-        <p className="muted small">
-          Every link where this offer was seen. Open them side by side to decide whether they are really the
-          same offer; otherwise split them into two offers.
-        </p>
-        {detail.provenance.length === 0 ? (
-          <p className="empty">No provenance rows.</p>
-        ) : (
-          <div className="provenance">
-            {detail.provenance.map((p) => (
-              <div className={`prov-card${splitIDs.includes(p.id) ? ' prov-selected' : ''}`} key={p.id}>
-                {splitMode && (
-                  <label className="prov-select">
-                    <input
-                      type="checkbox"
-                      checked={splitIDs.includes(p.id)}
-                      onChange={() => toggleSplitID(p.id)}
-                    />
-                    Move to a new offer
-                  </label>
-                )}
-                <div className="prov-head">
-                  <a href={p.url} target="_blank" rel="noreferrer">
-                    {hostname(p.url)}
-                  </a>
-                </div>
-                <div className="muted small">
-                  {p.source_name ?? 'Manual import'}
-                  {p.external_uid ? ` · uid ${p.external_uid}` : ''}
-                </div>
-                <div className="small">
-                  first seen {fmtDateTime(p.first_seen_at)}
-                  <br />
-                  last seen {fmtDateTime(p.last_seen_at)}
-                </div>
-              </div>
-            ))}
+            <ScoreBadge
+              label="Title"
+              value={detail.offer.title_confidence}
+              reasons={detail.offer.match_reasons}
+              kind="title"
+            />
+            <ScoreBadge
+              label="Location"
+              value={detail.offer.location_confidence}
+              reasons={detail.offer.match_reasons}
+              kind="location"
+            />
           </div>
-        )}
-        {splitMode && (
-          <div className="split-bar">
-            <div className="section-head">
-              <h3>Split selected links</h3>
-              <span className="muted small">
-                {splitIDs.length} selected · at least one link must stay on this offer
-              </span>
-            </div>
-            <div className="form-grid">
-              <label>
-                New offer title
-                <input value={splitTitle} onChange={(e) => setSplitTitle(e.target.value)} />
-              </label>
-              <label>
-                New offer location
-                <input
-                  value={splitLocation}
-                  onChange={(e) => setSplitLocation(e.target.value)}
-                  placeholder="e.g. Lyon, France"
-                />
-              </label>
-            </div>
-            <p className="muted small">
-              Events, notes and snapshots stay with this offer. Change the title or location if the new
-              offer would otherwise have the same company, title and location.
-            </p>
-            <button
-              type="button"
-              className="primary"
-              disabled={splitting || splitIDs.length === 0}
-              onClick={() => void splitSelected()}
-            >
-              {splitting ? 'Splitting…' : 'Create offer from selected links'}
+          <form className="state-controls" onSubmit={(e) => void saveStates(e)}>
+            <label>
+              Application
+              <select value={appState} onChange={(e) => setAppState(e.target.value as ApplicationState)}>
+                {APP_STATES.map((s) => (
+                  <option key={s} value={s}>
+                    {appLabel(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Offer
+              <select value={offerState} onChange={(e) => setOfferState(e.target.value as OfferState)}>
+                {OFFER_STATES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Location
+              <input
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="correct the location"
+              />
+            </label>
+            <button type="submit" className="primary" disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
             </button>
+          </form>
+          <div className="actions">
+            <button type="button" onClick={() => void openMerge()} disabled={mergeLoading}>
+              Merge into another offer…
+            </button>
+            {detail.provenance.length > 1 &&
+              (splitMode ? (
+                <button type="button" onClick={cancelSplit}>
+                  Cancel split
+                </button>
+              ) : (
+                <button type="button" onClick={startSplit}>
+                  Split offer…
+                </button>
+              ))}
           </div>
-        )}
-      </details>
+        </div>
+
+        <div className="offer-provenance-panel">
+          <div className="section-head">
+            <h2>Provenance</h2>
+            <span className="muted">
+              {detail.provenance.length} link{detail.provenance.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <p className="muted small">
+            Every link where this offer was seen. Open them side by side to decide whether they are really
+            the same offer; otherwise split them into two offers.
+          </p>
+          {detail.provenance.length === 0 ? (
+            <p className="empty">No provenance rows.</p>
+          ) : (
+            <div className="provenance provenance-compact">
+              {detail.provenance.map((p) => (
+                <div className={`prov-card${splitIDs.includes(p.id) ? ' prov-selected' : ''}`} key={p.id}>
+                  {splitMode && (
+                    <label className="prov-select">
+                      <input
+                        type="checkbox"
+                        checked={splitIDs.includes(p.id)}
+                        onChange={() => toggleSplitID(p.id)}
+                      />
+                      Move to a new offer
+                    </label>
+                  )}
+                  <div className="prov-head">
+                    <a href={p.url} target="_blank" rel="noreferrer">
+                      {hostname(p.url)}
+                    </a>
+                  </div>
+                  <div className="muted small">
+                    {p.source_name ?? 'Manual import'}
+                    {p.external_uid ? ` · uid ${p.external_uid}` : ''}
+                  </div>
+                  <div className="small">
+                    first seen {fmtDateTime(p.first_seen_at)}
+                    <br />
+                    last seen {fmtDateTime(p.last_seen_at)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {splitMode && (
+            <div className="split-bar">
+              <div className="section-head">
+                <h3>Split selected links</h3>
+                <span className="muted small">
+                  {splitIDs.length} selected · at least one link must stay on this offer
+                </span>
+              </div>
+              <div className="form-grid">
+                <label>
+                  New offer title
+                  <input value={splitTitle} onChange={(e) => setSplitTitle(e.target.value)} />
+                </label>
+                <label>
+                  New offer location
+                  <input
+                    value={splitLocation}
+                    onChange={(e) => setSplitLocation(e.target.value)}
+                    placeholder="e.g. Lyon, France"
+                  />
+                </label>
+              </div>
+              <p className="muted small">
+                Events, notes and snapshots stay with this offer. Change the title or location if the new
+                offer would otherwise have the same company, title and location.
+              </p>
+              <button
+                type="button"
+                className="primary"
+                disabled={splitting || splitIDs.length === 0}
+                onClick={() => void splitSelected()}
+              >
+                {splitting ? 'Splitting…' : 'Create offer from selected links'}
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
 
       <div className="detail-columns">
         <section className="panel">
@@ -1095,11 +1070,14 @@ export function OfferPage({
 
             {editingDescription ? (
               <div className="stack">
-                <textarea
+                <EditViewEditor
                   value={descriptionDraft}
-                  onChange={(e) => setDescriptionDraft(e.target.value)}
-                  rows={12}
+                  onChange={setDescriptionDraft}
+                  editLabel="Description"
                   placeholder="paste or edit the description"
+                  rows={12}
+                  viewEmptyText="No description yet."
+                  renderView={(text) => <pre>{text}</pre>}
                 />
                 <div className="actions">
                   <button

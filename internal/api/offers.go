@@ -61,7 +61,11 @@ func parseOfferQuery(r *http.Request) (db.OfferQuery, error) {
 		f.Sort = db.SortLastSeen
 	}
 	if !db.ValidOfferSort(f.Sort) {
-		return f, fmt.Errorf("sort must be one of last_seen, first_seen, recent_event, title, company, saved")
+		return f, fmt.Errorf("sort must be one of last_seen, first_seen, recent_event, title, company, location, title_confidence, location_confidence, saved")
+	}
+	f.Order = strings.ToLower(strings.TrimSpace(r.URL.Query().Get("order")))
+	if !db.ValidOfferOrder(f.Order) {
+		return f, fmt.Errorf("order must be asc or desc")
 	}
 	f.Limit = defaultOfferLimit
 	if v, err := queryInt(r, "limit", 1, maxOfferLimit); err != nil {

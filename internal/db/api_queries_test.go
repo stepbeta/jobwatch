@@ -210,6 +210,89 @@ func TestSimilarCompanies(t *testing.T) {
 	}
 }
 
+func TestQueryOffersSortValues(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTest(t)
+	acme := mustCompany(t, sqlDB, "Acme")
+	zeta := mustCompany(t, sqlDB, "Zeta")
+
+	mk := func(c model.Company, title, loc string, tc, lc int) model.JobOffer {
+		o := mustOffer(t, sqlDB, c, title, loc)
+		if _, err := sqlDB.ExecContext(ctx,
+			`UPDATE job_offers SET title_confidence = ?, location_confidence = ? WHERE id = ?`,
+			tc, lc, o.ID); err != nil {
+			t.Fatal(err)
+		}
+		return o
+	}
+	mk(acme, "Beta SRE", "Zurich", 70, 95)
+	mk(zeta, "Alpha Platform", "Paris", 95, 60)
+	mk(acme, "Gamma Engineer", "", 80, 80)
+
+	tests := []struct {
+		name  string
+		sort  string
+		order string
+		want  []string
+	}{
+		{"title defaults asc", SortTitle, "", []string{"Alpha Platform", "Beta SRE", "Gamma Engineer"}},
+		{"title desc", SortTitle, OrderDesc, []string{"Gamma Engineer", "Beta SRE", "Alpha Platform"}},
+		{"company asc then title", SortCompany, OrderAsc, []string{"Beta SRE", "Gamma Engineer", "Alpha Platform"}},
+		{"company desc", SortCompany, OrderDesc, []string{"Alpha Platform", "Gamma Engineer", "Beta SRE"}},
+		{"location asc with empty first", SortLocation, OrderAsc, []string{"Gamma Engineer", "Alpha Platform", "Beta SRE"}},
+		{"location desc", SortLocation, OrderDesc, []string{"Beta SRE", "Alpha Platform", "Gamma Engineer"}},
+		{"title confidence defaults desc", SortTitleConfidence, "", []string{"Alpha Platform", "Gamma Engineer", "Beta SRE"}},
+		{"title confidence asc", SortTitleConfidence, OrderAsc, []string{"Beta SRE", "Gamma Engineer", "Alpha Platform"}},
+		{"location confidence desc", SortLocationConfidence, OrderDesc, []string{"Beta SRE", "Gamma Engineer", "Alpha Platform"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := QueryOffers(ctx, sqlDB, OfferQuery{Sort: tt.sort, Order: tt.order})
+			if err != nil {
+				t.Fatalf("QueryOffers: %v", err)
+			}
+			var titles []string
+			for _, o := range got.Offers {
+				titles = append(titles, o.Title)
+			}
+			if len(titles) != len(tt.want) {
+				t.Fatalf("titles = %v, want %v", titles, tt.want)
+			}
+			for i := range tt.want {
+				if titles[i] != tt.want[i] {
+					t.Fatalf("titles = %v, want %v", titles, tt.want)
+				}
+			}
+		})
+	}
+}
+
+func TestValidOfferSortAndOrder(t *testing.T) {
+	for _, s := range []string{
+		SortLastSeen, SortFirstSeen, SortRecentEvent, SortTitle, SortCompany,
+		SortLocation, SortTitleConfidence, SortLocationConfidence, SortSaved,
+	} {
+		if !ValidOfferSort(s) {
+			t.Errorf("ValidOfferSort(%q) = false", s)
+		}
+	}
+	for _, s := range []string{"", "nope", "title_desc"} {
+		if ValidOfferSort(s) {
+			t.Errorf("ValidOfferSort(%q) = true", s)
+		}
+	}
+	for _, o := range []string{"", OrderAsc, OrderDesc} {
+		if !ValidOfferOrder(o) {
+			t.Errorf("ValidOfferOrder(%q) = false", o)
+		}
+	}
+	for _, o := range []string{"ASC", "up", "descending"} {
+		if ValidOfferOrder(o) {
+			t.Errorf("ValidOfferOrder(%q) = true", o)
+		}
+	}
+}
+
 func TestQueryOffersFilters(t *testing.T) {
 	ctx := context.Background()
 	sqlDB := openTest(t)

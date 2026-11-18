@@ -28,27 +28,46 @@ type OfferQuery struct {
 	HasApplication        bool  // application_state != 'todo'
 	Saved                 *bool // nil = no filter; true/false = saved_at set/NULL
 	Sort                  string
-	Limit                 int
-	Offset                int
+	// Order is "asc" or "desc". Empty keeps each sort's historical
+	// direction, so callers that do not send it see unchanged ordering.
+	Order  string
+	Limit  int
+	Offset int
 }
 
 // Sort values accepted by QueryOffers.
 const (
-	SortLastSeen    = "last_seen"
-	SortFirstSeen   = "first_seen"
-	SortRecentEvent = "recent_event"
-	SortTitle       = "title"
-	SortCompany     = "company"
-	SortSaved       = "saved"
+	SortLastSeen           = "last_seen"
+	SortFirstSeen          = "first_seen"
+	SortRecentEvent        = "recent_event"
+	SortTitle              = "title"
+	SortCompany            = "company"
+	SortLocation           = "location"
+	SortTitleConfidence    = "title_confidence"
+	SortLocationConfidence = "location_confidence"
+	SortSaved              = "saved"
+)
+
+// Order values accepted by QueryOffers.
+const (
+	OrderAsc  = "asc"
+	OrderDesc = "desc"
 )
 
 // ValidOfferSort reports whether s is a supported offer sort.
 func ValidOfferSort(s string) bool {
 	switch s {
-	case SortLastSeen, SortFirstSeen, SortRecentEvent, SortTitle, SortCompany, SortSaved:
+	case SortLastSeen, SortFirstSeen, SortRecentEvent, SortTitle, SortCompany,
+		SortLocation, SortTitleConfidence, SortLocationConfidence, SortSaved:
 		return true
 	}
 	return false
+}
+
+// ValidOfferOrder reports whether s is a supported explicit order. The
+// empty string is valid and means "use the sort's default direction".
+func ValidOfferOrder(s string) bool {
+	return s == "" || s == OrderAsc || s == OrderDesc
 }
 
 // OfferList is a page of offers plus the total number of matches.
@@ -71,7 +90,7 @@ func QueryOffers(ctx context.Context, q Querier, f OfferQuery) (OfferList, error
 
 	query := `SELECT c.name, (SELECT MAX(e.occurred_at) FROM events e WHERE e.offer_id = o.id), ` +
 		offerColumns("o.") + ` FROM job_offers o JOIN companies c ON c.id = o.company_id` + where +
-		` ORDER BY ` + offerOrder(f.Sort)
+		` ORDER BY ` + offerOrder(f.Sort, f.Order)
 	qargs := append([]any{}, args...)
 	if f.Limit > 0 {
 		query += ` LIMIT ? OFFSET ?`
@@ -173,20 +192,45 @@ func offerWhere(ctx context.Context, q Querier, f OfferQuery) (string, []any, er
 	return b.String(), args, nil
 }
 
-func offerOrder(sortBy string) string {
+func offerOrder(sortBy, order string) string {
+	dir := offerSortDirection(sortBy, order)
 	switch sortBy {
 	case SortFirstSeen:
-		return `o.first_seen_at DESC, o.id DESC`
+		return `o.first_seen_at ` + dir + `, o.id ` + dir
 	case SortRecentEvent:
-		return `COALESCE((SELECT MAX(e.occurred_at) FROM events e WHERE e.offer_id = o.id), o.updated_at) DESC, o.id DESC`
+		return `COALESCE((SELECT MAX(e.occurred_at) FROM events e WHERE e.offer_id = o.id), o.updated_at) ` + dir + `, o.id ` + dir
 	case SortTitle:
-		return `o.title COLLATE NOCASE ASC, o.id ASC`
+		return `o.title COLLATE NOCASE ` + dir + `, o.id ` + dir
 	case SortCompany:
-		return `c.name COLLATE NOCASE ASC, o.title COLLATE NOCASE ASC, o.id ASC`
+		return `c.name COLLATE NOCASE ` + dir + `, o.title COLLATE NOCASE ` + dir + `, o.id ` + dir
+	case SortLocation:
+		return `COALESCE(o.location, '') COLLATE NOCASE ` + dir + `, o.id ` + dir
+	case SortTitleConfidence:
+		return `COALESCE(o.title_confidence, -1) ` + dir + `, o.id ` + dir
+	case SortLocationConfidence:
+		return `COALESCE(o.location_confidence, -1) ` + dir + `, o.id ` + dir
 	case SortSaved:
-		return `o.saved_at DESC, o.id DESC`
+		return `o.saved_at ` + dir + `, o.id ` + dir
 	default:
-		return `o.last_seen_at DESC, o.id DESC`
+		return `o.last_seen_at ` + dir + `, o.id ` + dir
+	}
+}
+
+// offerSortDirection resolves an explicit order, or the historical
+// direction of each sort when no order is supplied. Text sorts default
+// to ascending; date, score and bookmark sorts default to descending.
+func offerSortDirection(sortBy, order string) string {
+	switch order {
+	case OrderAsc:
+		return "ASC"
+	case OrderDesc:
+		return "DESC"
+	}
+	switch sortBy {
+	case SortTitle, SortCompany, SortLocation:
+		return "ASC"
+	default:
+		return "DESC"
 	}
 }
 

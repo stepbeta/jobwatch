@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
 import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
+import { EditViewEditor } from '../components/EditViewEditor'
 import { ActionIcon } from '../components/icons'
 import { Markdown } from '../components/Markdown'
 import { Modal } from '../components/Modal'
@@ -473,7 +474,6 @@ function EntryEditorModal({
   const [category, setCategory] = useState(initial?.category ?? '')
   const [newCategoryMode, setNewCategoryMode] = useState(false)
   const [newCategory, setNewCategory] = useState('')
-  const [answerMode, setAnswerMode] = useState<'edit' | 'view'>('edit')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -568,45 +568,14 @@ function EntryEditorModal({
         )}
 
         <div className="span-full answer-pane">
-          <div className="answer-tabs" role="tablist" aria-label="Answer mode">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={answerMode === 'edit'}
-              className={answerMode === 'edit' ? 'active' : ''}
-              onClick={() => setAnswerMode('edit')}
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={answerMode === 'view'}
-              className={answerMode === 'view' ? 'active' : ''}
-              onClick={() => setAnswerMode('view')}
-            >
-              View
-            </button>
-          </div>
-          {answerMode === 'edit' ? (
-            <label className="answer-field">
-              Answer (markdown)
-              <textarea
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                rows={16}
-                placeholder="Write your prepared answer…"
-              />
-            </label>
-          ) : (
-            <div className="answer-view" aria-live="polite">
-              {answer.trim() ? (
-                <Markdown source={answer} />
-              ) : (
-                <p className="muted">Nothing to view yet.</p>
-              )}
-            </div>
-          )}
+          <EditViewEditor
+            value={answer}
+            onChange={setAnswer}
+            editLabel="Answer (markdown)"
+            placeholder="Write your prepared answer…"
+            rows={16}
+            renderView={(source) => <Markdown source={source} />}
+          />
         </div>
 
         {error && <div className="error-box span-full">{error}</div>}

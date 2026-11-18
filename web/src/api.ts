@@ -98,6 +98,7 @@ export interface OfferQuery {
   has_application?: boolean
   saved?: boolean
   sort?: string
+  order?: string
   limit?: number
   offset?: number
 }

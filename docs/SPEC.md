@@ -279,15 +279,19 @@ Local-only dashboard. Sections:
   sorted by most recent bookmark, with an un-bookmark toggle.
 - **Offers** (`#/offers`): filterable/sortable table. Filters on
   `application_state`, `offer_state`, `remote_policy`, saved/unsaved,
-  `title_confidence`, `location_confidence`, full-text search. Each row
-  shows small score badges with tooltip explanations (match_reasons) and
-  a bookmark star — no review queue.
+  `title_confidence`, `location_confidence`, a searchable company
+  combobox and debounced full-text search. Every table view keeps its
+  filters, sort, order, page and page size in the hash-route query string.
+  Each row shows small score badges with tooltip explanations
+  (match_reasons) and a bookmark star — no review queue. Columns can be
+  hidden from a persisted picker.
 - **Offer detail page**:
-  - header: company, title, states (editable dropdowns), scores
-  - provenance block: ALL links where this offer was seen, side by side,
-    collapsed by default behind a "Provenance (N links)" disclosure, so
-    the user can open them and decide whether they are really the
-    same offer (with "split offer" action)
+  - two-column header: identity (company, title, editable states, scores,
+    bookmark, merge/split actions) on the left and an always-visible
+    compact provenance list on the right. The provenance list holds ALL
+    links where this offer was seen, so the user can open them and decide
+    whether they are really the same offer (with "split offer" action).
+    The columns stack at 900px.
   - left column: vertical **timeline** of events, add/backdate/delete
   - right column: stacked **notes**, each optionally pinned to a
     timeline event
@@ -295,14 +299,17 @@ Local-only dashboard. Sections:
     the latest snapshot; prev/next arrows and a version dropdown, a
     "Version X of N" header with captured time and a Scan/Manual origin
     badge, and an on-demand removed/added diff against the previous
-    version (the oldest version shows a hint). An Add/Edit action saves a
-    manually pasted description through `PATCH /api/offers/:id`
+    version (the oldest version shows a hint). An Add/Edit action uses the
+    shared Edit/View editor and saves through `PATCH /api/offers/:id`
     (versioned as a new `manual` snapshot and selected after saving).
-- **Company detail page**: company-level notes above the list of all its
-  offers + possible-duplicate-company merge prompt.
-- **Sources page**: list with type, last scan status/time, enable/disable,
-  per-source refresh, header "Refresh all", and add/edit in a modal
-  (config form adapts to source_type).
+- **Company detail page**: one two-column header with company identity and
+  notes, plus a possible-duplicate-company merge prompt; its offers panel
+  has debounced search, server-side sorting, pagination and URL state.
+- **Sources page**: list with type, last scan status/time, enable/disable
+  switch, filters, persisted column picker, client-side sorting, row
+  selection for sequential bulk refresh/delete, per-source icon actions,
+  company links, header "Refresh all", and add/edit in a modal (config
+  form adapts to source_type).
 
 Design goals: dense, fast, keyboard-friendly; no framework ceremony —
 plain React + a lightweight table component is fine.
@@ -425,3 +432,22 @@ plain React + a lightweight table component is fine.
   (`objectID` fallback). `published_at` is not stored because 10a adds no
   schema change; salary, remote and contract type are ignored. Migration
   0011 seeds the Fabriq page (data only).
+- 2026-11-18 (after Milestone 11): table views are a URL contract. The
+  hash-route query string on `#/offers`, `#/sources` and
+  `#/companies/:id` carries active filters, `q`, `sort`, `order`, `page`
+  and `per_page`; pages restore valid values on load, ignore unknown or
+  invalid ones, and rewrite the URL with `replaceState` as the view
+  changes. `#/offers?saved=true` remains a valid preset. Per-page values
+  are limited to 10/20/50 and also stored in `localStorage`
+  (`offers.perPage`, `sources.perPage`, `companyOffers.perPage`); column
+  visibility is presentation-only (`offers.columns`, `sources.columns`,
+  hidden-column ids). `GET /api/offers` gains the sort values `location`,
+  `title_confidence` and `location_confidence` and the optional `order`
+  parameter (`asc`/`desc`); absent `order` preserves each sort's
+  historical direction. Sources bulk delete and bulk refresh are
+  client-side sequences over the existing `DELETE /api/sources/:id` and
+  `POST /api/sources/:id/scan` endpoints; no bulk endpoint, no schema
+  change. The offer detail provenance list is always visible in the
+  header's right column (the per-offer disclosure preference is removed),
+  and the company page's offers panel is server-paged with the same sort
+  values.

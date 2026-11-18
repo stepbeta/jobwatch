@@ -160,14 +160,19 @@ Query parameters (all optional):
 | `company_id` | restrict to one company |
 | `has_application` | `true`/`1`: only `application_state != todo` |
 | `saved` | `true`/`false`: only bookmarked (`saved_at` set) or only unbookmarked offers. Absent = no filter. Invalid values → `400 validation_failed` |
-| `sort` | `last_seen` (default), `first_seen`, `recent_event`, `title`, `company`, `saved` |
+| `sort` | `last_seen` (default), `first_seen`, `recent_event`, `title`, `company`, `location`, `title_confidence`, `location_confidence`, `saved` |
+| `order` | `asc` or `desc`; absent keeps the sort's historical default. Invalid values → `400 validation_failed` |
 | `limit` | default 50, maximum 200 |
 | `offset` | default 0 |
 
 `recent_event` orders by the latest timeline event, falling back to
 `updated_at` when an offer has no events (used by the dashboard's
 Applications section). `saved` orders by `saved_at DESC` and is used by
-the dashboard's Saved section.
+the dashboard's Saved section. Text sorts (`title`, `company`,
+`location`) default to ascending; the other sorts default to descending.
+`location` sorts by `COALESCE(location, '')`, and the two confidence
+sorts by their score (NULL as -1). All sorts append the offer id as a
+stable tie-breaker.
 
 ```json
 {

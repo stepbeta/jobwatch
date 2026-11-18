@@ -45,3 +45,40 @@ export function useRoute(): Route {
 export function navigate(to: string): void {
   window.location.hash = to
 }
+
+// currentRouteQuery returns the query string attached to the current hash
+// route. Pages use it once on mount to restore filters, sort and page.
+export function currentRouteQuery(): URLSearchParams {
+  const hash = window.location.hash.replace(/^#/, '') || '/'
+  const [, query = ''] = hash.split('?')
+  return new URLSearchParams(query)
+}
+
+// replaceRouteQuery rewrites only the current hash route's query string.
+// It uses replaceState so filter changes do not flood the history, and it
+// deliberately does not fire hashchange: the page state is the source of
+// truth while the user interacts with it.
+export function replaceRouteQuery(params: URLSearchParams): void {
+  const hash = window.location.hash.replace(/^#/, '') || '/'
+  const path = hash.split('?')[0] || '/'
+  const query = params.toString()
+  const next = `#${path}${query ? `?${query}` : ''}`
+  if (window.location.hash === next) return
+  window.history.replaceState(null, '', next)
+}
+
+export function intParam(params: URLSearchParams, key: string): number | undefined {
+  const raw = params.get(key)
+  if (raw === null || raw.trim() === '') return undefined
+  const n = Number(raw)
+  return Number.isInteger(n) ? n : undefined
+}
+
+export function enumParam<T extends string>(
+  params: URLSearchParams,
+  key: string,
+  allowed: readonly T[],
+): T | undefined {
+  const raw = params.get(key)
+  return raw !== null && (allowed as readonly string[]).includes(raw) ? (raw as T) : undefined
+}

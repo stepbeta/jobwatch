@@ -1,10 +1,17 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ApiError, api, errorMessage, type OfferQuery } from '../api'
+import { ColumnPicker, PageSizeSelect, isPageSize, toggleSort, useColumnVisibility, useDebouncedValue, type SortOrder } from '../components/TableControls'
+import { CompanyCombobox } from '../components/CompanyCombobox'
 import { Modal } from '../components/Modal'
-import { OfferTable } from '../components/OfferTable'
+import { OFFER_COLUMNS, OFFER_SORT_LABELS, OFFER_SORT_VALUES, OfferTable, defaultOfferSortOrder } from '../components/OfferTable'
 import { APP_STATES, OFFER_STATES, REMOTE_POLICIES, appLabel } from '../format'
-import { navigate } from '../router'
+import { currentRouteQuery, enumParam, intParam, navigate, replaceRouteQuery } from '../router'
 import type { Company, Offer, OfferList } from '../types'
+
+const COLUMNS_KEY = 'offers.columns'
+const PER_PAGE_KEY = 'offers.perPage'
+const DEFAULT_PER_PAGE = 50
+const DEFAULT_SORT = 'last_seen'
 
 function selectValue(value: string): string | undefined {
   return value === '' ? undefined : value
@@ -22,6 +29,111 @@ function savedValue(value: string): boolean | undefined {
   return undefined
 }
 
+interface OffersView {
+  q?: string
+  application_state?: string
+  offer_state?: string
+  remote_policy?: string
+  saved?: boolean
+  min_title_confidence?: number
+  min_location_confidence?: number
+  company_id?: number
+  sort: string
+  order: SortOrder
+  page: number
+  perPage: number
+}
+
+function readPerPage(): number {
+  try {
+    const raw = window.localStorage.getItem(PER_PAGE_KEY)
+    const n = raw === null ? undefined : Number(raw)
+    if (isPageSize(n)) return n
+  } catch {
+    // fall through to the default
+  }
+  return DEFAULT_PER_PAGE
+}
+
+function writePerPage(value: number): void {
+  try {
+    window.localStorage.setItem(PER_PAGE_KEY, String(value))
+  } catch {
+    // presentation-only preference; ignore blocked storage
+  }
+}
+
+function scoreParam(value: number | undefined): number | undefined {
+  return value !== undefined && value >= 0 && value <= 100 ? value : undefined
+}
+
+function positiveID(value: number | undefined): number | undefined {
+  return value !== undefined && value > 0 ? value : undefined
+}
+
+export function readOffersView(initialSaved?: boolean): OffersView {
+  const params = currentRouteQuery()
+  const sort = enumParam(params, 'sort', OFFER_SORT_VALUES) ?? DEFAULT_SORT
+  const rawOrder = enumParam(params, 'order', ['asc', 'desc'] as const)
+  const perPage = intParam(params, 'per_page')
+  const page = intParam(params, 'page')
+  const savedRaw = params.get('saved')
+  const saved =
+    savedRaw === 'true' ? true : savedRaw === 'false' ? false : initialSaved
+  return {
+    q: params.get('q')?.trim() || undefined,
+    application_state: enumParam(params, 'application_state', APP_STATES),
+    offer_state: enumParam(params, 'offer_state', OFFER_STATES),
+    remote_policy: enumParam(params, 'remote_policy', REMOTE_POLICIES),
+    saved,
+    min_title_confidence: scoreParam(intParam(params, 'min_title_confidence')),
+    min_location_confidence: scoreParam(intParam(params, 'min_location_confidence')),
+    company_id: positiveID(intParam(params, 'company_id')),
+    sort,
+    order: rawOrder ?? defaultOfferSortOrder(sort),
+    page: page !== undefined && page > 0 ? page : 1,
+    perPage: isPageSize(perPage) ? perPage : readPerPage(),
+  }
+}
+
+function viewQuery(view: OffersView): OfferQuery {
+  return {
+    q: view.q,
+    application_state: view.application_state,
+    offer_state: view.offer_state,
+    remote_policy: view.remote_policy,
+    saved: view.saved,
+    min_title_confidence: view.min_title_confidence,
+    min_location_confidence: view.min_location_confidence,
+    company_id: view.company_id,
+    sort: view.sort,
+    order: view.order,
+    limit: view.perPage,
+    offset: (view.page - 1) * view.perPage,
+  }
+}
+
+function writeURL(view: OffersView): void {
+  const params = new URLSearchParams()
+  if (view.q) params.set('q', view.q)
+  if (view.application_state) params.set('application_state', view.application_state)
+  if (view.offer_state) params.set('offer_state', view.offer_state)
+  if (view.remote_policy) params.set('remote_policy', view.remote_policy)
+  if (view.saved !== undefined) params.set('saved', view.saved ? 'true' : 'false')
+  if (view.min_title_confidence !== undefined)
+    params.set('min_title_confidence', String(view.min_title_confidence))
+  if (view.min_location_confidence !== undefined)
+    params.set('min_location_confidence', String(view.min_location_confidence))
+  if (view.company_id !== undefined) params.set('company_id', String(view.company_id))
+  if (view.sort !== DEFAULT_SORT || view.order !== defaultOfferSortOrder(DEFAULT_SORT)) {
+    params.set('sort', view.sort)
+    params.set('order', view.order)
+  }
+  if (view.page > 1) params.set('page', String(view.page))
+  params.set('per_page', String(view.perPage))
+  replaceRouteQuery(params)
+}
+
 export function OffersPage({
   refreshToken,
   onDataChanged,
@@ -33,23 +145,31 @@ export function OffersPage({
   onNotice: (kind: 'info' | 'success' | 'error', text: string) => void
   initialSaved?: boolean
 }) {
-  const [filters, setFilters] = useState<OfferQuery>({
-    sort: 'last_seen',
-    limit: 50,
-    offset: 0,
-    saved: initialSaved,
-  })
-  const [search, setSearch] = useState('')
+  const [view, setView] = useState<OffersView>(() => readOffersView(initialSaved))
+  const [search, setSearch] = useState(() => view.q ?? '')
+  const debouncedSearch = useDebouncedValue(search)
   const [companies, setCompanies] = useState<Company[]>([])
   const [offers, setOffers] = useState<OfferList | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [busyOfferId, setBusyOfferId] = useState<number | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const columns = useColumnVisibility(COLUMNS_KEY, OFFER_COLUMNS)
 
   useEffect(() => {
-    setFilters((f) => ({ ...f, saved: initialSaved, offset: 0 }))
+    setView((v) => {
+      const q = debouncedSearch.trim() || undefined
+      return v.q === q ? v : { ...v, q, page: 1 }
+    })
+  }, [debouncedSearch])
+
+  useEffect(() => {
+    setView((v) => (v.saved === initialSaved ? v : { ...v, saved: initialSaved, page: 1 }))
   }, [initialSaved])
+
+  useEffect(() => {
+    writeURL(view)
+  }, [view])
 
   useEffect(() => {
     let cancelled = false
@@ -70,7 +190,7 @@ export function OffersPage({
     let cancelled = false
     setLoading(true)
     api
-      .listOffers(filters)
+      .listOffers(viewQuery(view))
       .then((r) => {
         if (!cancelled) {
           setOffers(r)
@@ -86,15 +206,29 @@ export function OffersPage({
     return () => {
       cancelled = true
     }
-  }, [filters, refreshToken])
+  }, [view, refreshToken])
 
-  function patchFilters(patch: Partial<OfferQuery>) {
-    setFilters((f) => ({ ...f, ...patch, offset: 0 }))
+  function patchView(patch: Partial<OffersView>) {
+    setView((v) => ({ ...v, ...patch, page: 1 }))
   }
 
   function resetFilters() {
     setSearch('')
-    setFilters({ sort: 'last_seen', limit: 50, offset: 0 })
+    setView((v) => ({
+      sort: DEFAULT_SORT,
+      order: defaultOfferSortOrder(DEFAULT_SORT),
+      page: 1,
+      perPage: v.perPage,
+    }))
+  }
+
+  function handleSort(sortKey: string) {
+    setView((v) => ({ ...v, ...toggleSort(v.sort, v.order, sortKey, defaultOfferSortOrder), page: 1 }))
+  }
+
+  function changePerPage(value: number) {
+    writePerPage(value)
+    setView((v) => ({ ...v, perPage: value, page: 1 }))
   }
 
   async function toggleSaved(offer: Offer) {
@@ -118,18 +252,18 @@ export function OffersPage({
     }
   }
 
-  const limit = offers?.limit ?? filters.limit ?? 50
-  const offset = offers?.offset ?? 0
+  const limit = offers?.limit ?? view.perPage
+  const offset = offers?.offset ?? (view.page - 1) * view.perPage
   const total = offers?.total ?? 0
   const hasFilters = Boolean(
-    filters.q ||
-      filters.application_state ||
-      filters.offer_state ||
-      filters.remote_policy ||
-      filters.min_title_confidence !== undefined ||
-      filters.min_location_confidence !== undefined ||
-      filters.company_id !== undefined ||
-      filters.saved !== undefined,
+    view.q ||
+      view.application_state ||
+      view.offer_state ||
+      view.remote_policy ||
+      view.min_title_confidence !== undefined ||
+      view.min_location_confidence !== undefined ||
+      view.company_id !== undefined ||
+      view.saved !== undefined,
   )
 
   return (
@@ -147,13 +281,7 @@ export function OffersPage({
           </div>
         </div>
 
-        <form
-          className="filters"
-          onSubmit={(e) => {
-            e.preventDefault()
-            setFilters((f) => ({ ...f, q: search.trim() || undefined, offset: 0 }))
-          }}
-        >
+        <div className="filters">
           <label>
             Search
             <input
@@ -166,8 +294,8 @@ export function OffersPage({
           <label>
             Application
             <select
-              value={filters.application_state ?? ''}
-              onChange={(e) => patchFilters({ application_state: selectValue(e.target.value) })}
+              value={view.application_state ?? ''}
+              onChange={(e) => patchView({ application_state: selectValue(e.target.value) })}
             >
               <option value="">Any</option>
               {APP_STATES.map((s) => (
@@ -180,8 +308,8 @@ export function OffersPage({
           <label>
             Offer
             <select
-              value={filters.offer_state ?? ''}
-              onChange={(e) => patchFilters({ offer_state: selectValue(e.target.value) })}
+              value={view.offer_state ?? ''}
+              onChange={(e) => patchView({ offer_state: selectValue(e.target.value) })}
             >
               <option value="">Any</option>
               {OFFER_STATES.map((s) => (
@@ -194,8 +322,8 @@ export function OffersPage({
           <label>
             Remote
             <select
-              value={filters.remote_policy ?? ''}
-              onChange={(e) => patchFilters({ remote_policy: selectValue(e.target.value) })}
+              value={view.remote_policy ?? ''}
+              onChange={(e) => patchView({ remote_policy: selectValue(e.target.value) })}
             >
               <option value="">Any</option>
               {REMOTE_POLICIES.map((s) => (
@@ -208,8 +336,8 @@ export function OffersPage({
           <label>
             Saved
             <select
-              value={filters.saved === true ? 'saved' : filters.saved === false ? 'unsaved' : ''}
-              onChange={(e) => patchFilters({ saved: savedValue(e.target.value) })}
+              value={view.saved === true ? 'saved' : view.saved === false ? 'unsaved' : ''}
+              onChange={(e) => patchView({ saved: savedValue(e.target.value) })}
             >
               <option value="">Any</option>
               <option value="saved">Saved only</option>
@@ -223,8 +351,8 @@ export function OffersPage({
               min={0}
               max={100}
               placeholder="0-100"
-              value={filters.min_title_confidence ?? ''}
-              onChange={(e) => patchFilters({ min_title_confidence: numberValue(e.target.value) })}
+              value={view.min_title_confidence ?? ''}
+              onChange={(e) => patchView({ min_title_confidence: numberValue(e.target.value) })}
             />
           </label>
           <label>
@@ -234,48 +362,43 @@ export function OffersPage({
               min={0}
               max={100}
               placeholder="0-100"
-              value={filters.min_location_confidence ?? ''}
-              onChange={(e) => patchFilters({ min_location_confidence: numberValue(e.target.value) })}
+              value={view.min_location_confidence ?? ''}
+              onChange={(e) => patchView({ min_location_confidence: numberValue(e.target.value) })}
             />
           </label>
+          <CompanyCombobox
+            companies={companies}
+            value={view.company_id}
+            onChange={(company_id) => patchView({ company_id })}
+          />
           <label>
-            Company
+            Sort
             <select
-              value={filters.company_id ?? ''}
-              onChange={(e) =>
-                patchFilters({
-                  company_id: e.target.value === '' ? undefined : Number(e.target.value),
-                })
-              }
+              value={view.sort}
+              onChange={(e) => {
+                const sort = e.target.value
+                patchView({ sort, order: defaultOfferSortOrder(sort) })
+              }}
             >
-              <option value="">Any</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
+              {OFFER_SORT_VALUES.map((s) => (
+                <option key={s} value={s}>
+                  {OFFER_SORT_LABELS[s]}
                 </option>
               ))}
             </select>
           </label>
-          <label>
-            Sort
-            <select value={filters.sort ?? 'last_seen'} onChange={(e) => patchFilters({ sort: e.target.value })}>
-              <option value="last_seen">Last seen</option>
-              <option value="recent_event">Recent activity</option>
-              <option value="first_seen">First seen</option>
-              <option value="title">Title</option>
-              <option value="company">Company</option>
-              <option value="saved">Recently saved</option>
-            </select>
-          </label>
           <div className="filter-actions">
-            <button type="submit" className="primary">
-              Search
-            </button>
+            <ColumnPicker
+              columns={OFFER_COLUMNS}
+              visible={columns.visible}
+              onToggle={columns.toggle}
+              onReset={columns.reset}
+            />
             <button type="button" onClick={resetFilters}>
               Reset
             </button>
           </div>
-        </form>
+        </div>
 
         {error && <div className="error-box">{error}</div>}
         {loading && !offers ? (
@@ -303,8 +426,12 @@ export function OffersPage({
         ) : offers ? (
           <OfferTable
             offers={offers.offers}
+            columns={columns.visible}
             onToggleSaved={(o) => void toggleSaved(o)}
             busyOfferId={busyOfferId}
+            sort={view.sort}
+            order={view.order}
+            onSort={handleSort}
           />
         ) : null}
 
@@ -312,7 +439,7 @@ export function OffersPage({
           <button
             type="button"
             disabled={offset === 0}
-            onClick={() => setFilters((f) => ({ ...f, offset: Math.max(0, offset - limit) }))}
+            onClick={() => setView((v) => ({ ...v, page: Math.max(1, v.page - 1) }))}
           >
             ← Previous
           </button>
@@ -322,10 +449,11 @@ export function OffersPage({
           <button
             type="button"
             disabled={offset + limit >= total}
-            onClick={() => setFilters((f) => ({ ...f, offset: offset + limit }))}
+            onClick={() => setView((v) => ({ ...v, page: v.page + 1 }))}
           >
             Next →
           </button>
+          <PageSizeSelect value={view.perPage} onChange={changePerPage} />
         </div>
       </section>
 

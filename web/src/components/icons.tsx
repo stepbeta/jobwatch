@@ -86,7 +86,7 @@ export function EventIcon({
   )
 }
 
-export type ActionIconName = 'edit' | 'trash' | 'note'
+export type ActionIconName = 'edit' | 'trash' | 'note' | 'refresh'
 
 const ACTION_PATHS: Record<ActionIconName, ReactNode> = {
   edit: (
@@ -108,6 +108,12 @@ const ACTION_PATHS: Record<ActionIconName, ReactNode> = {
       <path d="M5 4h14v11l-5 5H5z" />
       <path d="M14 20v-5h5" />
       <path d="M8 9h8M8 12h5" />
+    </>
+  ),
+  refresh: (
+    <>
+      <path d="M20 11a8 8 0 1 0-2.3 5.6" />
+      <path d="M20 4v7h-7" />
     </>
   ),
 }
