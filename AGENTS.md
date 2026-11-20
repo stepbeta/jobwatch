@@ -179,3 +179,12 @@ moves one capability at a time.
   user; do not improvise.
 - Prefer many small, verifiable commits over one giant batch.
 - Do not add dependencies without stating why in the session summary.
+- **Apply one task group at a time.** When implementing an OpenSpec
+  change, complete a numbered group from `tasks.md`, tick it, and stop
+  for review before starting the next group.
+- **Back up the database before touching it.** Before applying a
+  migration or any other change to the SQLite file, make a copy:
+  `jobwatch backup jobwatch.db.<timestamp>.bkp` (consistent copy, refuses
+  to overwrite, runs an integrity check). When no process has the
+  database open, `cp jobwatch.db jobwatch.db.<timestamp>.bkp` is
+  acceptable — never copy while `serve` holds it.
