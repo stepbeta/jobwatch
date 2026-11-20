@@ -68,6 +68,7 @@ internal/model/      types shared across packages
 web/                 React SPA source (src/) + Go embed (embed.go, noui.go, spa.go)
 migrations/          numbered .sql files + embed.FS (migrations.go)
 docs/                living documentation (see below)
+openspec/            spec-driven change planning (see "OpenSpec" below)
 ```
 
 ## Documentation duty (MANDATORY)
@@ -92,6 +93,9 @@ same session MUST update:
    when commands, flags, or source configuration change.
 7. `docs/SPEC.md` — only for permanent decisions that change the
    specification; record each revision in its "Spec revisions" section.
+   Once a behavior has been captured as a capability under
+   `openspec/specs/`, replace its section here with a one-line pointer
+   instead of editing it (see "OpenSpec" below).
 8. `AGENTS.md` — repository layout, when packages are added or moved.
 
 Rules:
@@ -100,6 +104,36 @@ Rules:
 - If the agent discovers the docs contradict the code, it must fix the
   docs and flag the contradiction to the user in its summary.
 - Keep docs terse and factual. No marketing language, no speculation.
+
+### OpenSpec
+
+The project adopts OpenSpec incrementally. Until every behavior in
+`docs/SPEC.md` has a capability spec, both systems exist and ownership
+moves one capability at a time.
+
+- **One owner per capability.** Until a behavior is captured,
+  `docs/SPEC.md` is authoritative. Once
+  `openspec/specs/<capability>/spec.md` exists, that spec is
+  authoritative and the `SPEC.md` section becomes a pointer. Never
+  maintain both descriptions of the same behavior.
+- **Capture on touch, not by bulk migration.** When a change modifies a
+  subsystem, its delta becomes a capability spec when the change is
+  archived, and the matching `SPEC.md` section is replaced by a pointer
+  in the same batch. Do not backfill specs for behavior that is not
+  changing.
+- **OpenSpec owns obligations; docs keep the rest.** Requirements and
+  scenarios (SHALL/MUST behavior) belong in `openspec/specs/`. Schemas,
+  endpoints, components and procedures stay in `DATA-MODEL.md`,
+  `API.md`, `ARCHITECTURE.md` and `README.md`.
+- **Never hand-write a change.** Scaffold with
+  `npx -y openspec new change "<name>"` (the CLI is not installed
+  globally) and follow `openspec instructions` for each artifact. Work
+  is planned in `proposal.md`, `design.md`, `specs/` and `tasks.md`,
+  and implemented from `tasks.md`.
+- **Planning is not implementation.** An explore session may create
+  change artifacts after explicit confirmation, never code. Code changes
+  start from an approved change, and archiving happens only when its
+  tasks are done.
 
 ## Definition of done (every session)
 
@@ -112,6 +146,10 @@ Rules:
 - CHANGELOG.md entry written.
 - MILESTONES.md status updated if the session closes or advances a
   milestone.
+- When the session implements an OpenSpec change: tick its `tasks.md`
+  items, keep the affected capability spec in step, and replace the
+  matching `docs/SPEC.md` section with a pointer if the change is
+  archived.
 - The agent ends its session with a short summary: what was built,
   what tests were added, what docs were touched, known gaps.
 - Unless the user says otherwise the session must conclude with a
