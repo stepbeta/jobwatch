@@ -58,8 +58,8 @@
 
 ## 8. Documentation
 
-- [ ] 8.1 `docs/DATA-MODEL.md`: company keys and aliases, offer identity, incomplete marker, state machine without `changed`
-- [ ] 8.2 `docs/ARCHITECTURE.md`: adapter contract, resolution order, incomplete path, remediation command
-- [ ] 8.3 `docs/API.md`: incomplete filter and repair endpoint, offer state enum
-- [ ] 8.4 `docs/SPEC.md` revision entry; `CHANGELOG.md`; `docs/MILESTONES.md` known-gaps rows that this change closes
-- [ ] 8.5 `README.md` command reference: `reattribute`
+- [x] 8.1 `docs/DATA-MODEL.md`: company keys and aliases, offer identity, incomplete marker, state machine without `changed`
+- [x] 8.2 `docs/ARCHITECTURE.md`: adapter contract, resolution order, incomplete path, remediation command
+- [x] 8.3 `docs/API.md`: incomplete filter and repair endpoint, offer state enum
+- [x] 8.4 `docs/SPEC.md` revision entry; `CHANGELOG.md`; `docs/MILESTONES.md` known-gaps rows that this change closes
+- [x] 8.5 `README.md` command reference: `reattribute`

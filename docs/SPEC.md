@@ -8,9 +8,10 @@ actively looking for a full-remote **Platform Engineer / SRE** permanent
 position in **France**.
 
 It periodically (manually triggered) scans configured sources, finds new
-offers, detects offers that disappeared or changed, classifies each offer
-with a deterministic scoring engine, and lets the user track the full
-application lifecycle (timeline, notes, states) per offer and per company.
+offers, keeps each changed description as a version, marks offers that
+disappeared, classifies each offer with a deterministic scoring engine,
+and lets the user track the full application lifecycle (timeline, notes,
+states) per offer and per company.
 
 Practical usage — source configuration, import, states, CLI and backups —
 is documented in [USAGE.md](USAGE.md). The endpoint reference is
@@ -451,28 +452,36 @@ plain React + a lightweight table component is fine.
   header's right column (the per-offer disclosure preference is removed),
   and the company page's offers panel is server-paged with the same sort
   values.
-- 2026-11-21 (OpenSpec change `offer-identity-from-source-uid`, in
-  progress): task group 1 lands migration 0012 — company keys and
-  aliases, provenance `(source_id, external_uid)` uniqueness, nullable
-  `job_offers.company_id`, the incomplete marker, and the removal of the
-  `changed` state. Task group 2 resolves each sighting through provenance
-  `(source, uid)` then `(source, url)`, updates title/location in place,
-  and removes the `changed` scan vocabulary. Task group 3 makes company
-  names non-unique, resolves companies by attested key then source/global
-  alias, removes the source-name fallback, and makes company rename/merge
-  move keys and aliases without rewriting offer fingerprints. Task group 4
-  extends `RawOffer` with `CompanyKey` and `IncompleteReason`, makes every
-  typed adapter emit its token, adds the declarative RSS/HTML `employer`
-  rule and configures it for We Work Remotely, and adds fixture tests for
+- 2026-11-21 (OpenSpec change `offer-identity-from-source-uid`,
+  implemented; archive pending): task group 1 lands migration 0012 —
+  company keys and aliases, provenance `(source_id, external_uid)`
+  uniqueness, nullable `job_offers.company_id`, the incomplete marker,
+  and the removal of the `changed` state. Task group 2 resolves each
+  sighting through provenance `(source, uid)` then `(source, url)`,
+  updates title/location in place, and removes the `changed` scan
+  vocabulary. Task group 3 makes company names non-unique, resolves
+  companies by attested key then source/global alias, removes the
+  source-name fallback, and makes company rename/merge move keys and
+  aliases without rewriting offer fingerprints. Task group 4 extends
+  `RawOffer` with `CompanyKey` and `IncompleteReason`, makes every typed
+  adapter emit its token, adds the declarative RSS/HTML `employer` rule
+  and configures it for We Work Remotely, and adds fixture tests for
   stable uids. Task group 5 stores items with a missing company and/or
   title as incomplete offers (raw values in `incomplete_raw`), excludes
   them from list/dashboard/search, adds
   `POST /api/offers/:id/repair`, keeps the user's repair safe from later
-  scans, and reports an `incomplete` count in the scan result. The
-  offer-lifecycle, company-resolution, source-normalization and
-  incomplete-listings capability specs under
-  `openspec/changes/offer-identity-from-source-uid/specs/` are the target
-  for the remaining task groups; the sections above still describe the
-  pre-change fingerprint/`changed`/unique-company-name model and are
-  revised, and the affected behaviors become pointers to
-  `openspec/specs/`, when the change is archived.
+  scans, and reports an `incomplete` count in the scan result. Task
+  group 6 adds `jobwatch reattribute`, which re-fetches a source and
+  moves offers matched by `(source, uid)` to the adapter's current
+  company and title while preserving their history. Task group 7 exposes
+  the `incomplete=true` list filter, adds the Incomplete page and repair
+  form, removes `changed` from the UI state/filter/badge in favour of a
+  description version count, and shows company keys on the company page.
+  Task group 8 synchronizes DATA-MODEL, ARCHITECTURE, API, README,
+  USAGE, MILESTONES and CHANGELOG. The offer-lifecycle,
+  company-resolution, source-normalization and incomplete-listings
+  capability specs under
+  `openspec/changes/offer-identity-from-source-uid/specs/` are complete;
+  the sections above still describe the pre-change
+  fingerprint/`changed`/unique-company-name model and become pointers to
+  `openspec/specs/` when the change is archived.

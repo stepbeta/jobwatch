@@ -206,6 +206,12 @@ Built with React + TypeScript (Vite). The pages are:
   the modal, shows the success toast, refreshes the data and opens the new
   or matched offer's detail page. Score badges show 0–100 title/location
   confidences; hover one to see the matched keywords from the classifier.
+- **Incomplete** (`#/incomplete`) — items a source could not normalize,
+  with the item count, the source-reported company/title/location, the
+  reason and source link. **Repair** opens a form that assigns a company
+  and title (and optionally a location) while keeping the provenance,
+  snapshots and notes. The top navigation shows the incomplete count and
+  refreshes after scans and repairs.
 - **Sources** — enable/disable with a row-end toggle switch, scan status,
   filters (enabled/disabled/all, type, scan status, debounced name search),
   a column picker, client-side header sorting, and a per-page selector.
@@ -223,19 +229,21 @@ Built with React + TypeScript (Vite). The pages are:
   company page is enabled and scannable.
 - **Offer detail** — a two-column header panel: identity (company, title,
   editable application/offer state and location, score badges, bookmark,
-  Merge/Split actions) on the left and an always-visible compact provenance
-  list (links, source names, external UID, first/last seen) on the right.
+  description version count, Merge/Split actions) on the left and an
+  always-visible compact provenance list (links, source names, external
+  UID, first/last seen) on the right.
   Below it: a vertical timeline with backdating, notes optionally pinned to
   an event, and a single-version description browser (prev/next, version
   dropdown, Scan/Manual origin badge, diff against the previous version)
   whose Add/Edit action uses the shared Edit/View editor.
 - **Company detail** — one two-column header block: identity (name,
-  website, offer count, created time, Edit/Delete company) and the
-  dismissible possible-duplicate banner on the left; company notes (list,
-  add, delete) on the right. The columns stack at 900px. The offers panel
-  below has its own debounced search, header-click sorting (server-side
-  `company_id` query), per-page selector and pagination. Merging always
-  asks which company row to keep; nothing is merged automatically.
+  website, offer count, created time, attested keys, Edit/Delete company)
+  and the dismissible possible-duplicate banner on the left; company notes
+  (list, add, delete) on the right. The columns stack at 900px. The offers
+  panel below has its own debounced search, header-click sorting
+  (server-side `company_id` query), per-page selector and pagination.
+  Merging always asks which company row to keep; nothing is merged
+  automatically.
 - **Interview prep** (`#/interview-prep`) — a personal FAQ of anticipated
   interview questions and prepared answers. Entries are grouped into one
   section per category, sorted alphabetically with "Uncategorized" last; a
@@ -323,10 +331,11 @@ register that board instead so future scans track it automatically. See
 ### Offer states
 
 - `active`: seen in the latest scan.
-- `changed`: the description changed (each version is kept as a snapshot
-  with its scan/manual origin; the detail page browses the versions and
-  shows the added/removed lines against the previous one).
 - `disappeared`: no longer listed on any source. Scans never delete offers.
+
+A description edit is not an offer state. Every distinct version is kept
+as a snapshot with its scan/manual origin; the detail page browses the
+versions and shows the added/removed lines against the previous one.
 
 The full transition table, including reappearance and multi-source
 behavior, is in [DATA-MODEL.md](DATA-MODEL.md#offer_state-written-by-scans-and-imports).
@@ -353,6 +362,27 @@ older offers; `--all` recomputes after changing the tables.
 The scoring rules, caps and reason lists are described in
 [ARCHITECTURE.md](ARCHITECTURE.md#classification-internalclassify).
 
+## Re-attribution
+
+Scans never rewrite the company or title of an existing offer, so an
+adapter that starts extracting an employer or a canonical title does not
+change offers recorded before the fix. `reattribute` corrects them
+explicitly:
+
+```sh
+./jobwatch reattribute --source 36   # one source by ID
+./jobwatch reattribute --all         # every enabled source (the default)
+```
+
+It re-fetches the source, matches stored offers by `(source, uid)` and
+writes the adapter's current company and title. Events, notes, snapshots,
+application/listing states and `last_seen_at` are preserved; the
+classifier is re-run for the new title. The command is idempotent, skips
+user-repaired offers and offers with no current uid match, and reports
+per source how many offers moved, stayed unchanged or were skipped, plus
+any company left without offers. An emptied company stays in the
+database for you to delete.
+
 ## Backups
 
 ```sh
@@ -375,6 +405,7 @@ backup is a normal SQLite file; point `--db` at it to use it.
 | `list [--offer-state S] [--app-state S] [--limit N] [--sources]` | List offers (most recently seen first) or sources |
 | `import <url \| json \| file.json \| ->` | Add an offer seen elsewhere. A bare URL is fetched for JSON-LD/Open Graph/title metadata (`--no-fetch` disables); JSON fields can be supplied manually |
 | `reclassify [--all]` | Backfill title/location scores and remote policies with the deterministic classifier; `--all` recomputes every offer |
+| `reattribute [--all \| --source <id>]` | Re-fetch a source and move offers matched by `(source, uid)` to the company and title the adapter now reports, preserving history; `--source` accepts a disabled source |
 | `backup <dest>` | Write and validate a consistent copy of the database (must not exist) |
 
 All commands accept the global `--db <path>` flag (default
@@ -404,10 +435,12 @@ All commands accept the global `--db <path>` flag (default
 # Headless usage still works
 ./jobwatch scan
 ./jobwatch list                  # ID, company, title, location, remote, T/L scores, states
-./jobwatch list --offer-state changed
+./jobwatch list --offer-state disappeared
 ./jobwatch list --sources        # includes notes on disabled seeded sources
 ./jobwatch reclassify            # backfill scores of older offers
 ./jobwatch reclassify --all      # recompute every score after keyword changes
+./jobwatch reattribute --source 36   # move old We Work Remotely offers to their employers
+./jobwatch reattribute --all         # reattribute every enabled source
 ./jobwatch backup ~/jobwatch-$(date +%F).db   # validated copy
 ```
 
@@ -422,6 +455,7 @@ All commands accept the global `--db <path>` flag (default
 | `list` | `--offer-state`, `--app-state`, `--limit` (default 100; `0` = no limit), `--sources` |
 | `import` | `--company`, `--title`, `--location`, `--description`, `--no-fetch` |
 | `reclassify` | `--all` |
+| `reattribute` | `--all` or `--source <id>`; no argument |
 | `backup` | none; destination must not exist |
 
 Field flags cannot be combined with a JSON array. `scan` exits non-zero

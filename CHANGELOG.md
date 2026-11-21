@@ -216,6 +216,20 @@
 - Offer rows with no company render a dash instead of a broken company
   link; the offer detail page handles a null company.
 
+### Offer identity from source uid (OpenSpec change, task group 8)
+
+#### Changed
+- Documentation synchronized with the implemented change:
+  `DATA-MODEL.md` covers company keys/aliases, provenance identity, the
+  incomplete marker and the two-state offer machine;
+  `ARCHITECTURE.md` documents the adapter contract, company resolution,
+  the incomplete scan path and the re-attribution command; `API.md`
+  documents the `incomplete` filter, the repair endpoint, the offer
+  state/reason enums and the company `keys` response; `README.md` and
+  `USAGE.md` add the `reattribute` command and the Incomplete page;
+  `SPEC.md` records groups 1–8; and `MILESTONES.md` closes the
+  fingerprint-identity, RSS title-splitting and We Work Remotely gaps.
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.

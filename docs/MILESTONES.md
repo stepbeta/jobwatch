@@ -6,9 +6,11 @@ added here as they start.
 ## Current state
 
 Milestones 1–11 are complete. The binary scans the 71 seeded sources
-plus any sources the user adds, detects new/changed/disappeared offers,
-classifies them deterministically, and serves the React UI and REST API
-from one process.
+plus any sources the user adds, detects new and disappeared offers,
+keeps every distinct description as a version, classifies offers
+deterministically, and serves the React UI and REST API from one process.
+The OpenSpec change `offer-identity-from-source-uid` is implemented
+through task group 8; archiving it is the remaining step.
 End to end, a user can add sources, scan, filter and bookmark offers, set
 application states, keep a timeline and notes, browse description
 versions, merge or split records after explicit confirmation, and build a
@@ -224,7 +226,7 @@ Done criteria (all met):
 | Toggl is disabled even though `jobs.ashbyhq.com/toggl` exists | the Ashby public posting API returns 404 for that org; only the embed script is available, so the Ashby adapter cannot fetch it |
 | Harvest is disabled although its page is server-rendered | the page currently lists no openings, so selectors cannot be verified; it can be revisited when roles appear |
 | Murena tracks only the engineering table | the page has a second "Other positions" table with a different column layout; the engineering table is the relevant one and its selectors are stable |
-| ~~We Work Remotely keeps the source name as the company~~ — closed by OpenSpec change `offer-identity-from-source-uid`: the RSS `employer` rule splits `Company: Role` into company and title. Offers recorded before the rule keep their old company until explicitly reattributed | the feed has no company element; the employer rule is now configured, and new offers get the extracted employer |
+| ~~We Work Remotely keeps the source name as the company~~ — closed by OpenSpec change `offer-identity-from-source-uid`: the RSS `employer` rule splits `Company: Role` into company and title, and `jobwatch reattribute` moves already-stored offers to the extracted employer | the feed has no company element; the live remediation moved 33 of 289 offers to 26 employers, and the other 256 have no current uid match so they stay under the feed as history |
 | The 28 not-trackable rows are `html`/`wttj` sources with a `note` | consistent with the seeded Workday/SuccessFactors/WTTJ rows; they are never scanned and offers enter through manual import |
 
 ## Source seeding — migration 0003 — DONE
@@ -850,11 +852,12 @@ Done criteria (all met):
 |---|---|---|
 | ATS workplace hints discarded | §6 | Open. Lever/Ashby `workplaceType` is not carried in `RawOffer`; Workable's `telecommuting` and BambooHR's `isRemote` are used, and `remote_policy` is otherwise derived from location and description text |
 | BambooHR offers have no description | §7 | Open. The public listing has no description and per-offer pages are not fetched; `raw_text` stays empty unless the offer is imported from its detail URL |
-| Title change of a posting creates a new offer | §5 | Open. Identity is the fingerprint only (external UID not used) |
-| WTTJ adapter has undocumented dependencies | §7 | Open. Credentials are discovered from the `kind: "jobs-search"` block of the bootstrap page tree; a CMS restructure breaks discovery (permanent scan error). The secured key is referrer-restricted, and two index shapes are known. See `docs/SOURCE-DECISIONS.md` |
+| ~~Title change of a posting creates a new offer~~ — closed by OpenSpec change `offer-identity-from-source-uid`: identity is provenance `(source, uid)` then `(source, url)`, so a title edit updates the existing offer | §5 | the fingerprint is no longer read for matching |
+| ~~RSS/Atom item heuristics~~ — closed by OpenSpec change `offer-identity-from-source-uid`: the declarative `employer` rule splits `Company: Role` or reads a separate field/selector, and it is configured for We Work Remotely | §7 | remaining feed-specific mappings are still configurable per source |
+| Offers with no current sighting keep their adapter-era company | §5 | Open data artifact. `jobwatch reattribute` matches by `(source, uid)`; an offer the source no longer lists has no current sighting, so it stays as history until explicitly merged or deleted |
 | Workday/SuccessFactors adapters missing | §7 | By design for v1. Disabled seeded rows carry an explanation |
 | HTML adapter is listing-only | §7 | Open. It fetches one page per scan; descriptions are whatever the configured selector exposes |
-| RSS/Atom item heuristics | §7 | Open. Titles such as “Company: Role” are not split automatically; mapping is configurable per source |
+| WTTJ adapter has undocumented dependencies | §7 | Open. Credentials are discovered from the `kind: "jobs-search"` block of the bootstrap page tree; a CMS restructure breaks discovery (permanent scan error). The secured key is referrer-restricted, and two index shapes are known. See `docs/SOURCE-DECISIONS.md` |
 | Import metadata extraction is heuristic | §3 | Open. JSON-LD/Open Graph/meta/title only; pages without them need the manual form |
 | No "N consecutive failures" counter | §7 | Open. One failed scan marks the source `error`/`blocked`; the next success resets it. The error text is in the scan summary but not stored |
 | `notes_fts` not exposed | §4 | Open. The index is maintained but `GET /api/offers?q=` searches offers only |
@@ -862,7 +865,7 @@ Done criteria (all met):
 | Pre-7c snapshot origins are all `scan` | §9 | By design after 7c. The old schema had no reliable manual marker; only snapshots written from 7c onward carry an exact origin |
 | Manual description edits do not refresh classifier scores | §6 | Open. Scores keep their previous values until the next sighting or `jobwatch reclassify --all`; the edit itself is versioned normally |
 | Offer merge does not carry the absorbed offer's bookmark | §9 | Open. The kept offer keeps its own `saved_at`; the absorbed bookmark is not copied. Merge semantics were left unchanged in 7e |
-| Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, offers import modal, offers table controls (columns, sort requests, URL round-trip, debounced search, page size, company combobox), sources filters/bulk/switch/icons/company links, company two-column layout and offers-table controls, offer header/provenance layout and description Edit/View save, hash routing and interview prep (sections, cue, drag-and-drop payloads, Edit/View, new category, accordion, add/edit/delete, escaped markdown) | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); real-browser drag-and-drop, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
+| Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, offers import modal, offers table controls (columns, sort requests, URL round-trip, debounced search, page size, company combobox), incomplete list/repair, sources filters/bulk/switch/icons/company links, company two-column layout, company keys and offers-table controls, offer header/provenance layout and description Edit/View save, hash routing and interview prep (sections, cue, drag-and-drop payloads, Edit/View, new category, accordion, add/edit/delete, escaped markdown) | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); real-browser drag-and-drop, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
 | Source names link by override/source name only, not the board-reported company | §9 | Open. The sources payload has no board-reported company and Milestone 11 avoided a display-only endpoint; a source whose offers use a different company stays unlinked unless `config.company` is set |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |

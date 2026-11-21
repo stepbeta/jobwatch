@@ -39,6 +39,7 @@ the project overview is the [README](../README.md).
 | `source_type` | `greenhouse` `lever` `ashby` `personio` `workable` `bamboohr` `wttj` `rss` `html` `manual` |
 | `last_scan_status` | `ok` `error` `blocked`; `null` = never scanned |
 | `offer_state` | `active` `disappeared` |
+| offer `incomplete_reason` | `missing_company` `missing_title` `missing_company_title`; `null` for a usable offer |
 | `application_state` | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
 | `remote_policy` | `remote` `hybrid` `onsite` `unknown` |
 | event `type` | `cv_sent` `message_received` `message_sent` `interview` `offer` `rejected` `ghosted` `other` |
@@ -162,13 +163,15 @@ Query parameters (all optional):
 | `company_id` | restrict to one company |
 | `has_application` | `true`/`1`: only `application_state != todo` |
 | `saved` | `true`/`false`: only bookmarked (`saved_at` set) or only unbookmarked offers. Absent = no filter. Invalid values → `400 validation_failed` |
+| `incomplete` | `true`: only incomplete offers (missing company and/or title). Absent or `false` excludes them. Invalid values → `400 validation_failed` |
 | `sort` | `last_seen` (default), `first_seen`, `recent_event`, `title`, `company`, `location`, `title_confidence`, `location_confidence`, `saved` |
 | `order` | `asc` or `desc`; absent keeps the sort's historical default. Invalid values → `400 validation_failed` |
 | `limit` | default 50, maximum 200 |
 | `offset` | default 0 |
 
-Incomplete offers (missing company and/or title) are excluded unless
-requested; there is no filter parameter for them yet.
+Incomplete offers (missing company and/or title) are excluded by
+default. `incomplete=true` lists only them; the incomplete page uses
+this filter and its `total` for the item count.
 
 `recent_event` orders by the latest timeline event, falling back to
 `updated_at` when an offer has no events (used by the dashboard's
@@ -554,10 +557,14 @@ that the UI may propose for merging:
   "notes": [ { "...": "..." } ],
   "possible_duplicates": [ { "id": 9, "name": "Acme France",
                              "name_normalized": "acme france",
-                             "score": 75, "reason": "one name extends the other" } ]
+                             "score": 75, "reason": "one name extends the other" } ],
+  "keys": [ "greenhouse:acme", "lever:acme" ]
 }
 ```
 
+`keys` lists the attested company identifiers (`greenhouse:<board_token>`,
+`lever:<site>`, …) and is `[]` when the company has none. The company
+page shows them so same-named companies can be told apart.
 Candidates are proposals only; nothing is merged automatically.
 
 ### PATCH /api/companies/:id

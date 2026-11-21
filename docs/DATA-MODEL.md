@@ -300,6 +300,15 @@ matched against every provenance row, so importing a link a scan already
 tracks attaches to that offer; a new URL creates a new offer. Title and
 company are attributes, not identity.
 
+`jobwatch reattribute` is the explicit remediation path for offers whose
+company or title predates an adapter change. It matches stored offers by
+`(source_id, external_uid)` against the adapter's current output and
+updates only `company_id`, `title`, `title_normalized`, the classifier
+columns and `updated_at`; events, notes, snapshots, both states,
+`last_seen_at` and provenance stay as they are. A repaired offer
+(`incomplete_raw` non-null) and an offer with no current uid match are
+left untouched, so the command is safe to re-run.
+
 ### events
 | Column | Type | Notes |
 |---|---|---|

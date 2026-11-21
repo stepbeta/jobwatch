@@ -122,6 +122,7 @@ flowchart TD
 | `list` | Print offers and states; `--sources` lists sources instead |
 | `import <url \| json \| file.json \| ->` | Add an offer seen elsewhere |
 | `reclassify [--all]` | Backfill or recompute classifier scores |
+| `reattribute [--all \| --source <id>]` | Re-fetch a source and move offers matched by `(source, uid)` to the company and title the adapter now reports, preserving history |
 | `backup <dest>` | Write and validate a consistent copy of the database |
 
 All commands accept `--db <path>` (default `./jobwatch.db`). Run
@@ -137,6 +138,9 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
   badges, a searchable company filter, persisted column picker, per-page
   selector, URL-restored filters, a bookmark toggle on every row, and the
   **Add offer** import dialog.
+- **Incomplete** (`#/incomplete`) — items a source could not normalize,
+  with the item count, the reported values and a repair form that assigns
+  a company and title while keeping the source link and history.
 - **Sources** — enable/disable switch, filters, scan status, selectable
   rows with bulk refresh/delete, icon row actions, Refresh all, and
   add/edit in a modal with type-dependent config fields.
