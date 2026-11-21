@@ -49,6 +49,9 @@ One binary, subcommands:
 - `jobwatch list` — quick terminal listing of offers and states
 - `jobwatch import <url-or-json>` — manually add an offer seen elsewhere
   (a bare URL is fetched for lightweight metadata unless `--no-fetch`)
+- `jobwatch reattribute [--all | --source <id>]` — re-fetch a source and
+  move offers matched by `(source, uid)` to the company and title the
+  adapter now reports, preserving their history
 - `jobwatch backup <dest>`
 
 Future-proofing: subcommand architecture (e.g. Cobra) so more commands
@@ -59,11 +62,13 @@ can be added later without refactoring.
 ```sql
 companies (
   id INTEGER PK,
-  name TEXT NOT NULL,
-  name_normalized TEXT UNIQUE NOT NULL,   -- lowercased, punctuation stripped, legal suffixes removed
+  name TEXT NOT NULL,                     -- display only, not unique
+  name_normalized TEXT NOT NULL,          -- lowercased, punctuation stripped, legal suffixes removed
   website TEXT,
   created_at TEXT
 )
+-- Company identity is carried by company_keys and company_aliases; see
+-- openspec/specs/company-resolution/spec.md and docs/DATA-MODEL.md.
 
 sources (
   id INTEGER PK,
@@ -79,34 +84,37 @@ sources (
 
 job_offers (
   id INTEGER PK,
-  company_id INTEGER NOT NULL REFERENCES companies(id),
+  company_id INTEGER NULL REFERENCES companies(id),  -- NULL only for an incomplete item
   title TEXT NOT NULL,
   title_normalized TEXT NOT NULL,
   location TEXT,                  -- free text as parsed
   remote_policy TEXT NOT NULL DEFAULT 'unknown',  -- remote | hybrid | onsite | unknown
   url TEXT,                       -- canonical (first-seen) link
-  fingerprint TEXT UNIQUE NOT NULL,  -- hash(company_normalized + title_normalized [+ location bucket])
+  fingerprint TEXT NOT NULL DEFAULT '',  -- legacy column, no longer unique or identity
   first_seen_at TEXT NOT NULL,
   last_seen_at TEXT NOT NULL,
-  offer_state TEXT NOT NULL DEFAULT 'active',  -- active | changed | disappeared
+  offer_state TEXT NOT NULL DEFAULT 'active',  -- active | disappeared
   application_state TEXT NOT NULL DEFAULT 'todo',
       -- todo | applied | responded | interview | offer | negative | maybe | positive
   raw_text TEXT,                  -- latest snapshot of the offer description
-  text_hash TEXT,                 -- hash to detect changed offers
+  text_hash TEXT,                 -- hash to detect description changes
   title_confidence INTEGER,       -- 0..100, probability it's a platform/SRE role (from classifier)
   location_confidence INTEGER,    -- 0..100, probability it matches "full remote in France"
   match_reasons_json TEXT,        -- human-readable list explaining the scores
+  incomplete_reason TEXT,         -- NULL, or missing_company | missing_title | missing_company_title
+  incomplete_raw TEXT,            -- JSON of the values the source reported, kept for repair
   created_at TEXT, updated_at TEXT
 )
 
-job_offer_provenance (           -- one row per (source, offer sighting)
+job_offer_provenance (           -- one row per (source, offer sighting); carries offer identity
   id INTEGER PK,
   offer_id INTEGER NOT NULL REFERENCES job_offers(id) ON DELETE CASCADE,
   source_id INTEGER NULL REFERENCES sources(id),  -- NULL for manual imports
   external_uid TEXT,              -- ATS posting id, when available
   url TEXT NOT NULL,              -- exact link where it was seen
   first_seen_at TEXT, last_seen_at TEXT,
-  UNIQUE(offer_id, url)
+  UNIQUE(offer_id, url),
+  -- Partial unique index on (source_id, external_uid) for non-empty uids
 )
 -- The user may see the same offer under two different links (company site +
 -- aggregator): the UI must surface all provenance rows so the user can open
@@ -150,32 +158,22 @@ column-level reference for the implemented schema.
 
 ## 5. Deduplication & company matching
 
-- Company resolution: normalize name (lowercase, strip punctuation and
-  legal suffixes like GmbH/Inc/SAS/Ltd), then lookup in `companies`;
-  create if missing. Exact normalized match first; if none, a conservative
-  fuzzy match (normalized edit distance threshold) proposes a merge
-  candidate but **never merges silently** — the UI shows "possible
-  duplicate company" with a user-confirmable merge action.
-- Offer identity: `fingerprint = hash(company_normalized + title_normalized)`
-  (SHA-256 hex, fields joined with a 0x1F separator).
-  On collision (two genuinely different roles with identical titles at the
-  same company), disambiguate with a location bucket: a sighting whose
-  location bucket differs from the stored offer's (both known) uses
-  `hash(company + title + bucket)` instead. The bucket rule is defined in
-  `docs/DATA-MODEL.md`. The UI must let the
-  user manually merge two offers and manually split a wrongly merged one.
-- Offer state transitions during scan:
-  - seen again → update `last_seen_at`, provenance `last_seen_at`
-  - `text_hash` changed → `offer_state = changed`, add a snapshot, and
-    record what changed (diff summary) in the UI
-  - not seen in a full scan of its source → `offer_state = disappeared`
-    (do not delete; the user tracks the application anyway). An offer
-    listed on several sources disappears only when no other source saw
-    it in that source's latest successful scan. Failed scans change no
-    offer.
-  - `disappeared` offer seen again → `offer_state = active`
-  - a `changed` offer stays `changed` on later unchanged sightings until
-    the user acknowledges it
+Company resolution is specified by the `company-resolution` capability
+([openspec/specs/company-resolution/spec.md](../openspec/specs/company-resolution/spec.md)):
+resolution by an attested identifier, then per-source name claims, then
+confirmed global names, then creation. A possible duplicate is only ever
+proposed; names are not unique and companies are never merged
+automatically.
+
+Offer identity and listing transitions are specified by the
+`offer-lifecycle` capability
+([openspec/specs/offer-lifecycle/spec.md](../openspec/specs/offer-lifecycle/spec.md)):
+`(source, external_uid)` then `(source, url)`, `active | disappeared`
+only, and every distinct description kept as a snapshot.
+
+Not yet captured as a capability: the UI must let the user manually
+merge two offers and manually split a wrongly merged one, and that merge
+or split moves provenance, snapshots, events and notes.
 
 ## 6. Classification engine (deterministic, hardcoded)
 
@@ -204,16 +202,13 @@ human-readable reasons. No LLM in the scan loop.
 ## 7. Sources & fetching architecture
 
 Adapter pattern: one Go interface, one implementation per source type.
-
-```go
-type Fetcher interface {
-    Fetch(ctx context.Context, src Source) ([]RawOffer, error)
-}
-type RawOffer struct {
-    ExternalUID, Title, Location, URL, Description string
-    Company string // from the source, may override the source's own company
-}
-```
+The adapter contract is specified by the `source-normalization`
+capability
+([openspec/specs/source-normalization/spec.md](../openspec/specs/source-normalization/spec.md)):
+an adapter emits a stable uid, a canonical title, location, URL,
+description and company evidence, reports an item it cannot normalize as
+incomplete instead of failing the source, and the pipeline never
+invents a company.
 
 Priority of implementations for v1:
 
@@ -241,10 +236,15 @@ Notes on known sources:
 
 Scan lifecycle (per source):
 1. fetch → parse → RawOffer list
-2. resolve company → upsert offer (dedup) → update provenance
+2. resolve the sighting through provenance identity, resolve its company,
+   then insert or update the offer and its provenance row
 3. classify (scores + reasons)
-4. capture snapshot if new or changed
+4. capture a snapshot when the description is new or differs
 5. commit transaction; update `sources.last_scan_at/status`
+
+An item a source cannot normalize is stored as an incomplete offer
+instead of being skipped or attributed to a guessed company; see
+[openspec/specs/incomplete-listings/spec.md](../openspec/specs/incomplete-listings/spec.md).
 
 Scans are manual only: a "Refresh" button per source and a "Refresh all"
 on the Sources page, plus the applications-scoped Refresh on the
@@ -254,10 +254,14 @@ dashboard. Optionally trigger via `jobwatch scan`.
 
 - CRUD `/api/sources`, `POST /api/sources/:id/scan`
 - `GET /api/offers?filters...` (state, scores, remote policy, company,
-  full-text query), `GET /api/offers/:id` (with snapshot version history;
+  full-text query, `incomplete=true`); incomplete items are excluded by
+  default
+- `GET /api/offers/:id` (with snapshot version history;
   `?snapshot_id=N` returns that version's full text)
 - `PATCH /api/offers/:id` (states, location edit, description edit,
   manual merge/split)
+- `POST /api/offers/:id/repair` (assign company and title to an
+  incomplete item)
 - `GET /api/offers/:id/snapshot-diff?from=N&to=M` (any two versions,
   ordered older → newer)
 - CRUD `/api/offers/:id/events`, CRUD `/api/notes`
@@ -269,9 +273,9 @@ dashboard. Optionally trigger via `jobwatch scan`.
 
 Local-only dashboard. Sections:
 
-- **Top bar**: navigation only (Dashboard, Offers, Sources). Scan
-  actions live on the Sources page and in the dashboard Applications
-  section.
+- **Top bar**: navigation only (Dashboard, Offers, Sources, Incomplete
+  with a pending count). Scan actions live on the Sources page and in the
+  dashboard Applications section.
 - **Dashboard** (`#/`): the Applications section — all offers with
   `application_state != todo`, sorted by most recent timeline activity
   ("where did I send my CV") — with a Refresh button scoped to the
@@ -293,6 +297,8 @@ Local-only dashboard. Sections:
     links where this offer was seen, so the user can open them and decide
     whether they are really the same offer (with "split offer" action).
     The columns stack at 900px.
+    The listing state offers only `active` and `disappeared`; a
+    description edit shows as an additional version, not a state.
   - left column: vertical **timeline** of events, add/backdate/delete
   - right column: stacked **notes**, each optionally pinned to a
     timeline event
@@ -306,6 +312,12 @@ Local-only dashboard. Sections:
 - **Company detail page**: one two-column header with company identity and
   notes, plus a possible-duplicate-company merge prompt; its offers panel
   has debounced search, server-side sorting, pagination and URL state.
+  The header lists the company's attested keys so same-named companies
+  can be told apart.
+- **Incomplete** (`#/incomplete`): items a source could not normalize,
+  with their reported values and reason, a count, and a repair form that
+  assigns an existing company and a title (see
+  [openspec/specs/incomplete-listings/spec.md](../openspec/specs/incomplete-listings/spec.md)).
 - **Sources page**: list with type, last scan status/time, enable/disable
   switch, filters, persisted column picker, client-side sorting, row
   selection for sequential bulk refresh/delete, per-source icon actions,
@@ -478,10 +490,12 @@ plain React + a lightweight table component is fine.
   form, removes `changed` from the UI state/filter/badge in favour of a
   description version count, and shows company keys on the company page.
   Task group 8 synchronizes DATA-MODEL, ARCHITECTURE, API, README,
-  USAGE, MILESTONES and CHANGELOG. The offer-lifecycle,
-  company-resolution, source-normalization and incomplete-listings
-  capability specs under
-  `openspec/changes/offer-identity-from-source-uid/specs/` are complete;
-  the sections above still describe the pre-change
-  fingerprint/`changed`/unique-company-name model and become pointers to
-  `openspec/specs/` when the change is archived.
+  USAGE, MILESTONES and CHANGELOG.
+- 2026-11-21 (OpenSpec change `offer-identity-from-source-uid`,
+  archived): the change is archived and its four deltas were synced to
+  `openspec/specs/offer-lifecycle`, `openspec/specs/company-resolution`,
+  `openspec/specs/source-normalization` and
+  `openspec/specs/incomplete-listings`. Sections 4, 5, 7, 8 and 9 above
+  now point at those capabilities for the behavior this change captured;
+  obligations they do not cover (manual offer merge/split and its history
+  moves) remain written here.

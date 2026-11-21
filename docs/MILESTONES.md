@@ -10,7 +10,8 @@ plus any sources the user adds, detects new and disappeared offers,
 keeps every distinct description as a version, classifies offers
 deterministically, and serves the React UI and REST API from one process.
 The OpenSpec change `offer-identity-from-source-uid` is implemented
-through task group 8; archiving it is the remaining step.
+through task group 8 and archived; its four capabilities now live under
+`openspec/specs/` and the matching `docs/SPEC.md` sections are pointers.
 End to end, a user can add sources, scan, filter and bookmark offers, set
 application states, keep a timeline and notes, browse description
 versions, merge or split records after explicit confirmation, and build a

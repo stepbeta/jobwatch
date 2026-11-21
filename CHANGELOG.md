@@ -230,6 +230,15 @@
   `SPEC.md` records groups 1–8; and `MILESTONES.md` closes the
   fingerprint-identity, RSS title-splitting and We Work Remotely gaps.
 
+### Offer identity from source uid (OpenSpec change, archive)
+
+#### Changed
+- The change is archived. Its four capabilities were synced to
+  `openspec/specs/` (offer-lifecycle, company-resolution,
+  source-normalization, incomplete-listings), and the matching
+  `docs/SPEC.md` sections now point there instead of restating the
+  behavior. `docs/MILESTONES.md` records the archive as done.
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.
