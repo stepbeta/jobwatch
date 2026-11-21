@@ -170,6 +170,7 @@ moves one capability at a time.
   there must be accompanied by updated classifier tests.
 - Frontend: English UI text, no i18n layer. API errors returned as
   `{ "error": { "code": string, "message": string } }`.
+- Git: always use the conventional commits standard for commit messages.
 
 ## Working style
 
