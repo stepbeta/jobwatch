@@ -104,6 +104,40 @@
   reporting a fingerprint conflict, and a later scan cannot recreate the
   absorbed company because its keys and names resolve to the target.
 
+### Offer identity from source uid (OpenSpec change, task group 4)
+
+#### Added
+- `RawOffer` carries `CompanyKey` (the namespaced identifier the adapter
+  already holds) and `IncompleteReason` (`missing_company`,
+  `missing_title`, `missing_company_title`). Every typed adapter emits its
+  token: `greenhouse:<board_token>`, `lever:<site>`, `ashby:<org>`,
+  `personio:<tenant>`, `workable:<account>`, `bamboohr:<subdomain>`,
+  `wttj:<org slug>`.
+- A declarative `employer` rule for RSS and HTML sources. With
+  `{"separator":":"}` it splits `Employer: Role` and rewrites both the
+  company and the title; `field` (RSS) or `selector` (HTML) reads the
+  employer from a separate element and strips the repeated prefix.
+- Migration 0014 configures the rule for We Work Remotely. A recorded
+  169-employer fixture (`wwr_feed.xml`) scans twice and asserts 169
+  distinct employers and stable uids.
+- Fixture tests fetch every adapter twice and compare the external uids:
+  Greenhouse, Lever, Ashby, Personio, Workable, BambooHR, WTTJ, RSS and
+  HTML.
+
+#### Changed
+- Adapters no longer silently drop an item with an empty title or no
+  company: they return it with an `IncompleteReason`. The scan pipeline
+  still counts such items as `skipped` until the incomplete-listing group
+  stores them.
+- RSS/HTML titles are rewritten by the employer rule, so a multi-employer
+  feed no longer attributes its offers to the feed itself.
+
+#### Fixed
+- We Work Remotely titles such as `Hometap: Underwriter` now yield
+  company `Hometap` and title `Underwriter` instead of a verbatim title
+  and an empty company. Offers recorded before the rule keep their old
+  company until explicitly reattributed.
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.

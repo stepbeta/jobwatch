@@ -41,10 +41,13 @@ func (l *Lever) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error)
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := ParseConfig(src)
+	if err != nil {
+		return nil, err
+	}
 	base := l.BaseURL
 	if base == "" {
 		base = leverBaseURL
-		cfg, _ := ParseConfig(src)
 		region := cfg.Region
 		if region == "" {
 			_, dc, _ := Detect(src.URL)
@@ -60,22 +63,24 @@ func (l *Lever) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error)
 	if err := l.Client.GetJSON(ctx, src, u, &postings); err != nil {
 		return nil, fmt.Errorf("lever %s: %w", site, err)
 	}
+	key := companyKey(model.SourceLever, site)
 	out := make([]RawOffer, 0, len(postings))
 	for _, p := range postings {
-		if p.Text == "" || p.HostedURL == "" {
+		if p.HostedURL == "" {
 			continue
 		}
 		loc := p.Categories.Location
 		if len(p.Categories.AllLocations) > 1 {
 			loc = strings.Join(p.Categories.AllLocations, "; ")
 		}
-		out = append(out, RawOffer{
+		out = append(out, finalizeOffer(RawOffer{
 			ExternalUID: p.ID,
 			Title:       p.Text,
 			Location:    loc,
 			URL:         p.HostedURL,
 			Description: leverDescription(p),
-		})
+			CompanyKey:  key,
+		}, cfg.Company))
 	}
 	return out, nil
 }

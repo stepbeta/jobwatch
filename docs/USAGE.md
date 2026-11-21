@@ -87,7 +87,7 @@ Optional `--config` keys:
 
 | Key | Meaning |
 |---|---|
-| `company` | Company name for offers of this source |
+| `company` | Company name for offers of a single-employer source; required when the adapter reports no company. Migration 0013 sets it on the enabled seeded single-employer sources |
 | `rate_limit_ms` | Minimum delay between requests to the host (default 2000; HTML sources never go below 5000) |
 | `note` | Explanation shown on the sources page (used by the seeded disabled rows) |
 | `board_token` / `site` + `region` / `org` | Greenhouse / Lever (`region: "eu"`) / Ashby board name, if it can't be derived from the URL |
@@ -97,6 +97,7 @@ Optional `--config` keys:
 | `url` | Optional careers page override (WTTJ); defaults to the source URL |
 | `algolia_app_id`, `algolia_api_key` | WTTJ debug-only overrides of the credentials discovered from the page bootstrap |
 | `item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field` | RSS/Atom mapping. Paths are child element local names joined with `/` (e.g. `locations/location/name`); `@name` reads an attribute and `#text` reads text. Defaults cover RSS `<item>` and Atom `<entry>` |
+| `employer` | Declarative employer rule for RSS/HTML sources that list several employers. `{"separator":":"}` splits `Employer: Role`; `field` (RSS) or `selector` (HTML) reads the employer from a separate element and strips the repeated prefix from the title |
 | `item_selector`, `title_selector`, `link_selector`, `link_attr`, `location_selector`, `description_selector`, `company_selector`, `uid_selector`, `uid_attr` | HTML listing page CSS selectors. `item_selector` and `title_selector` are required; only the listing page is fetched, at most every 5 s. Selectors use cascadia's CSS support, including `:has()` and `:haschild()` for item containers |
 
 ### Examples
@@ -106,7 +107,7 @@ RSS/Atom and HTML sources need `--type`:
 ```sh
 ./jobwatch add-source https://weworkremotely.com/remote-jobs.rss \
   --type rss --name "We Work Remotely" \
-  --config '{"location_field":"region","company_field":"category"}'
+  --config '{"location_field":"region","employer":{"separator":":"}}'
 
 ./jobwatch add-source https://careers.example.com/jobs \
   --type html --name "Example careers" \

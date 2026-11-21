@@ -460,7 +460,11 @@ plain React + a lightweight table component is fine.
   and removes the `changed` scan vocabulary. Task group 3 makes company
   names non-unique, resolves companies by attested key then source/global
   alias, removes the source-name fallback, and makes company rename/merge
-  move keys and aliases without rewriting offer fingerprints. The
+  move keys and aliases without rewriting offer fingerprints. Task group 4
+  extends `RawOffer` with `CompanyKey` and `IncompleteReason`, makes every
+  typed adapter emit its token, adds the declarative RSS/HTML `employer`
+  rule and configures it for We Work Remotely, and adds fixture tests for
+  stable uids. The
   offer-lifecycle, company-resolution, source-normalization and
   incomplete-listings capability specs under
   `openspec/changes/offer-identity-from-source-uid/specs/` are the target

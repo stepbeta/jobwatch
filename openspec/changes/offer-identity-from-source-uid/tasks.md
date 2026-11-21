@@ -26,11 +26,11 @@
 
 ## 4. Adapter normalization
 
-- [ ] 4.1 Extend `RawOffer` with company evidence (identifier and name) and a per-item incomplete reason
-- [ ] 4.2 Each typed adapter emits its existing token as the company identifier
-- [ ] 4.3 RSS and HTML gain a declarative employer rule that rewrites company and title together
-- [ ] 4.4 Set `config.company` on the enabled single-employer rss/html sources; configure extraction for We Work Remotely
-- [ ] 4.5 Fixture tests: scan each adapter twice and assert identical uids; WWR fixture yields 169 distinct employers
+- [x] 4.1 Extend `RawOffer` with company evidence (identifier and name) and a per-item incomplete reason
+- [x] 4.2 Each typed adapter emits its existing token as the company identifier
+- [x] 4.3 RSS and HTML gain a declarative employer rule that rewrites company and title together
+- [x] 4.4 Set `config.company` on the enabled single-employer rss/html sources; configure extraction for We Work Remotely
+- [x] 4.5 Fixture tests: scan each adapter twice and assert identical uids; WWR fixture yields 169 distinct employers
 
 ## 5. Incomplete items
 

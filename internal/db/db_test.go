@@ -228,7 +228,7 @@ func TestSeed5cAudit(t *testing.T) {
 		url, name, typ, config string
 		enabled                bool
 	}{
-		{"https://weworkremotely.com/remote-jobs.rss", "We Work Remotely", "rss", `{"location_field":"region"}`, true},
+		{"https://weworkremotely.com/remote-jobs.rss", "We Work Remotely", "rss", `{"location_field":"region","employer":{"separator":":"}}`, true},
 		{"https://jobs.workable.com/search?location=France&workplace=remote", "Workable (search)", "html", `{"note":"robots.txt disallows the Workable job search path."}`, false},
 		{"https://www.flexjobs.com/search", "FlexJobs", "html", `{"note":"FlexJobs requires a paid membership/login and its robots.txt was unreachable; not crawled."}`, false},
 		{"https://jobgether.com", "Jobgether", "html", `{"note":"Jobgether is an aggregator that requires an account and renders matches client-side."}`, false},

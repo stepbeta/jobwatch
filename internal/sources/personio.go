@@ -67,18 +67,20 @@ func (p *Personio) Fetch(ctx context.Context, src model.Source) ([]RawOffer, err
 		return nil, fmt.Errorf("personio %s: decode xml: %w", tenant, err)
 	}
 	out := make([]RawOffer, 0, len(feed.Positions))
+	key := companyKey(model.SourcePersonio, tenant)
 	for _, pos := range feed.Positions {
 		title := strings.TrimSpace(pos.Name)
-		if title == "" || strings.TrimSpace(pos.ID) == "" {
+		if strings.TrimSpace(pos.ID) == "" {
 			continue
 		}
-		out = append(out, RawOffer{
+		out = append(out, finalizeOffer(RawOffer{
 			ExternalUID: strings.TrimSpace(pos.ID),
 			Title:       title,
 			Location:    strings.TrimSpace(pos.Office),
 			URL:         fmt.Sprintf("%s/job/%s", base, url.PathEscape(strings.TrimSpace(pos.ID))),
 			Description: personioDescriptionText(pos.JobDescription),
-		})
+			CompanyKey:  key,
+		}, cfg.Company))
 	}
 	return out, nil
 }

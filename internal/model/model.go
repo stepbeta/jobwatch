@@ -57,6 +57,25 @@ func (s OfferState) Valid() bool {
 	return false
 }
 
+// IncompleteReason explains why an item a source reported could not be
+// normalized into a usable offer.
+type IncompleteReason string
+
+const (
+	IncompleteMissingCompany      IncompleteReason = "missing_company"
+	IncompleteMissingTitle        IncompleteReason = "missing_title"
+	IncompleteMissingCompanyTitle IncompleteReason = "missing_company_title"
+)
+
+// Valid reports whether r is a known incomplete reason.
+func (r IncompleteReason) Valid() bool {
+	switch r {
+	case IncompleteMissingCompany, IncompleteMissingTitle, IncompleteMissingCompanyTitle:
+		return true
+	}
+	return false
+}
+
 // ApplicationState tracks the user's application lifecycle for an offer.
 type ApplicationState string
 

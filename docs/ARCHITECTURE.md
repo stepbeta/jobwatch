@@ -27,9 +27,20 @@ type Fetcher interface {
 }
 type RawOffer struct {
     ExternalUID, Title, Location, URL, Description string
-    Company string
+    Company    string                  // display-name evidence
+    CompanyKey string                  // namespaced attested identifier
+    IncompleteReason model.IncompleteReason // set when the item is unusable
 }
 ```
+
+Every adapter emits a stable uid, the canonical title and location, and
+company evidence. Typed adapters set `CompanyKey` to their existing token
+(`greenhouse:<board_token>`, `lever:<site>`, `ashby:<org>`,
+`personio:<tenant>`, `workable:<account>`, `bamboohr:<subdomain>`,
+`wttj:<org slug>`); RSS/HTML have no token and rely on the declared
+`company` or the employer rule. An item missing a title or company is
+returned with `IncompleteReason` (`missing_title`, `missing_company`,
+`missing_company_title`) instead of being silently dropped.
 
 Adapters (`sources.NewRegistry`):
 
@@ -42,8 +53,8 @@ Adapters (`sources.NewRegistry`):
 | workable | `GET https://apply.workable.com/api/v1/widget/accounts/{account}?details=true` | keyless widget API; entries with the same `shortcode` are grouped, all `locations` joined, `telecommuting` adds a remote marker; `name` is the company |
 | bamboohr | `GET https://{subdomain}.bamboohr.com/careers/list` | public JSON listing; `id` is the external UID and builds `/careers/{id}`, `jobOpeningName` the title, `location`/`atsLocation` fields joined (empty parts and repeated city/state dropped), `isRemote` adds a remote marker; no per-offer description fetch, so `Description` stays empty |
 | wttj | `GET https://api.welcometothejungle.com/api/v1/pages?path={careers path}`, then `POST https://{app_id}-dsn.algolia.net/1/indexes/*/queries` | credentials, index, filters and page language are discovered from the page tree at every scan; the Algolia call sends a browser `User-Agent`, the fixed `Referer` and the form content type with a JSON body; `reference` is the external UID (`objectID` fallback), `profile` markdown is stored verbatim, offers are paged at 50 hits with the discovered filters |
-| rss | `GET <source url>` | RSS 2.0 and Atom; item/field mapping in config (`item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field`); paths are child local names joined with `/` (e.g. `locations/location/name`) with `@attr` and `#text`; Atom alternate links and HTML descriptions handled |
-| html | `GET <source url>` | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); cascadia supports `:has()` and `:haschild()` for row containers; one request per scan, no per-offer page fetches; minimum interval 5 s |
+| rss | `GET <source url>` | RSS 2.0 and Atom; item/field mapping in config (`item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field`); paths are child local names joined with `/` (e.g. `locations/location/name`) with `@attr` and `#text`; Atom alternate links and HTML descriptions handled; optional `employer` rule splits `Employer: Role` or reads a separate field |
+| html | `GET <source url>` | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); cascadia supports `:has()` and `:haschild()` for row containers; one request per scan, no per-offer page fetches; minimum interval 5 s; optional `employer` rule (`separator` and/or `selector`) rewrites company and title |
 
 `manual` has no fetcher; manual offers come from the import path.
 Disabled seeded rows are `html`/`wttj` sources with a `note` in

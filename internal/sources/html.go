@@ -45,7 +45,7 @@ func (h *HTML) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 			return nil, fmt.Errorf("html: invalid link_selector %q: %w", s, err)
 		}
 	}
-	var locSel, descSel, companySel, uidSel cascadia.Selector
+	var locSel, descSel, companySel, uidSel, employerSel cascadia.Selector
 	if s := strings.TrimSpace(cfg.LocationSelector); s != "" {
 		if locSel, err = cascadia.Compile(s); err != nil {
 			return nil, fmt.Errorf("html: invalid location_selector %q: %w", s, err)
@@ -59,6 +59,13 @@ func (h *HTML) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 	if s := strings.TrimSpace(cfg.CompanySelector); s != "" {
 		if companySel, err = cascadia.Compile(s); err != nil {
 			return nil, fmt.Errorf("html: invalid company_selector %q: %w", s, err)
+		}
+	}
+	if cfg.Employer != nil {
+		if s := strings.TrimSpace(cfg.Employer.Selector); s != "" {
+			if employerSel, err = cascadia.Compile(s); err != nil {
+				return nil, fmt.Errorf("html: invalid employer.selector %q: %w", s, err)
+			}
 		}
 	}
 	if s := strings.TrimSpace(cfg.UIDSelector); s != "" {
@@ -84,9 +91,6 @@ func (h *HTML) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 	out := make([]RawOffer, 0, len(nodes))
 	for _, node := range nodes {
 		title := nodeText(queryOne(node, titleSel))
-		if title == "" {
-			continue
-		}
 		linkNode := queryOne(node, linkSel)
 		rawLink := nodeAttr(linkNode, linkAttr)
 		if rawLink == "" && strings.EqualFold(linkAttr, "href") {
@@ -121,14 +125,20 @@ func (h *HTML) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 		} else if uidAttr != "" {
 			uid = nodeAttr(node, uidAttr)
 		}
-		out = append(out, RawOffer{
+		company := nodeText(queryOne(node, companySel))
+		employerValue := ""
+		if employerSel != nil {
+			employerValue = nodeText(queryOne(node, employerSel))
+		}
+		title, company = cfg.Employer.apply(title, company, employerValue)
+		out = append(out, finalizeOffer(RawOffer{
 			ExternalUID: uid,
 			Title:       title,
 			Location:    nodeText(queryOne(node, locSel)),
 			URL:         link,
 			Description: nodeDescription(queryOne(node, descSel)),
-			Company:     nodeText(queryOne(node, companySel)),
-		})
+			Company:     company,
+		}, cfg.Company))
 	}
 	return out, nil
 }

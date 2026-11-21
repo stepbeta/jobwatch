@@ -114,8 +114,15 @@ func (s *Scanner) apply(ctx context.Context, src model.Source, raws []sources.Ra
 	touched := map[int64]bool{}
 	srcID := src.ID
 	for _, raw := range raws {
+		if raw.IncompleteReason != "" {
+			// The adapter reported why the item cannot be used. The
+			// incomplete-listing group stores it instead of skipping it.
+			res.Skipped++
+			continue
+		}
 		in := Sighting{
 			Company:     firstNonEmpty(raw.Company, cfg.Company),
+			CompanyKey:  raw.CompanyKey,
 			Title:       raw.Title,
 			Location:    raw.Location,
 			URL:         raw.URL,

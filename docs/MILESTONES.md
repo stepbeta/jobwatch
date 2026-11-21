@@ -224,7 +224,7 @@ Done criteria (all met):
 | Toggl is disabled even though `jobs.ashbyhq.com/toggl` exists | the Ashby public posting API returns 404 for that org; only the embed script is available, so the Ashby adapter cannot fetch it |
 | Harvest is disabled although its page is server-rendered | the page currently lists no openings, so selectors cannot be verified; it can be revisited when roles appear |
 | Murena tracks only the engineering table | the page has a second "Other positions" table with a different column layout; the engineering table is the relevant one and its selectors are stable |
-| We Work Remotely keeps the source name as the company | the feed has no company element and titles are "Company: Role"; splitting titles is the existing RSS known gap, not a 5b change |
+| ~~We Work Remotely keeps the source name as the company~~ — closed by OpenSpec change `offer-identity-from-source-uid`: the RSS `employer` rule splits `Company: Role` into company and title. Offers recorded before the rule keep their old company until explicitly reattributed | the feed has no company element; the employer rule is now configured, and new offers get the extracted employer |
 | The 28 not-trackable rows are `html`/`wttj` sources with a `note` | consistent with the seeded Workday/SuccessFactors/WTTJ rows; they are never scanned and offers enter through manual import |
 
 ## Source seeding — migration 0003 — DONE

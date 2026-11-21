@@ -166,5 +166,18 @@ compared when the user asks to see them.
   RSS/HTML except We Work Remotely) to preserve the old attribution. An
   item with neither adapter company evidence nor `config.company` is
   counted as skipped; the incomplete-listings group replaces that skip
-  with a stored incomplete offer. We Work Remotely waits for the RSS/HTML
-  employer extraction.
+  with a stored incomplete offer.
+- **Adapters carry the evidence.** Group 4 adds `CompanyKey` and
+  `IncompleteReason` to `RawOffer`; every typed adapter emits its
+  namespaced token. RSS/HTML gain a declarative `employer` rule
+  (`separator`, plus `field`/`selector`) that rewrites company and title.
+  Migration 0014 configures it for We Work Remotely, and a 169-employer
+  fixture proves the split and uid stability. Adapters now return an item
+  with an incomplete reason instead of dropping it; the pipeline still
+  skips those items until group 5.
+- **Existing We Work Remotely offers are not reattributed.** The 291
+  offers recorded before the employer rule keep the feed as their company:
+  a later sighting resolves by uid to the existing offer, and a sighting
+  never rewrites the company. New offers and an explicit future
+  reattribution use the extracted employer. This is a data-migration gap,
+  not a resolution rule; the fixture proves the adapter output.

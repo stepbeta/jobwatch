@@ -79,7 +79,7 @@ Actions:
 | https://supabase.com/careers#positions | Supabase | underlying-board | Ashby board `supabase`; registered `https://jobs.ashbyhq.com/supabase` (77 offers). |
 | https://www.flexjobs.com/search | FlexJobs | not-trackable | Requires a paid membership/login and its robots.txt was unreachable; not crawled. Offers enter through `jobwatch import` or the UI import form. |
 | https://jobs.workable.com/search?location=France&workplace=remote | Workable (search) | not-trackable | The query URL is disallowed by robots.txt (`Disallow: /search*?*`). Allowed clean category pages exist but are incomplete; no targeted adapter was added. Offers enter through manual import. See [Aggregators](#aggregators-milestone-5c). |
-| https://weworkremotely.com/remote-jobs/search?country%5B%5D=FR | We Work Remotely | rss | Public RSS feed `https://weworkremotely.com/remote-jobs.rss`; registered config `{"location_field":"region"}` (99 offers). Re-verified in 5c with a fixture test. |
+| https://weworkremotely.com/remote-jobs/search?country%5B%5D=FR | We Work Remotely | rss | Public RSS feed `https://weworkremotely.com/remote-jobs.rss`; registered config `{"location_field":"region","employer":{"separator":":"}}` (99 offers at 5c). Re-verified in 5c with a fixture test; the employer rule was added by OpenSpec change `offer-identity-from-source-uid`. |
 | https://jobgether.com | Jobgether | not-trackable | Aggregator that requires an account and renders matches client-side. Not scraped; offers enter through `jobwatch import` or the UI import form. |
 | https://www.welcometothejungle.com/fr/jobs-matches | Welcome to the Jungle (matches) | not-trackable | WTTJ uses an internal API with no public contract. Not scraped; manual import only. |
 | https://my.greenhouse.io/dashboard | Greenhouse (candidate dashboard) | not-trackable | Candidate dashboard; requires a candidate login. Not scraped; offers enter through manual import. |
@@ -106,18 +106,25 @@ The 5b row is correct and stays enabled. The public feed
 `https://weworkremotely.com/remote-jobs.rss` is RSS 2.0 with these
 per-item fields: `title` (`Company: Role`), `region` (e.g. `USA Only`),
 `category`, `type`, `description` (escaped HTML), `pubDate`, `guid` and
-`link`. The feed has no company element, so the registered config maps
-only the location:
+`link`. The feed has no company element, so the config maps the location
+and declares the employer rule:
 
 ```json
-{"location_field": "region"}
+{"location_field": "region", "employer": {"separator": ":"}}
 ```
 
-`internal/sources/testdata/rss_feed.xml` records that shape (first three
-items, descriptions trimmed) and `TestRSSAdapter/weworkremotely_registered_mapping`
-asserts the mapping, the verbatim `Company: Role` titles and the empty
-company. A real scan in 5c returned `ok`: 100 feed items, 99 offers, 0
-new (all already tracked), 0 changed, 0 disappeared.
+`internal/sources/testdata/rss_feed.xml` records the first three items;
+`TestRSSAdapter/weworkremotely employer rule` asserts that the rule splits
+the titles and sets the employer. `internal/sources/testdata/wwr_feed.xml`
+is a 169-employer fixture (one item per employer, recorded from the local
+database) and `TestWWRFeedEmployerRule` scans it twice: 169 distinct
+employers, stable uids. A real scan in 5c returned `ok`: 100 feed items,
+99 offers, 0 new (all already tracked), 0 changed, 0 disappeared.
+
+Offers recorded before the employer rule keep the feed as their company
+(a later sighting resolves by uid to the existing offer and does not
+rewrite its company); new offers and a future explicit reattribution use
+the extracted employer.
 
 ### Workable public search
 

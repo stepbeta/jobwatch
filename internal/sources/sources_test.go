@@ -278,6 +278,27 @@ func fixtureServer(t *testing.T, path, file string) *httptest.Server {
 	return srv
 }
 
+// sameUIDs reports whether two fetches produced the same ordered uids.
+func sameUIDs(a, b []RawOffer) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ExternalUID != b[i].ExternalUID {
+			return false
+		}
+	}
+	return true
+}
+
+func uidsOf(offers []RawOffer) []string {
+	out := make([]string, len(offers))
+	for i, o := range offers {
+		out[i] = o.ExternalUID
+	}
+	return out
+}
+
 func TestAdapters(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -304,6 +325,7 @@ func TestAdapters(t *testing.T) {
 				URL:         "https://job-boards.greenhouse.io/gitlab/jobs/8638232002",
 				Description: "GitLab is the intelligent orchestration platform for DevSecOps.",
 				Company:     "GitLab",
+				CompanyKey:  "greenhouse:gitlab",
 			},
 			wantSecLoc: "Remote, Canada; Remote, United States",
 		},
@@ -320,6 +342,7 @@ func TestAdapters(t *testing.T) {
 				Location:    "New York, NY",
 				URL:         "https://jobs.lever.co/spotify/2a55d6c9-c564-443a-be3e-a3851db5a93b",
 				Description: "Spotify Technology is our business-to-business software team",
+				CompanyKey:  "lever:spotify",
 			},
 			wantSecLoc: "London",
 			wantDescIn: "What You'll Do\n• Identify and pursue new business opportunities",
@@ -337,6 +360,7 @@ func TestAdapters(t *testing.T) {
 				Location:    "Europe",
 				URL:         "https://jobs.ashbyhq.com/linear/d3bc1ced-3ce4-4086-a050-555055dbb1ff",
 				Description: "At Linear, we're building the product development system",
+				CompanyKey:  "ashby:linear",
 			},
 			wantSecLoc: "North America; Toronto",
 		},
@@ -348,6 +372,13 @@ func TestAdapters(t *testing.T) {
 			got, err := tt.fetcher(c, srv.URL).Fetch(context.Background(), tt.src)
 			if err != nil {
 				t.Fatalf("Fetch: %v", err)
+			}
+			again, err := tt.fetcher(c, srv.URL).Fetch(context.Background(), tt.src)
+			if err != nil {
+				t.Fatalf("second Fetch: %v", err)
+			}
+			if !sameUIDs(got, again) {
+				t.Errorf("uids are not stable across fetches: %v vs %v", uidsOf(got), uidsOf(again))
 			}
 			if len(got) != tt.wantCount {
 				t.Fatalf("got %d offers, want %d", len(got), tt.wantCount)
@@ -410,11 +441,17 @@ func TestPersonioAdapter(t *testing.T) {
 	srv := fixtureServer(t, "/xml", "personio.xml")
 	c, _ := testClient()
 	p := &Personio{Client: c, BaseURL: srv.URL}
-	got, err := p.Fetch(context.Background(), model.Source{
-		ID: 1, Type: model.SourcePersonio, URL: "https://acme.jobs.personio.de",
-	})
+	src := model.Source{ID: 1, Type: model.SourcePersonio, URL: "https://acme.jobs.personio.de"}
+	got, err := p.Fetch(context.Background(), src)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
+	}
+	again, err := p.Fetch(context.Background(), src)
+	if err != nil {
+		t.Fatalf("second Fetch: %v", err)
+	}
+	if !sameUIDs(got, again) {
+		t.Errorf("uids are not stable across fetches: %v vs %v", uidsOf(got), uidsOf(again))
 	}
 	if len(got) != 3 {
 		t.Fatalf("got %d offers, want 3", len(got))
@@ -425,6 +462,9 @@ func TestPersonioAdapter(t *testing.T) {
 	}
 	if first.Location != "Berlin" || first.URL != srv.URL+"/job/2885178" {
 		t.Errorf("first location/url = %q %q", first.Location, first.URL)
+	}
+	if first.CompanyKey != "personio:acme" {
+		t.Errorf("company key = %q, want personio:acme", first.CompanyKey)
 	}
 	for _, want := range []string{"Your mission", "Kubernetes", "Your profile", "SRE or Platform Engineer"} {
 		if !strings.Contains(first.Description, want) {
@@ -453,11 +493,17 @@ func TestWorkableAdapter(t *testing.T) {
 	srv := fixtureServer(t, "/api/v1/widget/accounts/acme?details=true", "workable_jobs.json")
 	c, _ := testClient()
 	wk := &Workable{Client: c, BaseURL: srv.URL}
-	got, err := wk.Fetch(context.Background(), model.Source{
-		ID: 1, Type: model.SourceWorkable, URL: "https://apply.workable.com/acme",
-	})
+	src := model.Source{ID: 1, Type: model.SourceWorkable, URL: "https://apply.workable.com/acme"}
+	got, err := wk.Fetch(context.Background(), src)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
+	}
+	again, err := wk.Fetch(context.Background(), src)
+	if err != nil {
+		t.Fatalf("second Fetch: %v", err)
+	}
+	if !sameUIDs(got, again) {
+		t.Errorf("uids are not stable across fetches: %v vs %v", uidsOf(got), uidsOf(again))
 	}
 	if len(got) != 3 {
 		t.Fatalf("got %d offers, want 3", len(got))
@@ -466,8 +512,8 @@ func TestWorkableAdapter(t *testing.T) {
 	if first.ExternalUID != "81B46579FE" || first.Title != "Open-Source Machine Learning Engineer - EMEA Remote" {
 		t.Errorf("first offer = %+v", first)
 	}
-	if first.Company != "Hugging Face" {
-		t.Errorf("company = %q", first.Company)
+	if first.Company != "Hugging Face" || first.CompanyKey != "workable:acme" {
+		t.Errorf("company/company key = %q %q", first.Company, first.CompanyKey)
 	}
 	if first.URL != "https://apply.workable.com/j/81B46579FE" {
 		t.Errorf("url = %q", first.URL)
@@ -503,11 +549,17 @@ func TestBambooHRAdapter(t *testing.T) {
 	srv := fixtureServer(t, "/careers/list", "bamboohr_careers.json")
 	c, _ := testClient()
 	b := &BambooHR{Client: c, BaseURL: srv.URL}
-	got, err := b.Fetch(context.Background(), model.Source{
-		ID: 1, Type: model.SourceBambooHR, URL: "https://semble.bamboohr.com/careers",
-	})
+	src := model.Source{ID: 1, Type: model.SourceBambooHR, URL: "https://semble.bamboohr.com/careers"}
+	got, err := b.Fetch(context.Background(), src)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
+	}
+	again, err := b.Fetch(context.Background(), src)
+	if err != nil {
+		t.Fatalf("second Fetch: %v", err)
+	}
+	if !sameUIDs(got, again) {
+		t.Errorf("uids are not stable across fetches: %v vs %v", uidsOf(got), uidsOf(again))
 	}
 	if len(got) != 9 {
 		t.Fatalf("got %d offers, want 9", len(got))
@@ -519,6 +571,9 @@ func TestBambooHRAdapter(t *testing.T) {
 	}
 	if first.Location != "" || first.Description != "" || first.Company != "" {
 		t.Errorf("first offer location/description/company = %q %q %q", first.Location, first.Description, first.Company)
+	}
+	if first.CompanyKey != "bamboohr:semble" {
+		t.Errorf("company key = %q, want bamboohr:semble", first.CompanyKey)
 	}
 	if first.URL != srv.URL+"/careers/117" {
 		t.Errorf("first url = %q", first.URL)
@@ -581,7 +636,7 @@ func TestBambooHRParsing(t *testing.T) {
 				 "location":{"city":null,"state":null},"atsLocation":null,"isRemote":null},
 				{"jobOpeningName":"No id"},
 				{"id":"8"}]}`,
-			wantCount: 1,
+			wantCount: 2,
 			wantUID:   "7",
 		},
 		{
@@ -635,6 +690,12 @@ func TestBambooHRParsing(t *testing.T) {
 			}
 			if tt.wantCount > 0 && (got[0].Location != tt.wantLoc || got[0].ExternalUID != tt.wantUID) {
 				t.Errorf("first offer = %+v, want location %q uid %q", got[0], tt.wantLoc, tt.wantUID)
+			}
+			if tt.name == "missing optional fields" {
+				if len(got) != 2 || got[1].ExternalUID != "8" ||
+					got[1].IncompleteReason != model.IncompleteMissingTitle {
+					t.Errorf("incomplete item = %+v", got)
+				}
 			}
 		})
 	}
@@ -732,11 +793,17 @@ func TestRSSAdapter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := fixtureServer(t, tt.path, tt.fixture)
 			c, _ := testClient()
-			got, err := (&RSS{Client: c}).Fetch(context.Background(), model.Source{
-				ID: 1, Type: model.SourceRSS, URL: srv.URL + tt.path, ConfigJSON: tt.config,
-			})
+			src := model.Source{ID: 1, Type: model.SourceRSS, URL: srv.URL + tt.path, ConfigJSON: tt.config}
+			got, err := (&RSS{Client: c}).Fetch(context.Background(), src)
 			if err != nil {
 				t.Fatalf("Fetch: %v", err)
+			}
+			again, err := (&RSS{Client: c}).Fetch(context.Background(), src)
+			if err != nil {
+				t.Fatalf("second Fetch: %v", err)
+			}
+			if !sameUIDs(got, again) {
+				t.Errorf("uids are not stable across fetches: %v vs %v", uidsOf(got), uidsOf(again))
 			}
 			if len(got) != tt.wantCount {
 				t.Fatalf("got %d offers, want %d", len(got), tt.wantCount)
@@ -755,34 +822,35 @@ func TestRSSAdapter(t *testing.T) {
 	}
 
 	// We Work Remotely publishes RSS 2.0 items with the region in a
-	// non-standard <region> element and no company element. The registered
-	// source maps only location_field; titles such as "Company: Role" are
-	// kept verbatim (the RSS known gap), and the company stays empty.
-	t.Run("weworkremotely registered mapping", func(t *testing.T) {
+	// non-standard <region> element and no company element. Titles are
+	// "Company: Role", so the employer rule splits them.
+	t.Run("weworkremotely employer rule", func(t *testing.T) {
 		srv := fixtureServer(t, "/remote-jobs.rss", "rss_feed.xml")
 		c, _ := testClient()
-		got, err := (&RSS{Client: c}).Fetch(context.Background(), model.Source{
+		src := model.Source{
 			ID: 36, Type: model.SourceRSS, URL: srv.URL + "/remote-jobs.rss",
-			ConfigJSON: `{"location_field":"region"}`,
-		})
+			ConfigJSON: `{"location_field":"region","employer":{"separator":":"}}`,
+		}
+		got, err := (&RSS{Client: c}).Fetch(context.Background(), src)
 		if err != nil {
 			t.Fatalf("Fetch: %v", err)
 		}
 		if len(got) != 3 {
 			t.Fatalf("got %d offers, want 3", len(got))
 		}
-		want := []struct{ title, region string }{
-			{"Hometap: Underwriter", "USA Only"},
-			{"Jadeclass Education: Online English Writing and Analysis Teacher - All Levels", "Oceania Only"},
-			{"DeepSeas: Lead Incident Response Analyst", "Americas Only"},
+		want := []struct{ title, company, region string }{
+			{"Underwriter", "Hometap", "USA Only"},
+			{"Online English Writing and Analysis Teacher - All Levels", "Jadeclass Education", "Oceania Only"},
+			{"Lead Incident Response Analyst", "DeepSeas", "Americas Only"},
 		}
 		for i, w := range want {
 			offer := got[i]
-			if offer.Title != w.title || offer.Location != w.region {
-				t.Errorf("offer %d title/location = %q/%q, want %q/%q", i, offer.Title, offer.Location, w.title, w.region)
+			if offer.Title != w.title || offer.Company != w.company || offer.Location != w.region {
+				t.Errorf("offer %d title/company/location = %q/%q/%q, want %q/%q/%q",
+					i, offer.Title, offer.Company, offer.Location, w.title, w.company, w.region)
 			}
-			if offer.Company != "" {
-				t.Errorf("offer %d company = %q, want empty", i, offer.Company)
+			if offer.IncompleteReason != "" {
+				t.Errorf("offer %d incomplete reason = %q", i, offer.IncompleteReason)
 			}
 			if !strings.HasPrefix(offer.URL, "https://weworkremotely.com/remote-jobs/") {
 				t.Errorf("offer %d URL = %q", i, offer.URL)
@@ -802,17 +870,130 @@ func TestRSSAdapter(t *testing.T) {
 	}
 }
 
+// TestWWRFeedEmployerRule scans the recorded 169-employer We Work
+// Remotely feed twice. The employer rule must split every title, produce
+// 169 distinct companies and keep the uids stable.
+func TestWWRFeedEmployerRule(t *testing.T) {
+	srv := fixtureServer(t, "/remote-jobs.rss", "wwr_feed.xml")
+	c, _ := testClient()
+	src := model.Source{
+		ID: 36, Type: model.SourceRSS, URL: srv.URL + "/remote-jobs.rss",
+		ConfigJSON: `{"location_field":"region","employer":{"separator":":"}}`,
+	}
+	got, err := (&RSS{Client: c}).Fetch(context.Background(), src)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(got) != 169 {
+		t.Fatalf("got %d offers, want 169", len(got))
+	}
+	again, err := (&RSS{Client: c}).Fetch(context.Background(), src)
+	if err != nil {
+		t.Fatalf("second Fetch: %v", err)
+	}
+	if !sameUIDs(got, again) {
+		t.Errorf("uids are not stable across fetches")
+	}
+
+	employers := map[string]bool{}
+	normalized := map[string]bool{}
+	for i, offer := range got {
+		if offer.Company == "" || offer.Title == "" || offer.IncompleteReason != "" {
+			t.Errorf("offer %d = %+v, want a complete item", i, offer)
+			continue
+		}
+		if strings.HasPrefix(offer.Title, offer.Company+":") {
+			t.Errorf("offer %d title still contains the employer prefix: %q", i, offer.Title)
+		}
+		employers[offer.Company] = true
+		normalized[model.NormalizeCompanyName(offer.Company)] = true
+	}
+	if len(employers) != 169 {
+		t.Errorf("distinct employers = %d, want 169", len(employers))
+	}
+	if len(normalized) != 169 {
+		t.Errorf("distinct normalized employers = %d, want 169", len(normalized))
+	}
+	if got[0].Company != "6sense" || got[0].Title != "Business Solutions Partner - Enterprise AI" {
+		t.Errorf("first offer = %+v", got[0])
+	}
+}
+
+func TestEmployerRule(t *testing.T) {
+	tests := []struct {
+		name          string
+		rule          *EmployerRule
+		title         string
+		company       string
+		employerValue string
+		wantTitle     string
+		wantCompany   string
+	}{
+		{"nil rule", nil, "SRE", "Acme", "", "SRE", "Acme"},
+		{"split title", &EmployerRule{}, "EPAM Systems: Senior DevOps Engineer", "", "", "Senior DevOps Engineer", "EPAM Systems"},
+		{"split with spaces", &EmployerRule{}, "Fivetran : Manager, Sales", "", "", "Manager, Sales", "Fivetran"},
+		{"no separator", &EmployerRule{}, "SRE", "", "", "SRE", ""},
+		{"empty right side", &EmployerRule{}, "Acme:", "", "", "Acme:", ""},
+		{"employer from field", &EmployerRule{Separator: ":"}, "Acme: SRE", "", "Acme", "SRE", "Acme"},
+		{"field strips spaced prefix", &EmployerRule{Separator: ":"}, "Acme : SRE", "", "Acme", "SRE", "Acme"},
+		{"field without prefix", &EmployerRule{Separator: ":"}, "SRE", "", "Acme", "SRE", "Acme"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTitle, gotCompany := tt.rule.apply(tt.title, tt.company, tt.employerValue)
+			if gotTitle != tt.wantTitle || gotCompany != tt.wantCompany {
+				t.Errorf("apply = %q/%q, want %q/%q", gotTitle, gotCompany, tt.wantTitle, tt.wantCompany)
+			}
+		})
+	}
+}
+
+func TestHTMLEmployerRule(t *testing.T) {
+	srv := fixtureServer(t, "/careers", "html_employer_listing.html")
+	c, _ := testClient()
+	src := model.Source{
+		ID: 1, Type: model.SourceHTML, URL: srv.URL + "/careers",
+		ConfigJSON: `{"item_selector":"li.job","title_selector":"h2 a","employer":{"separator":":"}}`,
+	}
+	got, err := (&HTML{Client: c}).Fetch(context.Background(), src)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d offers, want 2", len(got))
+	}
+	if got[0].Company != "EPAM Systems" || got[0].Title != "Senior DevOps Engineer" {
+		t.Errorf("first offer = %+v", got[0])
+	}
+	if got[1].Company != "Acme" || got[1].Title != "Platform Engineer" {
+		t.Errorf("second offer = %+v", got[1])
+	}
+	again, err := (&HTML{Client: c}).Fetch(context.Background(), src)
+	if err != nil {
+		t.Fatalf("second Fetch: %v", err)
+	}
+	if !sameUIDs(got, again) {
+		t.Errorf("uids are not stable across fetches")
+	}
+}
+
 func TestHTMLAdapter(t *testing.T) {
 	srv := fixtureServer(t, "/careers", "html_listing.html")
 	c, _ := testClient()
 	cfg := `{"item_selector":"li.job-card","title_selector":"h2.job-title",
 	         "link_selector":"h2.job-title a","location_selector":".job-location",
 	         "description_selector":".job-summary","uid_attr":"data-id"}`
-	got, err := (&HTML{Client: c}).Fetch(context.Background(), model.Source{
-		ID: 1, Type: model.SourceHTML, URL: srv.URL + "/careers", ConfigJSON: cfg,
-	})
+	src := model.Source{ID: 1, Type: model.SourceHTML, URL: srv.URL + "/careers", ConfigJSON: cfg}
+	got, err := (&HTML{Client: c}).Fetch(context.Background(), src)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
+	}
+	again, err := (&HTML{Client: c}).Fetch(context.Background(), src)
+	if err != nil {
+		t.Fatalf("second Fetch: %v", err)
+	}
+	if !sameUIDs(got, again) {
+		t.Errorf("uids are not stable across fetches: %v vs %v", uidsOf(got), uidsOf(again))
 	}
 	if len(got) != 3 {
 		t.Fatalf("got %d offers, want 3", len(got))

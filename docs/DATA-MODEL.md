@@ -24,6 +24,7 @@ require a table rebuild.
 | 0011 | `0011_seed_wttj_sources.sql` | Data-only seed: the Fabriq Welcome to the Jungle careers page verified in Milestone 10a (`wttj`, `{}` config, enabled). The 0002 WTTJ marketplace row has a different URL and is left untouched. `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
 | 0012 | `0012_company_identity.sql` | OpenSpec change `offer-identity-from-source-uid`: creates `company_keys` and `company_aliases`; backfills one confirmed alias per company and keys from typed adapter config tokens; rebuilds `job_offers` so `company_id` is nullable, `fingerprint` is no longer UNIQUE and `incomplete_reason`/`incomplete_raw` exist; converts `offer_state = 'changed'` to `active`; squashes duplicate `(source_id, external_uid)` provenance rows onto the surviving offer and adds a partial unique index on that pair |
 | 0013 | `0013_company_resolution.sql` | OpenSpec change `offer-identity-from-source-uid`: rebuilds `companies` so `name_normalized` is no longer UNIQUE (display names are attributes, not identity) and adds a non-unique lookup index; backfills a global alias for any company without one; sets `config.company` to the current display name on enabled single-employer sources (typed ATS plus RSS/HTML except We Work Remotely) so the scan pipeline can stop using `sources.name` as a company fallback |
+| 0014 | `0014_wwr_employer_rule.sql` | Data-only: adds `{"employer":{"separator":":"}}` to the registered We Work Remotely RSS config when no employer rule is present, so the adapter splits `Employer: Role` into company and title. Every other config key is kept; re-applying matches no row |
 
 Migration 0012 runs on a pinned connection with `foreign_keys=OFF` so it
 can rebuild `job_offers` without `DROP TABLE` cascading into events,
@@ -48,6 +49,11 @@ every row, id and child reference; it removes the UNIQUE constraint on
 single-employer sources, so it is additive and preserves every other
 config value. Re-adding the UNIQUE constraint is not possible while
 duplicate names exist; rolling back requires the pre-migration backup.
+
+Migration 0014 is data-only and additive: it adds the employer rule to
+the We Work Remotely config when the key is absent and leaves every other
+config value untouched. Removing the `employer` key from that source's
+config reverts it; no table or row is rebuilt.
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -145,6 +151,9 @@ a confirmed global alias.
 
 `config_json` keys (all optional): `company` (declares the company for a
 single-employer source; required when the adapter supplies no company),
+`employer` (declarative employer rule for RSS/HTML sources that list
+several employers: `separator`, and optionally `field` for RSS or
+`selector` for HTML),
 `rate_limit_ms` (min interval between requests, default 2000;
 HTML sources are capped at a 5 s minimum), `note` (human-readable
 explanation shown in the UI), `board_token` (greenhouse), `site` +
@@ -160,13 +169,17 @@ RSS mapping keys: `item` (item element; auto-detects `item`/`entry`),
 `company_field`, `uid_field`. A field is a chain of child element local
 names; `@name` reads an attribute and `#text` reads the element text.
 Defaults: title, link (Atom alternate `href` fallback), description
-(`description`/`summary`/`content`), uid (`guid`/`id`).
+(`description`/`summary`/`content`), uid (`guid`/`id`). The optional
+`employer` rule splits `Employer: Role` (or reads `field`) and rewrites
+both company and title.
 
 HTML selector keys: `item_selector` and `title_selector` are required;
 `link_selector` (defaults to the title selector), `link_attr` (default
 `href`), `location_selector`, `description_selector`,
-`company_selector`, `uid_selector`, `uid_attr`. Standard CSS syntax is
-supported by cascadia; only the listing page is fetched, once per scan.
+`company_selector`, `uid_selector`, `uid_attr`. The optional `employer`
+rule uses `separator` and/or `selector` to rewrite company and title.
+Standard CSS syntax is supported by cascadia; only the listing page is
+fetched, once per scan.
 
 Seeded source rows from migration 0002 are disabled and carry a `note`.
 They exist so the known-hard Workday/SuccessFactors links and the WTTJ
