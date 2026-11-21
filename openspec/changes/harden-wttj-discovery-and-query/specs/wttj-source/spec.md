@@ -58,6 +58,30 @@ The adapter SHALL read the discovered `filters` and `language` verbatim, preserv
 - **WHEN** neither the filters nor `website_organization` provide an organization slug
 - **THEN** the adapter falls back to the slug of the careers path
 
+### Requirement: Stale organization filters are resolved from the organization record
+
+When the first result page is empty but the page reports jobs (`items_count` > 0) and exactly one `organization.slug` filter is present, the adapter SHALL read the canonical slug from `GET https://api.welcometothejungle.com/api/v1/organizations/{website slug}` and retry the first page once with that value. A page that reports no jobs MUST NOT trigger the lookup.
+
+#### Scenario: Renamed organization lags in the index
+
+- **WHEN** the filters say `organization.slug: swile`, the organization record says the canonical slug is `lunchr`, and the first query returns no hits
+- **THEN** the adapter queries again with `organization.slug: lunchr` and returns those hits
+
+#### Scenario: Canonical slug already matches
+
+- **WHEN** the first query returns no hits and the organization record reports the same slug as the filter
+- **THEN** the adapter does not retry and reports zero offers
+
+#### Scenario: Page reports no jobs
+
+- **WHEN** the page's `items_count` is 0 and the first query returns no hits
+- **THEN** the adapter neither calls the organization endpoint nor retries
+
+#### Scenario: Organization lookup fails
+
+- **WHEN** the page reports jobs, the first query is empty, and the organization endpoint fails
+- **THEN** the scan records a retryable error instead of silently reporting zero offers
+
 ### Requirement: The index query is scoped by facetFilters
 
 The adapter SHALL express each discovered filter attribute as one `facetFilters` group, OR-ing the values of the same attribute, and SHALL URL-encode that JSON inside the request `params`. The filter embedded in the secured key (`website.reference`) MUST NOT be repeated in `params`, and the key MUST NOT be decoded or modified.

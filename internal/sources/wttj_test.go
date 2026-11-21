@@ -348,6 +348,9 @@ func TestParseWTTJPages(t *testing.T) {
 		if search.Language != "en" || search.OrgSlug != "fabriq" {
 			t.Errorf("language/org = %q/%q", search.Language, search.OrgSlug)
 		}
+		if search.ExpectedItems != 7 {
+			t.Errorf("expected items = %d, want 7", search.ExpectedItems)
+		}
 		if !reflect.DeepEqual(search.Filters, []wttjFilterGroup{{Attribute: "organization.slug", Values: []string{"fabriq"}}}) {
 			t.Errorf("filters = %+v", search.Filters)
 		}
@@ -367,6 +370,9 @@ func TestParseWTTJPages(t *testing.T) {
 		if search.Language != "en" || search.OrgSlug != "partoo" {
 			t.Errorf("language/org = %q/%q", search.Language, search.OrgSlug)
 		}
+		if search.ExpectedItems != 15 {
+			t.Errorf("expected items = %d, want 15", search.ExpectedItems)
+		}
 		want := []wttjFilterGroup{{
 			Attribute: "organization.slug",
 			Values:    []string{"localoo", "partoo-italia", "partoo"},
@@ -376,6 +382,29 @@ func TestParseWTTJPages(t *testing.T) {
 		}
 		if !strings.HasPrefix(search.APIKey, "NDU3MmUxZGRj") {
 			t.Errorf("api key not read verbatim: %q", search.APIKey)
+		}
+	})
+
+	t.Run("stale organization slug (Swile)", func(t *testing.T) {
+		search, err := parseWTTJPages(readFixture(t, "wttj_page_swile.json"))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if search.AppID != "CSEKHVMS53" || search.Index != "wk_cms_jobs_production" {
+			t.Errorf("app/index = %q/%q", search.AppID, search.Index)
+		}
+		if search.Language != "en" || search.OrgSlug != "swile" {
+			t.Errorf("language/org = %q/%q", search.Language, search.OrgSlug)
+		}
+		if search.ExpectedItems != 15 {
+			t.Errorf("expected items = %d, want 15", search.ExpectedItems)
+		}
+		want := []wttjFilterGroup{{
+			Attribute: "organization.slug",
+			Values:    []string{"swile"},
+		}}
+		if !reflect.DeepEqual(search.Filters, want) {
+			t.Errorf("filters = %+v, want %+v", search.Filters, want)
 		}
 	})
 
@@ -531,6 +560,7 @@ type wttjTestServer struct {
 	discoveryUA   string
 	headers       []http.Header
 	bodies        []string
+	orgRequests   int
 	pagesURL      string
 }
 
@@ -541,16 +571,16 @@ func newWTTJTestServer(t *testing.T) *wttjTestServer {
 	page0 := readFixture(t, "wttj_hits_page0.json")
 	page1 := readFixture(t, "wttj_hits_page1.json")
 	ts.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/robots.txt":
+		switch {
+		case r.URL.Path == "/robots.txt":
 			w.Write([]byte("User-agent: *\nAllow: /\n"))
-		case "/api/v1/pages":
+		case r.URL.Path == "/api/v1/pages":
 			ts.mu.Lock()
 			ts.discoveryPath = r.URL.Query().Get("path")
 			ts.discoveryUA = r.Header.Get("User-Agent")
 			ts.mu.Unlock()
 			w.Write(pagesBody)
-		case "/1/indexes/*/queries":
+		case r.URL.Path == "/1/indexes/*/queries":
 			body, _ := io.ReadAll(r.Body)
 			ts.mu.Lock()
 			ts.headers = append(ts.headers, r.Header.Clone())
@@ -569,6 +599,11 @@ func newWTTJTestServer(t *testing.T) *wttjTestServer {
 			default:
 				http.Error(w, "unexpected page", http.StatusBadRequest)
 			}
+		case strings.HasPrefix(r.URL.Path, "/api/v1/organizations/"):
+			ts.mu.Lock()
+			ts.orgRequests++
+			ts.mu.Unlock()
+			http.NotFound(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -600,6 +635,9 @@ func TestWTTJFetch(t *testing.T) {
 	}
 	if ts.discoveryUA != wttjBrowserUA {
 		t.Errorf("discovery User-Agent = %q", ts.discoveryUA)
+	}
+	if ts.orgRequests != 0 {
+		t.Errorf("organization lookups = %d, want 0 for a resolved page", ts.orgRequests)
 	}
 
 	// Algolia: one POST per result page, exact headers, form content
@@ -684,6 +722,122 @@ func TestWTTJFetchConfigOverrides(t *testing.T) {
 	}
 	if got := ts.headers[0].Get("x-algolia-api-key"); got != "OVERRIDEKEY" {
 		t.Errorf("api key = %q, want the override", got)
+	}
+}
+
+// TestWTTJResolveStaleOrgSlug covers a renamed organization: the page
+// filter (swile) lags behind the index (lunchr), so an empty first page
+// triggers one organization lookup and a retry with the canonical slug.
+func TestWTTJResolveStaleOrgSlug(t *testing.T) {
+	tests := []struct {
+		name        string
+		page        []byte
+		orgSlug     string
+		orgStatus   int
+		wantOffers  int
+		wantQueries int
+		wantOrgReqs int
+		wantErr     string
+	}{
+		{
+			name:        "stale slug is retried with the canonical one",
+			page:        readFixture(t, "wttj_page_swile.json"),
+			orgSlug:     "lunchr",
+			wantOffers:  1,
+			wantQueries: 2,
+			wantOrgReqs: 1,
+		},
+		{
+			name:        "canonical slug already matches",
+			page:        readFixture(t, "wttj_page_swile.json"),
+			orgSlug:     "swile",
+			wantQueries: 1,
+			wantOrgReqs: 1,
+		},
+		{
+			name: "page reports no jobs",
+			page: []byte(`{"page":{"path":[{"items_count":0}],"sections":[{"containers":[{"blocks":[
+				{"kind":"jobs-search","properties":{
+					"algolia_app_id":"APP","algolia_api_key":"KEY","algolia_index_name":"IDX",
+					"language":"en","filters":{"organization.slug":["swile"]}}}]}]}]}}`),
+			orgSlug:     "lunchr",
+			wantQueries: 1,
+		},
+		{
+			name:        "organization lookup failure is retryable",
+			page:        readFixture(t, "wttj_page_swile.json"),
+			orgStatus:   http.StatusInternalServerError,
+			wantQueries: 1,
+			wantOrgReqs: 1,
+			wantErr:     "resolve organization",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var queries, orgReqs int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/robots.txt":
+					w.Write([]byte("User-agent: *\nAllow: /\n"))
+				case r.URL.Path == "/api/v1/pages":
+					w.Write(tt.page)
+				case strings.HasPrefix(r.URL.Path, "/api/v1/organizations/"):
+					orgReqs++
+					if tt.orgStatus != 0 {
+						http.Error(w, "boom", tt.orgStatus)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					w.Write([]byte(`{"organization":{"name":"Swile","slug":"` + tt.orgSlug + `"}}`))
+				case r.URL.Path == "/1/indexes/*/queries":
+					queries++
+					body, _ := io.ReadAll(r.Body)
+					if strings.Contains(string(body), "organization.slug%3Aswile") {
+						w.Write([]byte(`{"results":[{"hits":[],"nbPages":0,"nbHits":0}]}`))
+						return
+					}
+					w.Write(readFixture(t, "wttj_hits_swile.json"))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			c, _ := testClient()
+			wttj := &WTTJ{
+				Client:           c,
+				PagesURL:         srv.URL + "/api/v1/pages",
+				OrganizationsURL: srv.URL + "/api/v1/organizations",
+				AlgoliaBaseURL:   srv.URL,
+			}
+			offers, err := wttj.Fetch(context.Background(), model.Source{
+				ID: 1, Type: model.SourceWTTJ,
+				URL: "https://www.welcometothejungle.com/en/companies/swile/jobs",
+			})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("Fetch: %v", err)
+			}
+			if len(offers) != tt.wantOffers {
+				t.Fatalf("offers = %d, want %d: %+v", len(offers), tt.wantOffers, offers)
+			}
+			if queries != tt.wantQueries {
+				t.Errorf("algolia queries = %d, want %d", queries, tt.wantQueries)
+			}
+			if orgReqs != tt.wantOrgReqs {
+				t.Errorf("organization requests = %d, want %d", orgReqs, tt.wantOrgReqs)
+			}
+			if tt.wantOffers == 1 {
+				got := offers[0]
+				if got.CompanyKey != companyKey(model.SourceWTTJ, "lunchr") ||
+					!strings.Contains(got.URL, "/companies/lunchr/jobs/") {
+					t.Errorf("offer = %+v, want the hit's canonical organization", got)
+				}
+			}
+		})
 	}
 }
 

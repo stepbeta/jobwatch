@@ -109,6 +109,31 @@ https://www.welcometothejungle.com/`, the browser UA, and
 every page request and asserts the exact `facetFilters` string in the body, so a
 future change to params cannot silently drop the scoping.
 
+### An empty first page triggers one canonical-slug retry
+
+WTTJ's CMS filters can lag behind a rename: the Swile page filters on
+`organization.slug: swile`, while the index still stores `lunchr`. The adapter
+keeps the discovered filters and only falls back when page 0 is empty, the
+page's `path[0].items_count` reports jobs, and exactly one `organization.slug`
+filter exists. It then calls
+`GET /api/v1/organizations/{website_organization.slug}`, and if the record
+returns a different `organization.slug`, replaces that filter value and
+re-queries page 0 once.
+
+Alternatives considered: always resolving the slug adds a request to every
+scan and several for multi-organization pages; filtering by
+`organization.name` over-matches same-named organizations; switching to
+`/api/v3/organizations/{slug}/jobs` loses `profile` descriptions and uses
+different job references (UUIDs), which would change external UIDs.
+
+A failed lookup while the page reports jobs is a retryable error: silently
+returning zero would reproduce the bug. A genuinely empty page (`items_count`
+0) skips the lookup. Multi-organization pages are not canonicalized because no
+single alias is available; this is documented as a known gap.
+
+`wttjSearch` gains `ExpectedItems int`, read from the page path, and `WTTJ`
+gains an `OrganizationsURL` override for tests.
+
 ### Job URL and company key follow the hit's organization slug
 
 `mapWTTJHit` keeps `firstNonEmpty(hit.Organization.Slug, search.OrgSlug)` and
@@ -119,7 +144,7 @@ and by a table case with a `partoo-italia` fallback: the hit's own slug always
 wins. A hit without its own slug still resolves through the discovered slug;
 when neither exists the hit is dropped, as today.
 
-### Fixtures are trimmed bootstrap and hit copies from two companies
+### Fixtures are trimmed bootstrap and hit copies from three companies
 
 - `wttj_page_partoo.json`: the Partoo bootstrap reduced to the nested block
   shape — outer `jobs-search` block with layout-only `properties`
@@ -131,8 +156,13 @@ when neither exists the hit is dropped, as today.
   live hits were under `organization.slug: partoo`; the fixture keeps that
   real value and is trimmed of `_highlightResult`, `_geoloc`, organization
   images/descriptions/sectors and the empty `profile`.
+- `wttj_page_swile.json`: the Swile bootstrap with `items_count` 15 and
+  filters `{"organization.slug":["swile"]}`; the hit fixture
+  `wttj_hits_swile.json` keeps `organization.slug: lunchr` plus
+  `organization.website_organization.slug: swile`, which is exactly the
+  rename the retry resolves.
 
-`testdata/README.md` records both, with recording date and trimming.
+`testdata/README.md` records all of them, with recording date and trimming.
 
 ## Risks / Trade-offs
 
@@ -151,6 +181,11 @@ when neither exists the hit is dropped, as today.
   truncating, as today.
 - **The Partoo fixture is hand-trimmed** → it preserves the structural shape and
   real filter values; the mapper test uses the hit fields the adapter reads.
+- **The organization endpoint is an extra upstream dependency** → it is called
+  only when page 0 is empty while `items_count` reports jobs; a failure is a
+  retryable error, never a silent zero.
+- **A multi-organization page with one stale slug is not canonicalized** → no
+  single alias is available, so it still returns zero; recorded as a known gap.
 
 ## Migration Plan
 
@@ -162,6 +197,9 @@ rebuild the binary and:
 2. look for an existing Partoo `wttj` source and re-scan it instead of adding a
    duplicate row, asking the user before changing its URL or enabled state;
    otherwise add the careers page and scan it. Confirm the expected ~15 offers
-   and that each URL names the hit's organization slug.
+   and that each URL names the hit's organization slug;
+3. re-scan the existing Swile `wttj` source and confirm 15 offers instead of
+   zero (the canonical slug `lunchr` is resolved from the organization record),
+   with Fabriq and Partoo still unchanged.
 
 Rollback is restoring the previous binary; no data migration to undo.

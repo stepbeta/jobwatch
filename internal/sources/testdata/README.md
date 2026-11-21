@@ -49,6 +49,16 @@ noted:
   while reference, offices, contract and salary extras are kept). All
   15 live hits belonged to `organization.slug: partoo`, so the fixture
   keeps that real value.
+- `wttj_page_swile.json`: api.welcometothejungle.com/api/v1/pages?path=/en/companies/swile/jobs
+  (recorded 2026-11-21, trimmed to a text block and the `jobs-search`
+  block; `path[0].items_count` is 15 and the filters say
+  `organization.slug: [swile]`, while the index still uses `lunchr` —
+  see the hits fixture; text body shortened)
+- `wttj_hits_swile.json`: Algolia multi-query response for Swile
+  (recorded 2026-11-21, one hit; `organization.slug` is `lunchr` and
+  `organization.website_organization.slug` is `swile`). Trimmed of
+  `_highlightResult`, `_snippetResult`, `_geoloc`, organization
+  images/descriptions/sectors; profile shortened.
 - `wttj_hits_page0.json`: Algolia multi-query response, CMS-index shape
   (reference and objectID are UUIDs, `salary_yearly_maximum` null while
   `salary_maximum` is 80000; the `_highlightResult`/`_snippetResult`/

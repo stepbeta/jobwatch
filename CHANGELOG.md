@@ -258,6 +258,12 @@
   not the source page's slug; the page slug is only a fallback when a hit
   omits its organization. Pages that list linked organizations therefore
   link each offer to its owner.
+- An empty first page on a renamed organization no longer reports zero
+  offers: when the page claims jobs and exactly one `organization.slug`
+  filter is present, the adapter reads the canonical slug from
+  `/api/v1/organizations/{slug}` and retries page 0 once (Swile:
+  `swile` filter, `lunchr` index, 15 offers). A page reporting no jobs
+  skips the lookup, and a lookup failure is retryable.
 
 #### Added
 - Partoo fixtures under `internal/sources/testdata`: the nested bootstrap
@@ -274,8 +280,10 @@
 - Live verification 2026-11-21: Fabriq re-scan fetched 7 offers (0 new,
   7 seen); the pre-existing Partoo `wttj` source (id 82,
   `/fr/companies/partoo/jobs`) recovered from its previous error and
-  fetched 15 offers (15 new, 0 incomplete), all under company Partoo; one
-  constructed URL answered HTTP 200.
+  fetched 15 offers (15 new, 0 incomplete), all under company Partoo; the
+  Swile source (id 85, `/swile/jobs`) fetched 15 offers after the
+  canonical-slug retry (`swile` → `lunchr`); one constructed URL answered
+  HTTP 200.
 
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and

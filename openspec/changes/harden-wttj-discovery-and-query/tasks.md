@@ -29,6 +29,15 @@
 - [x] 4.2 Run `go build ./...`, `go vet ./...` and `go test ./...`; verify all pass and no frontend build is needed
 - [x] 4.3 Re-scan the Fabriq source (same 7 offers, 0 new); for Partoo, look for an existing Partoo `wttj` source first (`jobwatch list --sources | grep -i partoo`, or the Sources page): if one exists, scan that row as-is and ask the user before changing its URL or enabled state; only when none exists, add `https://www.welcometothejungle.com/en/companies/partoo/jobs` (or the page's actual locale) and scan it. Use the backup taken in 0.1 (take a fresh one if this runs in a later session); verify the Partoo offer count is the page's own (~15, not ~60k), each URL names the hit's organization slug, and record the live results in `docs/SOURCE-DECISIONS.md` and `docs/MILESTONES.md`
 
+## 5. Stale organization slugs
+
+- [x] 5.1 Add the trimmed Swile fixtures `wttj_page_swile.json` (items_count 15, filters `organization.slug: swile`) and `wttj_hits_swile.json` (organization slug `lunchr`, `website_organization.slug: swile`), record them in `internal/sources/testdata/README.md`, and verify both parse as JSON
+- [x] 5.2 Parse `page.path[0].items_count` into discovery as `wttjSearch.ExpectedItems`; verify a parse test asserts 15 for Swile and 7 for Fabriq
+- [x] 5.3 When page 0 is empty, `ExpectedItems > 0` and exactly one `organization.slug` filter exists, read the canonical slug from `GET /api/v1/organizations/{website slug}`, replace the filter value and re-query page 0 once; a lookup failure is retryable. Verify httptest tests for the stale, matching, empty-page and failure cases, and that a normal Fabriq fetch makes no organization request
+- [x] 5.4 Update `SOURCE-DECISIONS.md` (flow, quirks/known gaps), `USAGE.md`, `ARCHITECTURE.md`, `MILESTONES.md` and `CHANGELOG.md`; verify they describe the alias retry and the multi-organization limitation
+- [x] 5.5 Back up the database again, rebuild the binary, re-scan Swile (15 offers, 0 incomplete), then re-scan Fabriq and Partoo (unchanged); record the live results in `docs/SOURCE-DECISIONS.md` and `docs/MILESTONES.md`
+- [x] 5.6 Run `go build ./...`, `go vet ./...` and `go test ./...`; verify all pass
+
 ## Workflow follow-up
 
 - Archive `harden-wttj-discovery-and-query` after review, sync `wttj-source` to `openspec/specs/`, and replace the WTTJ note in `docs/SPEC.md` §7 with a pointer to that capability plus a spec revision entry.

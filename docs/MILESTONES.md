@@ -818,6 +818,12 @@ Done criteria (all met):
 - [x] Job URLs and company keys use the hit's `organization.slug`; the
       discovered page slug is only a fallback for hits that omit it.
       Multi-organization pages therefore link each offer to its owner.
+- [x] A stale organization filter is resolved: when page 0 is empty while
+      `items_count` reports jobs and exactly one `organization.slug` is
+      present, the canonical slug is read from
+      `/api/v1/organizations/{website slug}` and page 0 is retried once
+      (Swile: `swile` → `lunchr`, 15 offers). A page reporting no jobs
+      skips the lookup, and a lookup failure is retryable.
 - [x] Fixtures: `wttj_page_partoo.json` (nested layout-only block, three
       organization slugs) and `wttj_hits_partoo.json` (one real hit),
       documented in `internal/sources/testdata/README.md`. No test touches
@@ -835,6 +841,11 @@ Done criteria (all met):
       `/en/companies/partoo/jobs/...` (the discovered page language), and
       a spot-checked URL answered HTTP 200. No duplicate source was
       created.
+- [x] Live verification (2026-11-21, stale slug): the `/swile/jobs`
+      source previously fetched 0 offers because its page filter said
+      `swile` while the index still used `lunchr`. The organization record
+      returned `lunchr`, the retry fetched 15 offers (0 incomplete), and
+      the URLs use `/companies/lunchr/jobs/...` and resolve with HTTP 200.
 - [x] `go build ./...`, `go vet ./...` and `go test ./...` green; no
       schema, API, CLI or UI change.
 
@@ -847,6 +858,7 @@ Done criteria (all met):
 | `website.reference` is dropped when building params | the key already enforces it; repeating it is redundant and the adapter deliberately never decodes keys |
 | The page-slug fallback prefers `website_organization.slug`, then a single filter value, then the careers path | on a multi-organization page the first filter value is a sibling (`localoo`), not the page itself |
 | The Partoo hit fixture keeps `organization.slug: partoo` | all 15 live hits belonged to `partoo` that day; the sibling-slug precedence is covered by a table case (`partoo-italia` fallback) and the fixture test (`localoo` fallback) instead of fabricating a fixture |
+| The organization lookup runs only when page 0 is empty and `items_count` > 0 | keeps the two-call flow for healthy pages; the CMS filter is normally correct and only lags after a rename |
 
 ## Milestone 11 — table controls, sources upgrade, detail layout, Makefile — DONE
 
@@ -906,7 +918,7 @@ Done criteria (all met):
 | Offers with no current sighting keep their adapter-era company | §5 | Open data artifact. `jobwatch reattribute` matches by `(source, uid)`; an offer the source no longer lists has no current sighting, so it stays as history until explicitly merged or deleted |
 | Workday/SuccessFactors adapters missing | §7 | By design for v1. Disabled seeded rows carry an explanation |
 | HTML adapter is listing-only | §7 | Open. It fetches one page per scan; descriptions are whatever the configured selector exposes |
-| WTTJ adapter has undocumented dependencies | §7 | Open. Credentials are found by walking the bootstrap page tree for a `properties` object with the `algolia_*` keys; layout-only `jobs-search` blocks and nested `contents[]` are handled, but a CMS rename breaks discovery (permanent scan error). The query is scoped only by copying the page's `filters` as `facetFilters`; the secured key embeds `website.reference` and is referrer-restricted, and two index shapes are known. See `docs/SOURCE-DECISIONS.md` |
+| WTTJ adapter has undocumented dependencies | §7 | Open. Credentials are found by walking the bootstrap page tree for a `properties` object with the `algolia_*` keys; layout-only `jobs-search` blocks and nested `contents[]` are handled, but a CMS rename breaks discovery (permanent scan error). The query is scoped by copying the page's `filters` as `facetFilters`; a stale single-organization filter is retried once with the canonical slug from the organization record, but multi-organization aliases are not resolved. The secured key embeds `website.reference` and is referrer-restricted, and two index shapes are known. See `docs/SOURCE-DECISIONS.md` |
 | Import metadata extraction is heuristic | §3 | Open. JSON-LD/Open Graph/meta/title only; pages without them need the manual form |
 | No "N consecutive failures" counter | §7 | Open. One failed scan marks the source `error`/`blocked`; the next success resets it. The error text is in the scan summary but not stored |
 | `notes_fts` not exposed | §4 | Open. The index is maintained but `GET /api/offers?q=` searches offers only |

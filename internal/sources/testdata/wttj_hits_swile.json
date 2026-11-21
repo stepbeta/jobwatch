@@ -1,0 +1,48 @@
+{
+  "results": [
+    {
+      "hits": [
+        {
+          "objectID": "3527813",
+          "reference": "SWILE_NRVQO7V",
+          "name": "Senior Software Engineer - Toulouse",
+          "slug": "senior-software-engineer-toulouse_balma",
+          "language": "fr",
+          "published_at": "2026-11-09T18:00:00.000+01:00",
+          "profile": "### \u2728 It will be a perfect match if you:\n\n* Have significant software engineering experience\n* Value code simplicity, quality, performance and maintainability\n(trimmed for the fixture)",
+          "organization": {
+            "name": "Swile",
+            "slug": "lunchr",
+            "reference": "mP9wgL1",
+            "website_organization": {
+              "slug": "swile"
+            }
+          },
+          "contract_type": "FULL_TIME",
+          "salary_currency": "EUR",
+          "salary_period": "yearly",
+          "office": {
+            "city": "Balma",
+            "district": "Haute-Garonne",
+            "state": "Occitanie",
+            "country": "France",
+            "country_code": "FR"
+          },
+          "offices": [
+            {
+              "city": "Balma",
+              "district": "Haute-Garonne",
+              "state": "Occitanie",
+              "country": "France",
+              "country_code": "FR"
+            }
+          ],
+          "remote": "partial"
+        }
+      ],
+      "page": 0,
+      "nbPages": 1,
+      "nbHits": 15
+    }
+  ]
+}

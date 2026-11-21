@@ -22,6 +22,9 @@ import (
 const (
 	wttjSiteURL  = "https://www.welcometothejungle.com"
 	wttjPagesURL = "https://api.welcometothejungle.com/api/v1/pages"
+	// wttjOrganizationsURL is where discovery resolves the canonical
+	// organization slug when the page filters lag behind a rename.
+	wttjOrganizationsURL = "https://api.welcometothejungle.com/api/v1/organizations"
 	// wttjReferer is required: the Algolia secured key is
 	// referrer-restricted and omitting it makes Algolia answer 403.
 	wttjReferer = "https://www.welcometothejungle.com/"
@@ -45,10 +48,12 @@ var ErrNotCareersPage = errors.New("URL is not a WTTJ careers page")
 // page tree) and then one Algolia multi-query per result page.
 type WTTJ struct {
 	Client *Client
-	// PagesURL and AlgoliaBaseURL override the public endpoints; tests
-	// point them at httptest servers. Empty means the real endpoints.
-	PagesURL       string
-	AlgoliaBaseURL string
+	// PagesURL, OrganizationsURL and AlgoliaBaseURL override the public
+	// endpoints; tests point them at httptest servers. Empty means the
+	// real endpoints.
+	PagesURL         string
+	OrganizationsURL string
+	AlgoliaBaseURL   string
 }
 
 // wttjFilterGroup is one discovered filter attribute and its values.
@@ -64,6 +69,7 @@ type wttjSearch struct {
 	AppID, APIKey, Index string
 	Language             string
 	OrgSlug              string // organization.slug: WTTJ job URL segment
+	ExpectedItems        int    // page.path[0].items_count, the jobs the page claims
 	Filters              []wttjFilterGroup
 }
 
@@ -146,6 +152,12 @@ func (w *WTTJ) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 		if err != nil {
 			return nil, err
 		}
+		if page == 0 && len(res.Hits) == 0 {
+			search, res, err = w.retryStaleOrgSlug(ctx, src, search, res)
+			if err != nil {
+				return nil, err
+			}
+		}
 		for _, hit := range res.Hits {
 			if offer, ok := mapWTTJHit(hit, search); ok {
 				out = append(out, finalizeOffer(offer, cfg.Company))
@@ -163,6 +175,75 @@ func (w *WTTJ) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 		}
 	}
 	return out, nil
+}
+
+// retryStaleOrgSlug handles a renamed organization whose CMS filters lag
+// behind the index: when the first page is empty, the page claims jobs
+// and exactly one organization.slug filter is present, it reads the
+// canonical slug from the organization endpoint and re-queries page 0
+// once. Without this, the scan reports zero offers for a page whose
+// index still uses the organization's previous slug (Swile/lunchr).
+func (w *WTTJ) retryStaleOrgSlug(ctx context.Context, src model.Source, search wttjSearch, first wttjResult) (wttjSearch, wttjResult, error) {
+	if search.ExpectedItems <= 0 || len(first.Hits) != 0 {
+		return search, first, nil
+	}
+	idx := -1
+	current := ""
+	for i, g := range search.Filters {
+		if g.Attribute != "organization.slug" {
+			continue
+		}
+		if len(g.Values) != 1 {
+			return search, first, nil
+		}
+		idx, current = i, g.Values[0]
+	}
+	if idx < 0 || search.OrgSlug == "" {
+		return search, first, nil
+	}
+	canonical, err := w.resolveOrgSlug(ctx, src, search.OrgSlug)
+	if err != nil {
+		return search, first, err
+	}
+	if canonical == "" || canonical == current {
+		return search, first, nil
+	}
+	filters := make([]wttjFilterGroup, len(search.Filters))
+	copy(filters, search.Filters)
+	filters[idx] = wttjFilterGroup{Attribute: "organization.slug", Values: []string{canonical}}
+	search.Filters = filters
+	res, err := w.query(ctx, src, search, 0)
+	if err != nil {
+		return search, first, err
+	}
+	return search, res, nil
+}
+
+// resolveOrgSlug reads the canonical organization slug from the public
+// organization record. The website slug in the page tree and the slug
+// stored in the Algolia index can differ after a rename.
+func (w *WTTJ) resolveOrgSlug(ctx context.Context, src model.Source, slug string) (string, error) {
+	base := w.OrganizationsURL
+	if base == "" {
+		base = wttjOrganizationsURL
+	}
+	u := strings.TrimRight(base, "/") + "/" + url.PathEscape(slug)
+	body, err := w.Client.fetch(ctx, src, http.MethodGet, u, map[string]string{
+		"Accept":     "application/json",
+		"User-Agent": wttjBrowserUA,
+	}, nil)
+	if err != nil {
+		return "", fmt.Errorf("wttj: resolve organization %s: %w", slug, err)
+	}
+	var resp struct {
+		Organization struct {
+			Slug string `json:"slug"`
+		} `json:"organization"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("wttj: decode organization %s: %w", slug, err)
+	}
+	return strings.TrimSpace(resp.Organization.Slug), nil
 }
 
 // discover calls the page bootstrap and returns the search settings.
@@ -255,7 +336,38 @@ func parseWTTJPages(body []byte) (wttjSearch, error) {
 	if !ok {
 		return wttjSearch{}, fmt.Errorf("wttj: %w", ErrNotCareersPage)
 	}
-	return wttjSearchFromProperties(props)
+	search, err := wttjSearchFromProperties(props)
+	if err != nil {
+		return wttjSearch{}, err
+	}
+	search.ExpectedItems = wttjItemsCount(root)
+	return search, nil
+}
+
+// wttjItemsCount reads page.path[0].items_count, the number of jobs the
+// page claims to publish. An empty Algolia page is only suspicious when
+// this is above zero.
+func wttjItemsCount(root any) int {
+	rootMap, ok := root.(map[string]any)
+	if !ok {
+		return 0
+	}
+	page, ok := rootMap["page"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	path, ok := page["path"].([]any)
+	if !ok || len(path) == 0 {
+		return 0
+	}
+	first, ok := path[0].(map[string]any)
+	if !ok {
+		return 0
+	}
+	if n, ok := first["items_count"].(float64); ok {
+		return int(n)
+	}
+	return 0
 }
 
 // findAlgoliaProperties walks the tree (object keys in sorted order, so

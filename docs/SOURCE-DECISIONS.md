@@ -198,7 +198,7 @@ https://www.welcometothejungle.com/en/companies/fabriq/jobs
 https://www.welcometothejungle.com/fr/companies/partoo/jobs
 ```
 
-### The two-call flow
+### The discovery and query flow
 
 The careers page HTML is a shell; the offer list is an Algolia index. The
 index credentials are not hardcoded in JobWatch: they are published per
@@ -216,6 +216,7 @@ sequenceDiagram
         Adapter->>Algolia: POST /1/indexes/*/queries<br/>x-algolia-application-id, x-algolia-api-key,<br/>Referer, form content type, JSON body
         Algolia-->>Adapter: results[0].hits[], nbPages
     end
+    Note over Adapter: if page 0 is empty but items_count > 0,<br/>resolve the canonical organization slug<br/>and retry page 0 once
     Note over Adapter: hits become RawOffer; no offer page is fetched
 ```
 
@@ -235,6 +236,13 @@ sequenceDiagram
    The discovered filters are sent as `facetFilters`: one JSON array per
    attribute, so several organization slugs are OR-ed, URL-encoded inside
    `params`.
+3. **Stale slug retry** — when page 0 is empty but `path[0].items_count`
+   says the page has jobs, and the filters name exactly one
+   `organization.slug`, the adapter reads
+   `GET https://api.welcometothejungle.com/api/v1/organizations/{website slug}`.
+   If that record reports a different canonical slug, it retries page 0
+   once with the canonical value. A lookup failure is a retryable error,
+   and a page with `items_count` 0 never triggers the lookup.
 
 Request quirks, all verified against the live site (2026-11) and
 deliberately replicated:
@@ -245,8 +253,9 @@ deliberately replicated:
 | `Content-Type: application/x-www-form-urlencoded` with a JSON body | this is what the site's Algolia JS client 4.x sends; changing it to `application/json` is unnecessary and untested against the site |
 | `params` carries `facetFilters=` | Algolia parses `params` as a query string; the discovered filter groups are serialized as URL-encoded JSON, e.g. `facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=N`. Space-joining `attribute:value` pairs would AND a multi-value group and select nothing |
 | The page's filters are sent explicitly | the secured key only embeds `website.reference:wttj_fr`; without `facetFilters` the query returns the whole site (~60k hits instead of the page's own offers). The adapter never decodes the key and does not repeat the embedded filter |
-| A browser User-Agent for both calls | the bootstrap endpoint and Algolia reject the identifying JobWatch UA; every other adapter keeps it |
+| A browser User-Agent for these API calls | the bootstrap endpoint and Algolia reject the identifying JobWatch UA; every other adapter keeps it |
 | Pagination is `hitsPerPage=50`, `page=0..nbPages-1` | same page size as the site; the loop stops at `nbPages` or the first empty page |
+| An empty first page can trigger one organization lookup | the CMS filters can lag behind a rename (Swile: filters `swile`, index `lunchr`); the adapter retries only when `items_count` claims jobs and exactly one `organization.slug` is present, and a lookup failure is retryable |
 
 Hit mapping (both index shapes observed in the wild are tolerated):
 
@@ -314,6 +323,15 @@ GET per scan per source).
    answers with the whole site (~60k hits), and the 100-page guard fails
    the scan instead of storing a truncated list. The adapter never decodes
    the key to recover the scope.
+6. **A renamed organization is only resolved when the first page is
+   empty.** The retry handles a single stale `organization.slug`. A
+   multi-organization page that mixes a stale slug with live ones still
+   returns the live ones and never triggers the lookup, and a page whose
+   `items_count` is wrong may skip the retry.
+7. **The organization endpoint is a third upstream surface.** It is
+   called only on the empty-first-page path; if WTTJ changes its response
+   shape, the retry fails as a retryable error rather than silently
+   reporting zero offers.
 
 A further gap: offers are identified by `(source, external_uid)`, where
 the uid is `reference` (or the `objectID` fallback). The two observed
@@ -354,3 +372,14 @@ create new offers; the previous ones would disappear on that scan.
   `/en/companies/partoo/jobs/...` URLs (the discovered page language);
   one spot-checked URL answered HTTP 200. No duplicate source was
   created.
+- Swile (`/swile/jobs`, source 85): discovery returned `items_count` 15
+  and filters `{"organization.slug":["swile"]}`, but the index still
+  stores the organization under `lunchr`, so the first query returned
+  `nbHits: 0`. `GET /api/v1/organizations/swile` reported the canonical
+  slug `lunchr`; the retry returned `nbHits: 15`.
+- Re-scanning source 85 after the retry: 15 fetched, 15 new, 0
+  incomplete, status `ok`. All 15 offers belong to company Swile and use
+  `/en/companies/lunchr/jobs/...` URLs; a spot-checked URL answered
+  HTTP 200.
+- Re-scanning Fabriq (7 fetched, 0 new) and Partoo (15 fetched, 0 new)
+  after the change left both sources unchanged (status `ok`).

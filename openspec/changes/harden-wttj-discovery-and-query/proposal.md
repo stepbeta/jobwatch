@@ -24,6 +24,14 @@ Finally, a page may list jobs of organizations linked to it (local brands), so a
 job URL built from the source page's slug can point at the wrong company page.
 The hit's own `organization.slug` is authoritative.
 
+Swile exposes a second upstream inconsistency. Its bootstrap filters use the
+public website slug (`swile`), while the Algolia index still stores the
+canonical organization slug (`lunchr`), so the otherwise correct facet query
+returns zero offers for a page that lists 15. WTTJ's organization record
+(`GET /api/v1/organizations/{website slug}`) carries the canonical slug; the
+adapter must consult it when an empty first page contradicts the page's own
+job count.
+
 ## What Changes
 
 - **Discovery** recursively searches the `/api/v1/pages` response for the object
@@ -40,6 +48,11 @@ The hit's own `organization.slug` is authoritative.
   the untouched key are kept as verified in 10a.
 - **Job URL construction** uses the hit's `organization.slug`; the discovered
   page slug remains a fallback only for hits that omit it.
+- **Stale organization filters** are resolved when the first Algolia page is
+  empty but the page reports jobs: the adapter reads the canonical
+  `organization.slug` from `/api/v1/organizations/{website slug}` and retries
+  the first page once with it. This fixes renamed organizations such as Swile
+  (`swile` → `lunchr`).
 - **Tests** (httptest only): nested-block discovery, multi-org facetFilters with
   URL-encoded params, org-slug-based hit mapping. New trimmed fixtures: the
   Partoo bootstrap (nested block shape) and one Partoo hit (without
