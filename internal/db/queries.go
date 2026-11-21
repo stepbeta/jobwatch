@@ -84,54 +84,6 @@ func parseNullTime(n sql.NullString) time.Time {
 
 // ---------- companies ----------
 
-// ResolveCompany returns the company whose normalized name equals the
-// normalized form of name, creating it if missing. created reports
-// whether a new row was inserted. Only exact normalized matches are
-// used; fuzzy matching never merges.
-func ResolveCompany(ctx context.Context, q Querier, name string, now time.Time) (c model.Company, created bool, err error) {
-	name = strings.TrimSpace(name)
-	norm := model.NormalizeCompanyName(name)
-	if norm == "" {
-		return model.Company{}, false, fmt.Errorf("resolve company: empty name")
-	}
-	c, err = GetCompanyByNormalized(ctx, q, norm)
-	if err == nil {
-		return c, false, nil
-	}
-	if !errors.Is(err, ErrNotFound) {
-		return model.Company{}, false, err
-	}
-	res, err := q.ExecContext(ctx,
-		`INSERT INTO companies(name, name_normalized, created_at) VALUES (?, ?, ?)`,
-		name, norm, model.FormatTime(now))
-	if err != nil {
-		return model.Company{}, false, fmt.Errorf("insert company %q: %w", name, err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return model.Company{}, false, fmt.Errorf("insert company %q: %w", name, err)
-	}
-	return model.Company{ID: id, Name: name, NameNormalized: norm, CreatedAt: now.UTC().Truncate(time.Second)}, true, nil
-}
-
-// GetCompanyByNormalized looks a company up by its normalized name.
-func GetCompanyByNormalized(ctx context.Context, q Querier, norm string) (model.Company, error) {
-	var c model.Company
-	var website, created sql.NullString
-	err := q.QueryRowContext(ctx,
-		`SELECT id, name, name_normalized, website, created_at FROM companies WHERE name_normalized = ?`, norm).
-		Scan(&c.ID, &c.Name, &c.NameNormalized, &website, &created)
-	if errors.Is(err, sql.ErrNoRows) {
-		return model.Company{}, ErrNotFound
-	}
-	if err != nil {
-		return model.Company{}, fmt.Errorf("get company %q: %w", norm, err)
-	}
-	c.Website = strPtr(website)
-	c.CreatedAt = parseNullTime(created)
-	return c, nil
-}
-
 // ---------- sources ----------
 
 const sourceColumns = `id, name, url, source_type, config_json, enabled, last_scan_at, last_scan_status, created_at`
@@ -316,21 +268,6 @@ func scanOffer(row interface{ Scan(...any) error }) (model.JobOffer, error) {
 	}
 	o.CreatedAt = parseNullTime(created)
 	o.UpdatedAt = parseNullTime(updated)
-	return o, nil
-}
-
-// GetOfferByFingerprint returns the offer with the given fingerprint. The
-// fingerprint is no longer unique; the first row in ID order wins. Scans
-// no longer resolve offers through it.
-func GetOfferByFingerprint(ctx context.Context, q Querier, fp string) (model.JobOffer, error) {
-	o, err := scanOffer(q.QueryRowContext(ctx,
-		`SELECT `+offerColumns("")+` FROM job_offers WHERE fingerprint = ? ORDER BY id LIMIT 1`, fp))
-	if errors.Is(err, sql.ErrNoRows) {
-		return model.JobOffer{}, ErrNotFound
-	}
-	if err != nil {
-		return model.JobOffer{}, fmt.Errorf("get offer by fingerprint: %w", err)
-	}
 	return o, nil
 }
 

@@ -113,16 +113,20 @@ never stops on a failing one:
 3. One transaction:
    - for each `RawOffer` (skipped if no title or URL): resolve the offer
      through provenance, `(source, external_uid)` first and
-     `(source, url)` second. On a miss only, company =
-     `RawOffer.Company` → `config.company` → source name,
-     `ResolveCompany` (exact normalized match or insert) and insert the
-     offer (+ snapshot with `origin = scan`). On a hit, update the title
-     and a reported location, apply the offer_state machine
-     (DATA-MODEL.md), keep a changed description as a new snapshot, and
-     never rewrite the company or canonical URL from the sighting.
-     Classify the title/location/description, persist the scores and
-     remote policy, and upsert provenance by `(source, external_uid)`
-     first, then `(offer_id, url)`, with `last_seen_at = now`.
+     `(source, url)` second. On a miss only, company evidence is
+     `RawOffer.CompanyKey` (adapter token) and/or `RawOffer.Company` →
+     `config.company`; `ResolveCompany` tries the key, then the source
+     alias, then the confirmed global alias, and creates a company only
+     when none matches. The source name is not a company fallback: an
+     item with no company evidence and no `config.company` is skipped
+     until the incomplete-listing task stores it. Insert the offer
+     (+ snapshot with `origin = scan`). On a hit, update the title and a
+     reported location, apply the offer_state machine (DATA-MODEL.md),
+     keep a changed description as a new snapshot, and never rewrite the
+     company or canonical URL from the sighting. Classify the
+     title/location/description, persist the scores and remote policy,
+     and upsert provenance by `(source, external_uid)` first, then
+     `(offer_id, url)`, with `last_seen_at = now`.
    - `MarkDisappeared(source, now)`.
    - `last_scan_status = ok`, `last_scan_at = now`; commit.
 4. A failure inside the transaction rolls back and marks the source `error`.
@@ -234,9 +238,9 @@ A split (`POST /api/offers/{id}/split`) takes the selected provenance
 rows and creates a second offer in the same company, with an optional
 title/location override. Events, notes and snapshots stay on the original
 because they belong to the tracked application. At least one link must
-remain on the original. The new fingerprint follows the same
-location-bucket collision rule as scans and is rejected with
-`409 offer_conflict` when the company+title+location already exists.
+remain on the original. The new offer gets a base fingerprint; a
+company+title+location match with another offer is allowed because
+identity is provenance, not the fingerprint.
 
 ## Company matching, rename and merge (`internal/db`)
 
@@ -247,18 +251,24 @@ of 5+ characters with ≤ 20% changes. Scores below
 `model.MinCompanyCandidateScore` (60) are dropped. Nothing merges
 automatically.
 
-`db.MergeCompanies` and `db.UpdateCompany` (rename) share
-`planFingerprintUpdates`: for every offer of the source company it
-rebuilds the fingerprint with the target normalized name, preserving
-whether the offer used the base or the location-bucketed form. If any
-new fingerprint already exists outside the company (or twice in the
-plan), the whole operation is rejected with `db.ConflictError` and
-nothing is written. Merge moves offers and company notes, copies the
-website when the target has none, and deletes the emptied company.
-Rename changes `name`/`name_normalized` and rewrites fingerprints in
-the same transaction. Deleting a company is refused while it owns
-offers; deleting a source detaches its provenance rows (`source_id`
-becomes NULL) instead of deleting offers.
+`db.ResolveCompany` takes `{Key, Name, SourceID}`. It tries the
+namespaced adapter key, then the name alias for that source, then the
+confirmed global alias, and creates a company only when none matches.
+A name-only claim is recorded for its source, so the same name from two
+sources creates two companies until the user merges them; the source
+name is never used as a fallback. A new company gets a source alias
+(or a global alias for a manual import), and a key/alias that resolves
+an existing company is linked to it.
+
+`db.MergeCompanies` moves offers, company notes, keys and aliases to the
+target, records the absorbed display name as a confirmed global alias,
+copies the website when the target has none, and deletes the emptied
+company. A key or alias the target already holds is kept once. Rename
+changes `name`/`name_normalized` and records both the old and new name
+as global aliases. Neither operation rewrites offer fingerprints: names
+are attributes and identity is provenance. Deleting a company is
+refused while it owns offers; deleting a source detaches its provenance
+rows (`source_id` becomes NULL) instead of deleting offers.
 
 ## Web UI (`web/`)
 

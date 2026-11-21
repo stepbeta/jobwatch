@@ -69,6 +69,41 @@
 - The `TestScanDedup` and Lever fixture expectations now assert distinct
   uids and offers instead of distinct fingerprints.
 
+### Offer identity from source uid (OpenSpec change, task group 3)
+
+#### Added
+- Migration 0013: `companies.name_normalized` is no longer UNIQUE (display
+  names are attributes, not identity), with a non-unique lookup index.
+  Enabled single-employer sources get `config.company` set to their
+  current display name so the scan pipeline can stop using the source
+  name as a company fallback. We Work Remotely is left for the RSS/HTML
+  employer extraction task.
+- Company resolution is key → source alias → confirmed global alias →
+  create. A name-only claim is recorded for its source; a new company gets
+  a source alias (or a global alias for a manual import). A key that
+  resolves an existing company is linked to it.
+- Company merge moves offers, notes, keys and aliases to the target and
+  records the absorbed display name as a confirmed global alias. A rename
+  records both the old and the new name as aliases. Neither rewrites offer
+  fingerprints.
+
+#### Changed
+- The scan pipeline no longer uses `sources.name` as a company fallback.
+  An item with no adapter company evidence and no `config.company` is
+  skipped (and counted in `skipped`) until the incomplete-listing task
+  stores it with its raw values.
+- `POST /api/companies` and `PATCH /api/companies/:id` allow duplicate
+  normalized names; `409 duplicate_company` is gone. Company rename and
+  merge no longer return `409 merge_conflict`, and offer split no longer
+  returns `409 offer_conflict`; same-title offers are legitimate because
+  identity is provenance.
+- Offer split computes a base fingerprint and does not check collisions.
+
+#### Fixed
+- Merging two companies with same-title offers now succeeds instead of
+  reporting a fingerprint conflict, and a later scan cannot recreate the
+  absorbed company because its keys and names resolve to the target.
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.

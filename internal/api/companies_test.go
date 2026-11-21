@@ -43,16 +43,17 @@ func TestCompaniesCRUD(t *testing.T) {
 	ts := newTestServer(t)
 	qonto := ts.createCompany(t, map[string]any{"name": "Qonto", "website": "https://qonto.com"})
 	qontoFR := ts.createCompany(t, map[string]any{"name": "Qonto France"})
+	// Names are not unique: a second company may use the same normalized
+	// name, and it simply does not claim the existing global alias.
+	ts.createCompany(t, map[string]any{"name": "QONTO SAS"})
 
-	wantErrorCode(t, ts.do(t, "POST", "/api/companies", map[string]any{"name": "QONTO SAS"}),
-		409, "duplicate_company")
 	wantErrorCode(t, ts.do(t, "POST", "/api/companies", map[string]any{"name": "  "}),
 		400, "validation_failed")
 
 	rec := ts.do(t, "GET", "/api/companies?q=qonto", nil)
 	wantCode(t, rec, 200)
 	list := decodeBody[companyListResp](t, rec)
-	if list.Total != 2 || len(list.Companies) != 2 {
+	if list.Total != 3 || len(list.Companies) != 3 {
 		t.Errorf("companies = %+v", list)
 	}
 
@@ -67,11 +68,16 @@ func TestCompaniesCRUD(t *testing.T) {
 	if len(detail.Notes) != 1 || detail.Company.NoteCount != 1 {
 		t.Errorf("company notes = %+v", detail.Notes)
 	}
-	if len(detail.PossibleDuplicates) != 1 || detail.PossibleDuplicates[0].ID != qontoFR.ID {
-		t.Errorf("possible duplicates = %+v", detail.PossibleDuplicates)
+	var frCandidate *companyCandidateJSON
+	for i := range detail.PossibleDuplicates {
+		if detail.PossibleDuplicates[i].ID == qontoFR.ID {
+			frCandidate = &detail.PossibleDuplicates[i]
+		}
 	}
-	if detail.PossibleDuplicates[0].Reason != "one name extends the other" {
-		t.Errorf("duplicate reason = %q", detail.PossibleDuplicates[0].Reason)
+	if frCandidate == nil {
+		t.Errorf("possible duplicates = %+v, missing Qonto France", detail.PossibleDuplicates)
+	} else if frCandidate.Reason != "one name extends the other" {
+		t.Errorf("duplicate reason = %q", frCandidate.Reason)
 	}
 
 	rec = ts.do(t, "PATCH", "/api/companies/1", map[string]any{"name": "Qonto Bank", "website": nil})
@@ -80,8 +86,12 @@ func TestCompaniesCRUD(t *testing.T) {
 	if patched.Name != "Qonto Bank" || patched.NameNormalized != "qonto bank" || patched.Website != nil {
 		t.Errorf("patched company = %+v", patched)
 	}
-	wantErrorCode(t, ts.do(t, "PATCH", "/api/companies/1", map[string]any{"name": "Qonto France"}),
-		409, "duplicate_company")
+	// Renaming to a name another company uses is allowed.
+	rec = ts.do(t, "PATCH", "/api/companies/1", map[string]any{"name": "Qonto France"})
+	wantCode(t, rec, 200)
+	if got := decodeBody[companyResp](t, rec).Company; got.Name != "Qonto France" {
+		t.Errorf("duplicate rename = %+v", got)
+	}
 	wantErrorCode(t, ts.do(t, "PATCH", "/api/companies/99", map[string]any{"name": "Nope"}),
 		404, "not_found")
 	wantErrorCode(t, ts.do(t, "PATCH", "/api/companies/1", map[string]any{}), 400, "validation_failed")
@@ -129,13 +139,17 @@ func TestCompanyMerge(t *testing.T) {
 	if err != nil || len(prov) != 1 || prov[0].URL != "https://source.example/sre" {
 		t.Errorf("provenance after company merge = %+v, err %v", prov, err)
 	}
-	// The moved offer must keep deduplicating under the target company name.
+	// The moved offer keeps its fingerprint; identity is provenance, and
+	// the absorbed company name resolves to the target for later scans.
 	var fp string
 	if err := ts.db.QueryRow(`SELECT fingerprint FROM job_offers WHERE id = ?`, offer.ID).Scan(&fp); err != nil {
 		t.Fatal(err)
 	}
-	if want := model.Fingerprint(target.NameNormalized, model.NormalizeTitle("SRE"), ""); fp != want {
-		t.Errorf("fingerprint = %q, want %q", fp, want)
+	if fp != offer.Fingerprint {
+		t.Errorf("fingerprint = %q, want unchanged %q", fp, offer.Fingerprint)
+	}
+	if c, err := db.GetCompanyByGlobalAlias(context.Background(), ts.db, "acme"); err != nil || c.ID != target.ID {
+		t.Errorf("absorbed alias resolves to %+v, %v; want company %d", c, err, target.ID)
 	}
 
 	wantErrorCode(t, ts.do(t, "POST", "/api/companies/2/merge", map[string]any{"into_id": 2}),
@@ -146,7 +160,7 @@ func TestCompanyMerge(t *testing.T) {
 		400, "validation_failed")
 }
 
-func TestCompanyMergeConflictAndDelete(t *testing.T) {
+func TestCompanyMergeSameTitleAndDelete(t *testing.T) {
 	ts := newTestServer(t)
 	a := ts.createCompany(t, map[string]any{"name": "Acme"})
 	b := ts.createCompany(t, map[string]any{"name": "Acme France"})
@@ -155,13 +169,21 @@ func TestCompanyMergeConflictAndDelete(t *testing.T) {
 	ts.seedOffer(t, model.Company{ID: b.ID, Name: b.Name, NameNormalized: b.NameNormalized},
 		"SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
 
-	wantErrorCode(t, ts.do(t, "POST", "/api/companies/1/merge", map[string]any{"into_id": 2}),
-		409, "merge_conflict")
-
 	wantErrorCode(t, ts.do(t, "DELETE", "/api/companies/1", nil), 409, "company_has_offers")
 
+	// Same-title offers are no longer a merge conflict: the two offers stay
+	// separate rows under the target company.
+	rec := ts.do(t, "POST", "/api/companies/1/merge", map[string]any{"into_id": 2})
+	wantCode(t, rec, 200)
+	merged := decodeBody[mergeResp](t, rec)
+	if merged.MovedOffers != 1 || merged.Company.OfferCount != 2 {
+		t.Errorf("merge = %+v", merged)
+	}
+	wantErrorCode(t, ts.do(t, "GET", "/api/companies/1", nil), 404, "not_found")
+	wantErrorCode(t, ts.do(t, "DELETE", "/api/companies/2", nil), 409, "company_has_offers")
+
 	empty := ts.createCompany(t, map[string]any{"name": "Empty"})
-	rec := ts.do(t, "DELETE", "/api/companies/"+strconv.FormatInt(empty.ID, 10), nil)
+	rec = ts.do(t, "DELETE", "/api/companies/"+strconv.FormatInt(empty.ID, 10), nil)
 	wantCode(t, rec, 204)
 	wantErrorCode(t, ts.do(t, "GET", "/api/companies/"+strconv.FormatInt(empty.ID, 10), nil), 404, "not_found")
 	wantErrorCode(t, ts.do(t, "DELETE", "/api/companies/99", nil), 404, "not_found")

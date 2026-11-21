@@ -607,7 +607,7 @@ func TestSnapshotOriginsScanAndPatch(t *testing.T) {
 	ctx := context.Background()
 	src, err := db.InsertSource(ctx, ts.db, model.Source{
 		Name: "Scan Co", URL: "https://scan.example/board", Type: model.SourceGreenhouse,
-		ConfigJSON: "{}", Enabled: true,
+		ConfigJSON: `{"company":"Scan Co"}`, Enabled: true,
 	}, ts.clock.now())
 	if err != nil {
 		t.Fatal(err)
@@ -741,10 +741,20 @@ func TestSplitOfferAPI(t *testing.T) {
 		"title":          "SRE - Payments",
 	}), 400, "validation_failed")
 
-	// Same title and location collide with the original fingerprint.
-	wantErrorCode(t, ts.do(t, "POST", "/api/offers/1/split", map[string]any{
+	// A same-title, same-location split is allowed: identity is the
+	// provenance row, not the fingerprint.
+	rec = ts.do(t, "POST", "/api/offers/1/split", map[string]any{
 		"provenance_ids": []int64{provIDs[2]},
-	}), 409, "offer_conflict")
+	})
+	wantCode(t, rec, 201)
+	same := decodeBody[struct {
+		Offer           offerJSON `json:"offer"`
+		MovedProvenance int       `json:"moved_provenance"`
+	}](t, rec)
+	if same.Offer.ID == o.ID || same.Offer.Title != o.Title ||
+		same.Offer.Location == nil || *same.Offer.Location != "Paris" || same.MovedProvenance != 1 {
+		t.Errorf("same-title split = %+v", same)
+	}
 
 	wantErrorCode(t, ts.do(t, "POST", "/api/offers/1/split", map[string]any{}),
 		400, "validation_failed")

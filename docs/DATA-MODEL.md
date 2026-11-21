@@ -23,6 +23,7 @@ require a table rebuild.
 | 0010 | `0010_interview_entry_category.sql` | Additive schema change for Milestone 10: `ALTER TABLE interview_entries ADD COLUMN category TEXT`. NULL means uncategorized; existing entries keep every column and read as uncategorized. No row is deleted or rewritten |
 | 0011 | `0011_seed_wttj_sources.sql` | Data-only seed: the Fabriq Welcome to the Jungle careers page verified in Milestone 10a (`wttj`, `{}` config, enabled). The 0002 WTTJ marketplace row has a different URL and is left untouched. `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
 | 0012 | `0012_company_identity.sql` | OpenSpec change `offer-identity-from-source-uid`: creates `company_keys` and `company_aliases`; backfills one confirmed alias per company and keys from typed adapter config tokens; rebuilds `job_offers` so `company_id` is nullable, `fingerprint` is no longer UNIQUE and `incomplete_reason`/`incomplete_raw` exist; converts `offer_state = 'changed'` to `active`; squashes duplicate `(source_id, external_uid)` provenance rows onto the surviving offer and adds a partial unique index on that pair |
+| 0013 | `0013_company_resolution.sql` | OpenSpec change `offer-identity-from-source-uid`: rebuilds `companies` so `name_normalized` is no longer UNIQUE (display names are attributes, not identity) and adds a non-unique lookup index; backfills a global alias for any company without one; sets `config.company` to the current display name on enabled single-employer sources (typed ATS plus RSS/HTML except We Work Remotely) so the scan pipeline can stop using `sources.name` as a company fallback |
 
 Migration 0012 runs on a pinned connection with `foreign_keys=OFF` so it
 can rebuild `job_offers` without `DROP TABLE` cascading into events,
@@ -39,6 +40,14 @@ therefore requires the pre-migration backup; `jobwatch backup` before
 migrating is the supported safety net. The `changed` -> `active` update is
 recoverable by the next scan, and the two new tables plus the two new
 columns are additive.
+
+Migration 0013 rebuilds `companies` with the same runner and preserves
+every row, id and child reference; it removes the UNIQUE constraint on
+`name_normalized` because two employers may share a display name. The
+`config.company` update only fills a missing key on enabled
+single-employer sources, so it is additive and preserves every other
+config value. Re-adding the UNIQUE constraint is not possible while
+duplicate names exist; rolling back requires the pre-migration backup.
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -68,19 +77,20 @@ no categories table, so the category set is derived from the rows.
 |---|---|---|
 | id | INTEGER PK | autoincrement |
 | name | TEXT NOT NULL | display name as first seen |
-| name_normalized | TEXT NOT NULL UNIQUE | `model.NormalizeCompanyName`: lowercase, accents folded, dots/apostrophes removed, other punctuation → space, trailing legal suffixes removed (gmbh, ag, kg, inc, incorporated, corp, corporation, llc, ltd, limited, plc, sas, sasu, sarl, sa, spa, srl, bv, nv) |
+| name_normalized | TEXT NOT NULL | `model.NormalizeCompanyName`: lowercase, accents folded, dots/apostrophes removed, other punctuation → space, trailing legal suffixes removed (gmbh, ag, kg, inc, incorporated, corp, corporation, llc, ltd, limited, plc, sas, sasu, sarl, sa, spa, srl, bv, nv). Not unique: identity is carried by `company_keys` and `company_aliases` |
 | website | TEXT | nullable |
 | created_at | TEXT | |
 
-Companies are resolved by exact `name_normalized` match and created if
-missing. `model.SimilarCompanyNames` proposes possible duplicates for
-the UI (token containment or small edit distance); nothing is merged
-without an explicit `POST /api/companies/:id/merge`. A merge moves
-offers and company notes to the target, rewrites offer fingerprints
-with the target's normalized name, and deletes the emptied company. A
-rename through the API also rewrites fingerprints in the same
-transaction. Both operations are rejected (`merge_conflict`) when a new
-fingerprint would collide.
+Companies are resolved by attested key, then by a name claim for the
+sighting's source, then by a name confirmed for all sources, and created
+only when none matches. A bare name is never matched across sources.
+`model.SimilarCompanyNames` proposes possible duplicates for the UI
+(token containment or small edit distance); nothing is merged without an
+explicit `POST /api/companies/:id/merge`. A merge moves offers, company
+notes, keys and aliases to the target, records the absorbed display name
+as a confirmed alias, and deletes the emptied company; a rename records
+both the old and the new name as aliases. Neither operation rewrites
+offer fingerprints.
 
 ### company_keys
 | Column | Type | Notes |
@@ -93,7 +103,9 @@ fingerprint would collide.
 One company may hold several keys (for example a Greenhouse board and a
 Lever site). Keys are globally unique because of the provider prefix.
 Migration 0012 backfills a key only for a typed source whose offers all
-belong to one company.
+belong to one company. A sighting that resolves by a key records the
+reported name for its source; a merge moves the absorbed keys to the
+winner and drops a duplicate key the winner already holds.
 
 ### company_aliases
 | Column | Type | Notes |
@@ -107,18 +119,22 @@ belong to one company.
 Two partial unique indexes make the claim unambiguous: one row per
 `(source_id, name_normalized)` for a specific source, and one row per
 `name_normalized` for the global (NULL) scope. Migration 0012 backfills
-one global alias per existing company from its current
-`name_normalized`.
+one global alias per existing company; 0013 covers companies created
+since.
 
-The tables are populated now; the scan pipeline switches from
-name-only `ResolveCompany` to key-then-alias resolution in the
-company-resolution task group of the same OpenSpec change.
+Resolution order is key, then the alias for the sighting's source, then
+the confirmed global alias, then create. A name-only claim is recorded
+for that source, so the same name from two sources creates two companies
+until the user merges them. An explicit `POST /api/companies` creates a
+global alias when the name is free. A merge moves the absorbed aliases
+to the winner, drops conflicts, and records the absorbed display name as
+a confirmed global alias.
 
 ### sources
 | Column | Type | Notes |
 |---|---|---|
 | id | INTEGER PK | |
-| name | TEXT NOT NULL | also the default company name of its offers |
+| name | TEXT NOT NULL | display name of the source; no longer used as a company fallback |
 | url | TEXT NOT NULL | indexed (not unique; the CLI refuses duplicates) |
 | source_type | TEXT NOT NULL | `greenhouse` `lever` `ashby` `personio` `workable` `bamboohr` `wttj` `rss` `html` `manual` |
 | config_json | TEXT NOT NULL DEFAULT '{}' | see below |
@@ -127,8 +143,9 @@ company-resolution task group of the same OpenSpec change.
 | last_scan_status | TEXT | `ok` `error` `blocked`; NULL = never scanned |
 | created_at | TEXT | |
 
-`config_json` keys (all optional): `company` (overrides source name as
-company), `rate_limit_ms` (min interval between requests, default 2000;
+`config_json` keys (all optional): `company` (declares the company for a
+single-employer source; required when the adapter supplies no company),
+`rate_limit_ms` (min interval between requests, default 2000;
 HTML sources are capped at a 5 s minimum), `note` (human-readable
 explanation shown in the UI), `board_token` (greenhouse), `site` +
 `region` (`""`/`"eu"`, lever), `org` (ashby), `tenant` + `language`
@@ -368,10 +385,10 @@ sync by AFTER INSERT / DELETE / UPDATE OF triggers
 
 Migration 0012 removes the UNIQUE constraint and the scan pipeline
 resolves sightings through `job_offer_provenance(source_id, external_uid)`
-first, then `(source_id, url)`. The fingerprint is still computed for new
-offers because the company merge/rename code uses it, but it is never an
-identity carrier and two offers may share one. Do not add new dependencies
-on its uniqueness.
+first, then `(source_id, url)`. The fingerprint is computed for new
+offers and splits so the legacy column stays populated, but it is never
+an identity carrier, it is not used for matching, and two offers may
+share one. Do not add new dependencies on its uniqueness.
 
 - The base fingerprint has no bucket.
 - `model.LocationBucket`: first location segment (split on `, ; | / ( )`
@@ -379,9 +396,6 @@ on its uniqueness.
   (`remote`, `hybrid`, `onsite`, `anywhere`, `teletravail`, …), the next
   segment is appended (`"Remote, United States"` → `remote united states`).
   Empty = unknown.
-- A sighting matches the base-fingerprint offer if either bucket is
-  unknown or both are equal. Otherwise the bucketed fingerprint is used
-  (looked up, or created for a new offer).
 
 ## State machines
 
@@ -432,16 +446,19 @@ surfaced on `GET /api/sources`.
 ## Company merge and rename
 
 - Rename (`PATCH /api/companies/:id`): changes `name` and
-  `name_normalized`; every offer of the company gets a new fingerprint
-  with the new normalized name. Base fingerprints stay base,
-  location-bucketed fingerprints keep their bucket.
-- Merge (`POST /api/companies/:id/merge`): offers and company notes of
-  the source company move to the target, fingerprints are rewritten the
-  same way, the target inherits the source website when it has none,
-  and the source company row is deleted. Offers are never deleted.
-- Both operations are transactional. If a rewritten fingerprint already
-  exists (same company + title [+ location bucket]) the operation is
-  rejected with `409 merge_conflict` and nothing changes.
+  `name_normalized`; both the old and the new normalized name are
+  recorded as global aliases. Offers keep their company, identity and
+  fingerprint. Renaming to a name another company already uses is
+  allowed; the existing alias stays with its company.
+- Merge (`POST /api/companies/:id/merge`): offers, company notes, keys
+  and aliases of the source company move to the target; the absorbed
+  display name becomes a confirmed global alias of the target; the
+  target inherits the source website when it has none, and the source
+  company row is deleted. Offers are never deleted. A key or alias the
+  target already holds is kept once and the duplicate is dropped.
+- Both operations are transactional. There is no fingerprint conflict:
+  offers may share a company, title and location because identity is
+  provenance.
 - Deleting a company is refused while it owns offers. Deleting a source
   keeps its provenance rows but sets their `source_id` to NULL.
 
@@ -465,10 +482,11 @@ never merge or split offers.
   snapshots stay with the original because they describe the tracked
   application. At least one provenance row must remain on the original.
   The new offer gets `active` (or `disappeared` when the original was
-  disappeared), application state `todo`, and a fingerprint computed from
-  the company, new title and location; a collision is rejected with
-  `409 offer_conflict`. The original canonical `url` is repaired to a
-  remaining link when the moved row owned it.
+  disappeared), application state `todo`, and a base fingerprint. A
+  company/title/location match with another offer is allowed because
+  identity is provenance; the fingerprint is not checked for collisions.
+  The original canonical `url` is repaired to a remaining link when the
+  moved row owned it.
 
 ## Full-text search exposure
 

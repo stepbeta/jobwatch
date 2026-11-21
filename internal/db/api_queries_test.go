@@ -49,6 +49,13 @@ func TestCompanyMerge(t *testing.T) {
 	o1 := mustOffer(t, sqlDB, acme, "Site Reliability Engineer", "Paris")
 	o2 := mustOffer(t, sqlDB, acme, "Platform Engineer", "")
 	kept := mustOffer(t, sqlDB, acmeSAS, "Backend Engineer", "Lyon")
+	if err := linkCompanyKey(ctx, sqlDB, acme.ID, "greenhouse:acme", testNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := linkCompanyKey(ctx, sqlDB, acmeSAS.ID, "greenhouse:acmesas", testNow); err != nil {
+		t.Fatal(err)
+	}
+	fp1, fp2 := o1.Fingerprint, o2.Fingerprint
 
 	note, err := InsertNote(ctx, sqlDB, model.Note{
 		EntityType: model.EntityCompany, EntityID: acme.ID, Body: "recruiter is nice",
@@ -79,7 +86,7 @@ func TestCompanyMerge(t *testing.T) {
 	if got.Name != "ACME SAS France" {
 		t.Errorf("target name = %q", got.Name)
 	}
-	for _, id := range []int64{o1.ID, o2.ID} {
+	for id, fp := range map[int64]string{o1.ID: fp1, o2.ID: fp2} {
 		o, err := GetOffer(ctx, sqlDB, id)
 		if err != nil {
 			t.Fatal(err)
@@ -87,20 +94,29 @@ func TestCompanyMerge(t *testing.T) {
 		if o.CompanyID != acmeSAS.ID {
 			t.Errorf("offer %d company = %d, want %d", id, o.CompanyID, acmeSAS.ID)
 		}
-		want := model.Fingerprint(acmeSAS.NameNormalized, o.TitleNormalized, "")
-		if o.Fingerprint != want {
-			t.Errorf("offer %d fingerprint = %q, want %q", id, o.Fingerprint, want)
+		if o.Fingerprint != fp {
+			t.Errorf("offer %d fingerprint = %q, want unchanged %q", id, o.Fingerprint, fp)
 		}
-	}
-	// A later scan under the target company name must dedup onto the
-	// moved offer instead of creating a duplicate.
-	o, err := GetOfferByFingerprint(ctx, sqlDB, model.Fingerprint(acmeSAS.NameNormalized, model.NormalizeTitle(o1.Title), ""))
-	if err != nil || o.ID != o1.ID {
-		t.Errorf("dedup after merge: offer %+v, err %v", o, err)
 	}
 	if o, err := GetOffer(ctx, sqlDB, kept.ID); err != nil || o.CompanyID != acmeSAS.ID {
 		t.Errorf("target offer untouched: %+v, %v", o, err)
 	}
+
+	// The absorbed identifiers and names resolve to the target, so a later
+	// scan cannot recreate the ghost company.
+	if c, err := GetCompanyByKey(ctx, sqlDB, "greenhouse:acme"); err != nil || c.ID != acmeSAS.ID {
+		t.Errorf("absorbed key = %+v, %v; want company %d", c, err, acmeSAS.ID)
+	}
+	if c, err := GetCompanyByKey(ctx, sqlDB, "greenhouse:acmesas"); err != nil || c.ID != acmeSAS.ID {
+		t.Errorf("target key = %+v, %v; want company %d", c, err, acmeSAS.ID)
+	}
+	if c, err := GetCompanyByGlobalAlias(ctx, sqlDB, "acme"); err != nil || c.ID != acmeSAS.ID {
+		t.Errorf("absorbed alias = %+v, %v; want company %d", c, err, acmeSAS.ID)
+	}
+	if c, created, err := ResolveCompany(ctx, sqlDB, CompanyInput{Name: "Acme"}, testNow); err != nil || created || c.ID != acmeSAS.ID {
+		t.Errorf("resolve absorbed name = %+v created=%v err=%v; want company %d", c, created, err, acmeSAS.ID)
+	}
+
 	moved, err := GetNote(ctx, sqlDB, note.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -110,38 +126,42 @@ func TestCompanyMerge(t *testing.T) {
 	}
 }
 
-func TestCompanyMergeConflict(t *testing.T) {
+func TestCompanyMergeSameTitleOffers(t *testing.T) {
 	ctx := context.Background()
 	sqlDB := openTest(t)
 	a := mustCompany(t, sqlDB, "Acme")
 	b := mustCompany(t, sqlDB, "Acme France")
 	mustOffer(t, sqlDB, a, "SRE", "Paris")
-	existing := mustOffer(t, sqlDB, b, "SRE", "Paris")
+	mustOffer(t, sqlDB, b, "SRE", "Paris")
 
-	_, err := MergeCompanies(ctx, sqlDB, a.ID, b.ID, testNow)
-	var conflict *ConflictError
-	if !errors.As(err, &conflict) {
-		t.Fatalf("merge error = %v, want ConflictError", err)
+	res, err := MergeCompanies(ctx, sqlDB, a.ID, b.ID, testNow)
+	if err != nil {
+		t.Fatalf("merge with same-title offers: %v", err)
 	}
-	if len(conflict.Offers) != 1 {
-		t.Errorf("conflicts = %v", conflict.Offers)
+	if res.MovedOffers != 1 {
+		t.Errorf("moved offers = %d, want 1", res.MovedOffers)
 	}
-	if _, err := GetCompany(ctx, sqlDB, a.ID); err != nil {
-		t.Errorf("source company deleted on conflict: %v", err)
+	var n int
+	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM job_offers WHERE company_id = ?`, b.ID).Scan(&n); err != nil {
+		t.Fatal(err)
 	}
-	if o, _ := GetOffer(ctx, sqlDB, existing.ID); o.CompanyID != b.ID {
-		t.Errorf("existing offer moved on conflict")
+	if n != 2 {
+		t.Errorf("target offers = %d, want 2", n)
 	}
-	if _, err := MergeCompanies(ctx, sqlDB, a.ID, a.ID, testNow); !errors.Is(err, ErrMergeSelf) {
+	if _, err := GetCompany(ctx, sqlDB, a.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("source company still exists: %v", err)
+	}
+	if _, err := MergeCompanies(ctx, sqlDB, b.ID, b.ID, testNow); !errors.Is(err, ErrMergeSelf) {
 		t.Errorf("self merge error = %v, want ErrMergeSelf", err)
 	}
 }
 
-func TestCompanyRenameRecomputesFingerprints(t *testing.T) {
+func TestCompanyRenameKeepsOffersAndAliases(t *testing.T) {
 	ctx := context.Background()
 	sqlDB := openTest(t)
 	c := mustCompany(t, sqlDB, "Acme")
 	o := mustOffer(t, sqlDB, c, "SRE", "Paris")
+	fp := o.Fingerprint
 
 	name := "Acme Cloud"
 	got, err := UpdateCompany(ctx, sqlDB, c.ID, CompanyUpdate{Name: &name}, testNow)
@@ -155,17 +175,28 @@ func TestCompanyRenameRecomputesFingerprints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := model.Fingerprint("acme cloud", o.TitleNormalized, ""); updated.Fingerprint != want {
-		t.Errorf("fingerprint = %q, want %q", updated.Fingerprint, want)
+	if updated.Fingerprint != fp {
+		t.Errorf("fingerprint = %q, want unchanged %q", updated.Fingerprint, fp)
+	}
+	if _, err := GetCompanyByGlobalAlias(ctx, sqlDB, "acme cloud"); err != nil {
+		t.Errorf("new name is not an alias: %v", err)
+	}
+	if _, err := GetCompanyByGlobalAlias(ctx, sqlDB, "acme"); err != nil {
+		t.Errorf("old name alias was lost: %v", err)
 	}
 
+	// Renaming to a name another company already uses is allowed; names are
+	// attributes, not identity.
 	other := mustCompany(t, sqlDB, "Other")
 	dup := "Other"
-	if _, err := UpdateCompany(ctx, sqlDB, c.ID, CompanyUpdate{Name: &dup}, testNow); !errors.Is(err, ErrCompanyNameTaken) {
-		t.Errorf("duplicate rename error = %v, want ErrCompanyNameTaken", err)
+	if _, err := UpdateCompany(ctx, sqlDB, c.ID, CompanyUpdate{Name: &dup}, testNow); err != nil {
+		t.Errorf("duplicate rename rejected: %v", err)
 	}
-	if _, err := UpdateCompany(ctx, sqlDB, other.ID, CompanyUpdate{Name: &dup}, testNow); err != nil {
-		t.Errorf("renaming to own name: %v", err)
+	if got, err := GetCompany(ctx, sqlDB, c.ID); err != nil || got.Name != "Other" {
+		t.Errorf("renamed company = %+v, %v", got, err)
+	}
+	if got, err := GetCompany(ctx, sqlDB, other.ID); err != nil || got.Name != "Other" {
+		t.Errorf("other company = %+v, %v", got, err)
 	}
 }
 
@@ -181,12 +212,25 @@ func TestDeleteCompany(t *testing.T) {
 	if _, err := InsertNote(ctx, sqlDB, model.Note{EntityType: model.EntityCompany, EntityID: empty.ID, Body: "x"}, testNow); err != nil {
 		t.Fatal(err)
 	}
+	if err := linkCompanyKey(ctx, sqlDB, empty.ID, "ashby:empty", testNow); err != nil {
+		t.Fatal(err)
+	}
 	if err := DeleteCompany(ctx, sqlDB, empty.ID); err != nil {
 		t.Fatalf("delete empty company: %v", err)
 	}
 	notes, err := ListNotes(ctx, sqlDB, model.EntityCompany, empty.ID)
 	if err != nil || len(notes) != 0 {
 		t.Errorf("notes after delete = %v, %v", notes, err)
+	}
+	var keys, aliases int
+	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM company_keys WHERE company_id = ?`, empty.ID).Scan(&keys); err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM company_aliases WHERE company_id = ?`, empty.ID).Scan(&aliases); err != nil {
+		t.Fatal(err)
+	}
+	if keys != 0 || aliases != 0 {
+		t.Errorf("company identity rows after delete = %d keys, %d aliases", keys, aliases)
 	}
 }
 

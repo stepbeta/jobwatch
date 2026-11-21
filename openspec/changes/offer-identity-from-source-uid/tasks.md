@@ -19,10 +19,10 @@
 
 ## 3. Company resolution
 
-- [ ] 3.1 Replace `db.ResolveCompany` with key-then-alias resolution (`key`, source alias, confirmed alias, create)
-- [ ] 3.2 Remove `src.Name` from the sighting fallback; require adapter evidence or `config.company`
-- [ ] 3.3 Extend merge to record the absorbed company's keys and aliases on the absorbing company before deleting it
-- [ ] 3.4 Tests: identifier seen twice, board reporting a new display name, duplicate names, merge reuse on the next scan, merge leaves no addressable ghost
+- [x] 3.1 Replace `db.ResolveCompany` with key-then-alias resolution (`key`, source alias, confirmed alias, create)
+- [x] 3.2 Remove `src.Name` from the sighting fallback; require adapter evidence or `config.company`
+- [x] 3.3 Extend merge to record the absorbed company's keys and aliases on the absorbing company before deleting it
+- [x] 3.4 Tests: identifier seen twice, board reporting a new display name, duplicate names, merge reuse on the next scan, merge leaves no addressable ghost
 
 ## 4. Adapter normalization
 

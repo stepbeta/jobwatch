@@ -79,7 +79,7 @@ Done criteria (all met):
 |---|---|
 | SPA assets are embedded only with `-tags ui`; without the tag the binary serves a placeholder page | `web/dist` is a build artifact and gitignored; plain `go build ./...` must work on a fresh checkout |
 | `POST /api/sources/:id/scan` answers `200` even when the scan failed, with the failure in `result.error` | the request itself succeeded and the UI needs the summary; `last_scan_status` is persisted and returned |
-| Company rename and merge rewrite the offers' fingerprints, and are rejected with `409 merge_conflict` on collision | fingerprints embed the normalized company name; without rewriting, later scans would create duplicates |
+| ~~Company rename and merge rewrite the offers' fingerprints, and are rejected with `409 merge_conflict` on collision~~ — superseded by OpenSpec change `offer-identity-from-source-uid`: rename/merge move company keys and aliases and never rewrite offer fingerprints | fingerprints stopped being offer identity; same-title offers are legitimate, so a fingerprint conflict is no longer an error |
 | Deleting a source detaches its provenance rows (`source_id = NULL`) instead of refusing or deleting links | offers and links are never deleted; a deleted source must not block cleanup |
 | Notes are listed per entity (`entity_type` + `entity_id` are required) | there is no global notes view in the UI or SPEC |
 | Extra list parameters `has_application`, `sort`, `limit`/`offset`; comma-separated enum filters | SPEC only says "filters" and "pagination"; the Applications section needs them |

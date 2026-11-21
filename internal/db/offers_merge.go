@@ -18,7 +18,6 @@ var (
 	ErrOfferSplitProvenance   = errors.New("selected provenance rows do not all belong to the offer")
 	ErrOfferSplitLastLink     = errors.New("at least one provenance row must stay on the original offer")
 	ErrOfferSplitNoProvenance = errors.New("select at least one provenance row to move")
-	ErrOfferFingerprintTaken  = errors.New("another offer already has this company, title and location")
 )
 
 // OfferMergeResult reports what an explicit offer merge moved.
@@ -239,8 +238,9 @@ type OfferSplitResult struct {
 // SplitOffer creates a second offer in the same company and moves the
 // selected provenance rows to it. Events, notes and snapshots stay on the
 // original offer because they belong to the tracked application; at least
-// one provenance row must remain on the original. The new fingerprint is
-// rejected when it would collide with another offer.
+// one provenance row must remain on the original. The new offer may share
+// a company, title and location with another offer: identity is the
+// provenance, not the fingerprint.
 func SplitOffer(ctx context.Context, sqlDB *sql.DB, offerID int64, in OfferSplitInput, now time.Time) (OfferSplitResult, error) {
 	ids := uniqueIDs(in.ProvenanceIDs)
 	if len(ids) == 0 {
@@ -319,10 +319,7 @@ func SplitOffer(ctx context.Context, sqlDB *sql.DB, offerID int64, in OfferSplit
 		}
 	}
 
-	fp, err := splitFingerprint(ctx, tx, company.NameNormalized, titleNorm, location)
-	if err != nil {
-		return OfferSplitResult{}, err
-	}
+	fp := model.Fingerprint(company.NameNormalized, titleNorm, "")
 
 	firstSeen := parseNullTime(selected[0].firstSeen)
 	lastSeen := parseNullTime(selected[0].lastSeen)
@@ -392,40 +389,6 @@ func SplitOffer(ctx context.Context, sqlDB *sql.DB, offerID int64, in OfferSplit
 		return OfferSplitResult{}, err
 	}
 	return OfferSplitResult{Offer: created, MovedProvenance: int(moved)}, nil
-}
-
-// splitFingerprint chooses a free fingerprint for the new offer. If the
-// base company+title fingerprint exists with a different known location
-// bucket, the bucketed fingerprint is used (the same collision rule as
-// scans); otherwise the split is rejected so the user can change the title
-// or location.
-func splitFingerprint(ctx context.Context, q Querier, companyNorm, titleNorm string, location *string) (string, error) {
-	base := model.Fingerprint(companyNorm, titleNorm, "")
-	existing, err := GetOfferByFingerprint(ctx, q, base)
-	switch {
-	case errors.Is(err, ErrNotFound):
-		return base, nil
-	case err != nil:
-		return "", err
-	}
-	storedBucket := ""
-	if existing.Location != nil {
-		storedBucket = model.LocationBucket(*existing.Location)
-	}
-	newBucket := ""
-	if location != nil {
-		newBucket = model.LocationBucket(*location)
-	}
-	if storedBucket == "" || newBucket == "" || storedBucket == newBucket {
-		return "", ErrOfferFingerprintTaken
-	}
-	bucketed := model.Fingerprint(companyNorm, titleNorm, newBucket)
-	if _, err := GetOfferByFingerprint(ctx, q, bucketed); err == nil {
-		return "", ErrOfferFingerprintTaken
-	} else if !errors.Is(err, ErrNotFound) {
-		return "", err
-	}
-	return bucketed, nil
 }
 
 // repairOriginalURL keeps the original offer's canonical URL pointing at

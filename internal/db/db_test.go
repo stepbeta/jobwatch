@@ -324,8 +324,8 @@ func TestSeedBambooHRSource(t *testing.T) {
 	if src.Name != "Semble" || string(src.Type) != "bamboohr" || !src.Enabled {
 		t.Errorf("Semble row = %+v, want name/type/enabled Semble/bamboohr/true", src)
 	}
-	if src.ConfigJSON != `{"subdomain":"semble"}` {
-		t.Errorf("Semble config = %s, want {\"subdomain\":\"semble\"}", src.ConfigJSON)
+	if !strings.Contains(src.ConfigJSON, `"subdomain":"semble"`) || !strings.Contains(src.ConfigJSON, `"company":"Semble"`) {
+		t.Errorf("Semble config = %s, want subdomain semble and company Semble", src.ConfigJSON)
 	}
 
 	body, err := migrations.FS.ReadFile("0005_seed_bamboohr_sources.sql")
@@ -400,8 +400,8 @@ func TestSeedWTTJSource(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("Fabriq source rows = %d, want 1", n)
 	}
-	if src.Name != "Fabriq" || string(src.Type) != "wttj" || !src.Enabled || src.ConfigJSON != `{}` {
-		t.Errorf("Fabriq row = %+v, want name/type/enabled/config Fabriq/wttj/true/{}", src)
+	if src.Name != "Fabriq" || string(src.Type) != "wttj" || !src.Enabled || !strings.Contains(src.ConfigJSON, `"company":"Fabriq"`) {
+		t.Errorf("Fabriq row = %+v, want name/type/enabled/config Fabriq/wttj/true with company", src)
 	}
 
 	// The migration 0002 WTTJ row has a different URL and is never
@@ -484,10 +484,7 @@ func TestMigrationRenamesReplyReceived(t *testing.T) {
 	}
 
 	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
-	c, _, err := ResolveCompany(ctx, sqlDB, "Acme", now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := insertLegacyCompany(t, sqlDB, "Acme", "acme", now)
 	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
 		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0006",
 	}, now)
@@ -590,10 +587,7 @@ func TestMigrationAddsSnapshotOrigin(t *testing.T) {
 	}
 
 	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
-	c, _, err := ResolveCompany(ctx, sqlDB, "Acme", now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := insertLegacyCompany(t, sqlDB, "Acme", "acme", now)
 	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
 		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0007",
 	}, now)
@@ -707,10 +701,7 @@ func TestMigrationAddsOfferSavedAt(t *testing.T) {
 	}
 
 	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
-	c, _, err := ResolveCompany(ctx, sqlDB, "Acme", now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := insertLegacyCompany(t, sqlDB, "Acme", "acme", now)
 	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
 		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0008",
 	}, now)
@@ -1346,7 +1337,7 @@ func TestFTSTriggers(t *testing.T) {
 	sqlDB := openTest(t)
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 
-	c, _, err := ResolveCompany(ctx, sqlDB, "Acme SAS", now)
+	c, _, err := ResolveCompany(ctx, sqlDB, CompanyInput{Name: "Acme SAS"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1413,42 +1404,97 @@ func TestResolveCompany(t *testing.T) {
 	sqlDB := openTest(t)
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 
-	tests := []struct {
-		name        string
-		in          string
-		wantCreated bool
-		wantNorm    string
-	}{
-		{"first insert", "Datadog, Inc.", true, "datadog"},
-		{"exact normalized match", "DATADOG", false, "datadog"},
-		{"different company", "Qonto SAS", true, "qonto"},
-		{"suffix variant", "Qonto", false, "qonto"},
+	src1, err := InsertSource(ctx, sqlDB, model.Source{
+		Name: "One", URL: "https://one.example/jobs", Type: model.SourceGreenhouse, Enabled: true,
+	}, now)
+	if err != nil {
+		t.Fatal(err)
 	}
-	ids := map[string]int64{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, created, err := ResolveCompany(ctx, sqlDB, tt.in, now)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if created != tt.wantCreated || c.NameNormalized != tt.wantNorm {
-				t.Errorf("got created=%v norm=%q, want %v %q", created, c.NameNormalized, tt.wantCreated, tt.wantNorm)
-			}
-			if prev, ok := ids[c.NameNormalized]; ok && prev != c.ID {
-				t.Errorf("same normalized name resolved to different IDs %d and %d", prev, c.ID)
-			}
-			ids[c.NameNormalized] = c.ID
-		})
+	src2, err := InsertSource(ctx, sqlDB, model.Source{
+		Name: "Two", URL: "https://two.example/jobs", Type: model.SourceLever, Enabled: true,
+	}, now)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, _, err := ResolveCompany(ctx, sqlDB, "  ", now); err == nil {
-		t.Error("empty company name accepted")
+	src1ID, src2ID := src1.ID, src2.ID
+
+	// A key seen twice resolves to the same company even when the board
+	// starts reporting a new display name; the new name is recorded for
+	// that source.
+	a, created, err := ResolveCompany(ctx, sqlDB,
+		CompanyInput{Key: "greenhouse:acme", Name: "Acme", SourceID: &src1ID}, now)
+	if err != nil || !created || a.NameNormalized != "acme" {
+		t.Fatalf("first key resolution = %+v created=%v err=%v", a, created, err)
 	}
+	b, created, err := ResolveCompany(ctx, sqlDB,
+		CompanyInput{Key: "greenhouse:acme", Name: "Acme Careers", SourceID: &src1ID}, now)
+	if err != nil || created || b.ID != a.ID {
+		t.Errorf("second key resolution = %+v created=%v err=%v, want company %d", b, created, err, a.ID)
+	}
+	if _, err := GetCompanyByAlias(ctx, sqlDB, "acme careers", src1ID); err != nil {
+		t.Errorf("new display name was not recorded for the source: %v", err)
+	}
+
+	// The same display name under a different key and source is a
+	// different company.
+	c, created, err := ResolveCompany(ctx, sqlDB,
+		CompanyInput{Key: "lever:acme", Name: "Acme", SourceID: &src2ID}, now)
+	if err != nil || !created || c.ID == a.ID {
+		t.Errorf("different key = %+v created=%v err=%v, want a separate company", c, created, err)
+	}
+
+	// A name-only claim is scoped to its source: the same name from two
+	// sources creates two companies until the user merges them.
+	d, created, err := ResolveCompany(ctx, sqlDB, CompanyInput{Name: "Beta", SourceID: &src1ID}, now)
+	if err != nil || !created {
+		t.Fatalf("name-only source 1 = %+v created=%v err=%v", d, created, err)
+	}
+	e, created, err := ResolveCompany(ctx, sqlDB, CompanyInput{Name: "Beta", SourceID: &src2ID}, now)
+	if err != nil || !created || e.ID == d.ID {
+		t.Errorf("name-only source 2 = %+v created=%v err=%v, want a separate company", e, created, err)
+	}
+
+	// A confirmed global alias (explicit company creation) resolves for
+	// any source.
+	g, err := CreateCompany(ctx, sqlDB, "Global Co", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, created, err := ResolveCompany(ctx, sqlDB, CompanyInput{Name: "Global Co", SourceID: &src2ID}, now)
+	if err != nil || created || got.ID != g.ID {
+		t.Errorf("global alias resolution = %+v created=%v err=%v, want company %d", got, created, err, g.ID)
+	}
+
+	// No usable evidence.
+	if _, _, err := ResolveCompany(ctx, sqlDB, CompanyInput{}, now); !errors.Is(err, ErrCompanyUnknown) {
+		t.Errorf("empty input error = %v, want ErrCompanyUnknown", err)
+	}
+	if _, _, err := ResolveCompany(ctx, sqlDB, CompanyInput{Key: "ashby:unknown"}, now); !errors.Is(err, ErrCompanyUnknown) {
+		t.Errorf("unknown key without a name error = %v, want ErrCompanyUnknown", err)
+	}
+}
+
+// insertLegacyCompany writes a company directly, for upgrade tests whose
+// base schema predates company_keys/company_aliases (migration 0012).
+func insertLegacyCompany(t *testing.T, sqlDB *sql.DB, name, norm string, now time.Time) model.Company {
+	t.Helper()
+	res, err := sqlDB.ExecContext(context.Background(),
+		`INSERT INTO companies(name, name_normalized, created_at) VALUES (?, ?, ?)`,
+		name, norm, model.FormatTime(now))
+	if err != nil {
+		t.Fatalf("insert legacy company %q: %v", name, err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return model.Company{ID: id, Name: name, NameNormalized: norm, CreatedAt: now}
 }
 
 func TestBackup(t *testing.T) {
 	ctx := context.Background()
 	sqlDB := openTest(t)
-	if _, _, err := ResolveCompany(ctx, sqlDB, "Acme", time.Now()); err != nil {
+	if _, _, err := ResolveCompany(ctx, sqlDB, CompanyInput{Name: "Acme"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	dest := filepath.Join(t.TempDir(), "backup.db")
@@ -1460,7 +1506,7 @@ func TestBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer copyDB.Close()
-	if _, err := GetCompanyByNormalized(ctx, copyDB, "acme"); err != nil {
+	if _, err := GetCompanyByGlobalAlias(ctx, copyDB, "acme"); err != nil {
 		t.Errorf("company missing from backup: %v", err)
 	}
 	if err := Backup(ctx, sqlDB, dest); err == nil {

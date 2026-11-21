@@ -15,8 +15,8 @@ import (
 // Sighting is one observation of an offer, from a source scan or a
 // manual import (SourceID nil).
 type Sighting struct {
-	Company, Title, Location, URL, Description, ExternalUID string
-	SourceID                                                *int64
+	Company, CompanyKey, Title, Location, URL, Description, ExternalUID string
+	SourceID                                                            *int64
 }
 
 // Outcome describes what a sighting did to the offer table.
@@ -60,7 +60,11 @@ func applySighting(ctx context.Context, q db.Querier, in Sighting, now time.Time
 	switch {
 	case found == nil:
 		// A miss is the only path that resolves a company and creates a row.
-		company, _, err := db.ResolveCompany(ctx, q, in.Company, now)
+		company, _, err := db.ResolveCompany(ctx, q, db.CompanyInput{
+			Key:      in.CompanyKey,
+			Name:     in.Company,
+			SourceID: in.SourceID,
+		}, now)
 		if err != nil {
 			return 0, 0, err
 		}

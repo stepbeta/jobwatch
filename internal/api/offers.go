@@ -492,10 +492,6 @@ func (s *Server) splitOffer(w http.ResponseWriter, r *http.Request) {
 		errors.Is(err, db.ErrOfferSplitLastLink):
 		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
 		return
-	case errors.Is(err, db.ErrOfferFingerprintTaken):
-		writeError(w, http.StatusConflict, "offer_conflict",
-			"another offer already exists with this company, title and location; change the title or location")
-		return
 	case errors.Is(err, db.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", fmt.Sprintf("offer %d not found", id))
 		return

@@ -477,6 +477,39 @@ func TestScanIdentityIncludesSource(t *testing.T) {
 	}
 }
 
+// TestScanDoesNotInventCompanyFromSourceName covers task 3.2: the source
+// name is no longer a company fallback. An item with no company evidence
+// and no config.company is skipped; a declared company is used.
+func TestScanDoesNotInventCompanyFromSourceName(t *testing.T) {
+	sqlDB, sc, ff, clk := setup(t)
+	ctx := context.Background()
+
+	src := addSource(t, sqlDB, "Acme", "")
+	ff.offers[src.ID] = []sources.RawOffer{{ExternalUID: "1", Title: "SRE", URL: "https://x/1"}}
+	clk.advance()
+	r := sc.ScanSource(ctx, src)
+	if r.Status != model.ScanOK || r.Skipped != 1 || r.New != 0 {
+		t.Fatalf("scan without company = %+v, want 1 skipped", r)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM companies`); n != 0 {
+		t.Errorf("companies = %d, want 0 (the source name was not used)", n)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 0 {
+		t.Errorf("offers = %d, want 0", n)
+	}
+
+	declared := addSource(t, sqlDB, "Beta", `{"company":"Beta SAS"}`)
+	ff.offers[declared.ID] = []sources.RawOffer{{ExternalUID: "1", Title: "SRE", URL: "https://x/2"}}
+	clk.advance()
+	r = sc.ScanSource(ctx, declared)
+	if r.Status != model.ScanOK || r.New != 1 || r.Skipped != 0 {
+		t.Fatalf("scan with config.company = %+v, want 1 new", r)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM companies WHERE name_normalized = 'beta'`); n != 1 {
+		t.Errorf("declared company rows = %d, want 1", n)
+	}
+}
+
 func TestScanAgainstManualDescription(t *testing.T) {
 	sqlDB, sc, ff, clk := setup(t)
 	src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
@@ -597,7 +630,7 @@ func TestScanDedup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sqlDB, sc, ff, _ := setup(t)
-			src := addSource(t, sqlDB, "Acme", "")
+			src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
 			ff.offers[src.ID] = tt.offers
 			res := sc.ScanSource(context.Background(), src)
 			if res.Status != model.ScanOK {
@@ -695,7 +728,7 @@ func TestScanAll(t *testing.T) {
 	sqlDB, sc, ff, _ := setup(t)
 	ctx := context.Background()
 	bad := addSource(t, sqlDB, "Broken", "")
-	good := addSource(t, sqlDB, "Good", "")
+	good := addSource(t, sqlDB, "Good", `{"company":"Good"}`)
 	disabled, err := db.InsertSource(ctx, sqlDB, model.Source{Name: "Off", URL: "https://x", Type: model.SourceLever}, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -757,7 +790,7 @@ func TestScanWithLeverFixture(t *testing.T) {
 	client.DefaultInterval = time.Millisecond
 	sc.Fetcher = &sources.Lever{Client: client, BaseURL: srv.URL}
 	src, err := db.InsertSource(ctx, sqlDB, model.Source{
-		Name: "Spotify", URL: "https://jobs.lever.co/spotify", Type: model.SourceLever, Enabled: true,
+		Name: "Spotify", URL: "https://jobs.lever.co/spotify", Type: model.SourceLever, ConfigJSON: `{"company":"Spotify"}`, Enabled: true,
 	}, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -776,7 +809,7 @@ func TestScanWithLeverFixture(t *testing.T) {
 
 func TestScanClassifiesOffers(t *testing.T) {
 	sqlDB, sc, ff, _ := setup(t)
-	src := addSource(t, sqlDB, "Acme", "")
+	src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
 	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform}
 	if r := sc.ScanSource(context.Background(), src); r.Status != model.ScanOK {
 		t.Fatal(r.Err)

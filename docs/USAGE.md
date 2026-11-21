@@ -15,9 +15,12 @@ with a `note` explaining why they are not tracked. Add your own with
 rows are never overwritten by the seed migrations, so local edits
 survive upgrades.
 
-The source name is also the company name of its offers, unless the board
-itself reports one (Greenhouse, Workable) or `company` is set in the
-config.
+The source name is not used as a company fallback. A single-employer
+source must declare `company` in its config unless the adapter reports
+one (Greenhouse, Workable, WTTJ, or an RSS/HTML `company_field` /
+`company_selector`). Migration 0013 sets `company` to the current source
+name on the enabled single-employer sources; We Work Remotely lists many
+employers and is configured by the RSS/HTML employer extraction instead.
 
 ### Supported source types
 

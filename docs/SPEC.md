@@ -457,11 +457,14 @@ plain React + a lightweight table component is fine.
   `job_offers.company_id`, the incomplete marker, and the removal of the
   `changed` state. Task group 2 resolves each sighting through provenance
   `(source, uid)` then `(source, url)`, updates title/location in place,
-  and removes the `changed` scan vocabulary. The offer-lifecycle,
-  company-resolution, source-normalization and incomplete-listings
-  capability specs under
+  and removes the `changed` scan vocabulary. Task group 3 makes company
+  names non-unique, resolves companies by attested key then source/global
+  alias, removes the source-name fallback, and makes company rename/merge
+  move keys and aliases without rewriting offer fingerprints. The
+  offer-lifecycle, company-resolution, source-normalization and
+  incomplete-listings capability specs under
   `openspec/changes/offer-identity-from-source-uid/specs/` are the target
   for the remaining task groups; the sections above still describe the
-  pre-change fingerprint/`changed` model and are revised, and the affected
-  behaviors become pointers to `openspec/specs/`, when the change is
-  archived.
+  pre-change fingerprint/`changed`/unique-company-name model and are
+  revised, and the affected behaviors become pointers to
+  `openspec/specs/`, when the change is archived.

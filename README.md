@@ -84,9 +84,10 @@ choose another file.
    transaction. A failing source is marked `error` or `blocked` without
    stopping the others.
 3. **Classify and review.** Every sighting gets a title score, a location
-   score and a derived remote policy. Offers are deduplicated by company
-   and fingerprint; changed descriptions keep a new snapshot, and offers
-   that disappear are marked `disappeared`, never deleted. The **Offers**
+   score and a derived remote policy. Offers are identified by their
+   source link (external uid, then URL); a description edit keeps a new
+   snapshot, and offers that disappear are marked `disappeared`, never
+   deleted. The **Offers**
    page filters and sorts by state, remote policy and both scores.
 4. **Bookmark and apply.** The star is a personal bookmark, independent
    of application state. Set an application state on the offer, then keep
@@ -98,7 +99,7 @@ flowchart TD
     B --> C{"Polite fetch: robots.txt and per-host rate limit"}
     C -->|ok| D["Parse offers with the source adapter"]
     C -->|blocked or error| S["Mark the source blocked or error; other sources continue"]
-    D --> E["Resolve company and deduplicate by offer fingerprint"]
+    D --> E["Resolve the company and identify the offer by source link"]
     E --> F["Deterministic classification: title score, location score, remote policy"]
     F --> G["New offers become active; description edits keep a snapshot; missing offers become disappeared"]
     G --> H["Review in Offers: filter by state, remote policy and scores"]

@@ -33,7 +33,7 @@ type Result struct {
 	Err    error
 
 	Fetched     int // offers returned by the adapter
-	Skipped     int // raw offers ignored (missing title or URL)
+	Skipped     int // raw offers ignored (missing title, URL or company evidence)
 	New         int
 	Seen        int // existing offers seen again (includes Reappeared)
 	Reappeared  int // disappeared -> active
@@ -115,7 +115,7 @@ func (s *Scanner) apply(ctx context.Context, src model.Source, raws []sources.Ra
 	srcID := src.ID
 	for _, raw := range raws {
 		in := Sighting{
-			Company:     firstNonEmpty(raw.Company, cfg.Company, src.Name),
+			Company:     firstNonEmpty(raw.Company, cfg.Company),
 			Title:       raw.Title,
 			Location:    raw.Location,
 			URL:         raw.URL,
@@ -128,6 +128,13 @@ func (s *Scanner) apply(ctx context.Context, src model.Source, raws []sources.Ra
 			continue
 		}
 		_, outcome, err := applySighting(ctx, tx, in, now, touched)
+		if errors.Is(err, db.ErrCompanyUnknown) {
+			// The adapter supplied no company and the source declares none.
+			// The item is skipped until the incomplete-listing group stores
+			// it with its raw values.
+			res.Skipped++
+			continue
+		}
 		if err != nil {
 			return err
 		}

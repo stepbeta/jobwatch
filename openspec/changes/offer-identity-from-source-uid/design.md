@@ -142,29 +142,29 @@ compared when the user asks to see them.
   `DROP TABLE` cascades into events, notes and snapshots. The runner now
   pins a connection, disables enforcement, runs the migration, checks
   `PRAGMA foreign_key_check` before committing, and restores enforcement.
-- **Company name uniqueness is still enforced.** Migration 0012 adds
-  `company_keys` and `company_aliases` but leaves
-  `companies.name_normalized UNIQUE` in place; the current resolver still
-  matches by name. The company-resolution group must drop that constraint
-  in a follow-up migration before two same-named companies can resolve
-  independently. The backfilled global aliases are unique, so no conflict
-  exists today.
-- **Fingerprint identity is still written.** Group 1 removed the unique
-  constraint and the `changed` state; group 2 resolves sightings through
-  provenance and no longer reads the fingerprint. New offers still get a
-  computed fingerprint because the company merge/rename code rewrites it;
-  it is an attribute, not an identity carrier, and two offers may share
-  one. A later cleanup can drop the column once those paths stop using it.
+- **Company name uniqueness is gone.** Migration 0013 rebuilds
+  `companies` without the UNIQUE constraint on `name_normalized` and adds
+  a non-unique lookup index. Resolution is key → source alias → confirmed
+  global alias → create; a bare name is never matched across sources.
+  Explicit creation and rename add a global alias when the name is free;
+  merge moves keys/aliases and records the absorbed name.
+- **Fingerprint identity is no longer read.** Group 2 resolves sightings
+  through provenance. Group 3 removes the company rename/merge fingerprint
+  rewrites and the offer-split collision check, so no path depends on
+  fingerprint uniqueness. New offers and splits still get a computed
+  fingerprint for the legacy column; two offers may share one. A later
+  cleanup can drop the column.
 - **Manual imports have URL identity.** A manual import has no source, so
   its URL is matched against every provenance row. A known URL attaches to
   the existing offer; a new URL creates a new offer even when company and
   title match another one. A manual import does not rewrite the title or
   location of an offer it attaches to. This replaces the old
   company+title fingerprint match and is reflected in the API/CLI text.
-- **Fingerprint-dependent merge paths are transitional.** Company
-  rename/merge and offer split still compute and compare fingerprints, and
-  a company rename/merge can report `merge_conflict` for two same-title
-  siblings that now legitimately share a fingerprint. The
-  company-resolution group must remove that dependency (the merge moves
-  keys/aliases instead). Do not treat the current conflict check as a
-  durable rule.
+- **The source name is not a company fallback.** Group 3 removes
+  `src.Name` from the sighting fallback. Migration 0013 sets
+  `config.company` on enabled single-employer sources (typed ATS plus
+  RSS/HTML except We Work Remotely) to preserve the old attribution. An
+  item with neither adapter company evidence nor `config.company` is
+  counted as skipped; the incomplete-listings group replaces that skip
+  with a stored incomplete offer. We Work Remotely waits for the RSS/HTML
+  employer extraction.

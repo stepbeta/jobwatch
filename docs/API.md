@@ -412,9 +412,10 @@ owned it.
 
 - `400 validation_failed` for no/foreign provenance rows, or when no row
   would remain on the original.
-- `409 offer_conflict` when the new company+title+location already
-  exists; change the title or location and retry.
 - `404 not_found` for an unknown offer.
+
+The new offer may share the company, title and location of another
+offer; identity is the provenance row, not the fingerprint.
 
 ## Events (offer timeline)
 
@@ -498,8 +499,9 @@ Parameters: `q` (matches the display or normalized name), `limit`
 { "name": "Acme", "website": "https://acme.example" }
 ```
 
-`201 { "company": {...} }`. `409 duplicate_company` when the normalized
-name already exists.
+`201 { "company": {...} }`. Names are not unique: a company with the
+same normalized name is allowed. The new company claims a confirmed
+global alias for its name only when no other company holds it.
 
 ### GET /api/companies/:id
 
@@ -523,14 +525,10 @@ Candidates are proposals only; nothing is merged automatically.
 ### PATCH /api/companies/:id
 
 `name` and/or `website` (`null` clears the website). Renaming changes
-the normalized name and therefore rewrites the fingerprints of the
-company's offers so future scans keep deduplicating correctly.
+the display and normalized name and records both the old and the new
+name as global aliases; offers keep their identity, company and
+fingerprint. Renaming to a name another company uses is allowed.
 `200 { "company": {...} }`.
-
-- `409 duplicate_company` when the new normalized name is taken.
-- `409 merge_conflict` when a rewritten fingerprint would collide with
-  an existing offer; the message lists the offer IDs and nothing is
-  written.
 
 ### DELETE /api/companies/:id
 
@@ -547,10 +545,11 @@ an explicit user confirmation.
 { "into_id": 2 }
 ```
 
-In one transaction: offers and company-level notes move to the target,
-offer fingerprints are rewritten with the target's normalized name
-(keeping their location bucket), the target inherits the source website
-when it has none, and the emptied company row is deleted.
+In one transaction: offers, company-level notes, keys and aliases move
+to the target; the absorbed display name becomes a confirmed global
+alias of the target; the target inherits the source website when it has
+none, and the emptied company row is deleted. A key or alias the target
+already holds is kept once. Offer fingerprints are not rewritten.
 
 ```json
 { "company": { "id": 2, "...": "..." },
@@ -559,9 +558,6 @@ when it has none, and the emptied company row is deleted.
 
 - `400 validation_failed` when merging a company into itself.
 - `404 not_found` when either company does not exist.
-- `409 merge_conflict` when a moved offer's new fingerprint already
-  exists in the target (same company + title + location bucket). The
-  merge is rolled back; the user must resolve the offers first.
 
 ## Interview prep
 
@@ -650,8 +646,5 @@ Any of `question`, `answer`, `category`, `display_order`.
 | 422 | `metadata_unavailable` | URL import could not fetch or parse the page; response includes `metadata` |
 | 404 | `not_found` | unknown endpoint, entity or child entity |
 | 409 | `duplicate_source` | another source uses the URL |
-| 409 | `duplicate_company` | normalized company name already exists |
 | 409 | `company_has_offers` | deleting a company that still owns offers |
-| 409 | `merge_conflict` | offer fingerprints would collide during rename/merge |
-| 409 | `offer_conflict` | splitting an offer would reuse an existing company+title+location fingerprint |
 | 500 | `internal` | unexpected storage error |
