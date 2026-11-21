@@ -15,9 +15,12 @@ with a `note` explaining why they are not tracked. Add your own with
 rows are never overwritten by the seed migrations, so local edits
 survive upgrades.
 
-The source name is also the company name of its offers, unless the board
-itself reports one (Greenhouse, Workable) or `company` is set in the
-config.
+The source name is not used as a company fallback. A single-employer
+source must declare `company` in its config unless the adapter reports
+one (Greenhouse, Workable, WTTJ, or an RSS/HTML `company_field` /
+`company_selector`). Migration 0013 sets `company` to the current source
+name on the enabled single-employer sources; We Work Remotely lists many
+employers and is configured by the RSS/HTML employer extraction instead.
 
 ### Supported source types
 
@@ -84,7 +87,7 @@ Optional `--config` keys:
 
 | Key | Meaning |
 |---|---|
-| `company` | Company name for offers of this source |
+| `company` | Company name for offers of a single-employer source; required when the adapter reports no company. Migration 0013 sets it on the enabled seeded single-employer sources |
 | `rate_limit_ms` | Minimum delay between requests to the host (default 2000; HTML sources never go below 5000) |
 | `note` | Explanation shown on the sources page (used by the seeded disabled rows) |
 | `board_token` / `site` + `region` / `org` | Greenhouse / Lever (`region: "eu"`) / Ashby board name, if it can't be derived from the URL |
@@ -94,6 +97,7 @@ Optional `--config` keys:
 | `url` | Optional careers page override (WTTJ); defaults to the source URL |
 | `algolia_app_id`, `algolia_api_key` | WTTJ debug-only overrides of the credentials discovered from the page bootstrap |
 | `item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field` | RSS/Atom mapping. Paths are child element local names joined with `/` (e.g. `locations/location/name`); `@name` reads an attribute and `#text` reads text. Defaults cover RSS `<item>` and Atom `<entry>` |
+| `employer` | Declarative employer rule for RSS/HTML sources that list several employers. `{"separator":":"}` splits `Employer: Role`; `field` (RSS) or `selector` (HTML) reads the employer from a separate element and strips the repeated prefix from the title |
 | `item_selector`, `title_selector`, `link_selector`, `link_attr`, `location_selector`, `description_selector`, `company_selector`, `uid_selector`, `uid_attr` | HTML listing page CSS selectors. `item_selector` and `title_selector` are required; only the listing page is fetched, at most every 5 s. Selectors use cascadia's CSS support, including `:has()` and `:haschild()` for item containers |
 
 ### Examples
@@ -103,7 +107,7 @@ RSS/Atom and HTML sources need `--type`:
 ```sh
 ./jobwatch add-source https://weworkremotely.com/remote-jobs.rss \
   --type rss --name "We Work Remotely" \
-  --config '{"location_field":"region","company_field":"category"}'
+  --config '{"location_field":"region","employer":{"separator":":"}}'
 
 ./jobwatch add-source https://careers.example.com/jobs \
   --type html --name "Example careers" \
@@ -202,6 +206,12 @@ Built with React + TypeScript (Vite). The pages are:
   the modal, shows the success toast, refreshes the data and opens the new
   or matched offer's detail page. Score badges show 0–100 title/location
   confidences; hover one to see the matched keywords from the classifier.
+- **Incomplete** (`#/incomplete`) — items a source could not normalize,
+  with the item count, the source-reported company/title/location, the
+  reason and source link. **Repair** opens a form that assigns a company
+  and title (and optionally a location) while keeping the provenance,
+  snapshots and notes. The top navigation shows the incomplete count and
+  refreshes after scans and repairs.
 - **Sources** — enable/disable with a row-end toggle switch, scan status,
   filters (enabled/disabled/all, type, scan status, debounced name search),
   a column picker, client-side header sorting, and a per-page selector.
@@ -219,19 +229,21 @@ Built with React + TypeScript (Vite). The pages are:
   company page is enabled and scannable.
 - **Offer detail** — a two-column header panel: identity (company, title,
   editable application/offer state and location, score badges, bookmark,
-  Merge/Split actions) on the left and an always-visible compact provenance
-  list (links, source names, external UID, first/last seen) on the right.
+  description version count, Merge/Split actions) on the left and an
+  always-visible compact provenance list (links, source names, external
+  UID, first/last seen) on the right.
   Below it: a vertical timeline with backdating, notes optionally pinned to
   an event, and a single-version description browser (prev/next, version
   dropdown, Scan/Manual origin badge, diff against the previous version)
   whose Add/Edit action uses the shared Edit/View editor.
 - **Company detail** — one two-column header block: identity (name,
-  website, offer count, created time, Edit/Delete company) and the
-  dismissible possible-duplicate banner on the left; company notes (list,
-  add, delete) on the right. The columns stack at 900px. The offers panel
-  below has its own debounced search, header-click sorting (server-side
-  `company_id` query), per-page selector and pagination. Merging always
-  asks which company row to keep; nothing is merged automatically.
+  website, offer count, created time, attested keys, Edit/Delete company)
+  and the dismissible possible-duplicate banner on the left; company notes
+  (list, add, delete) on the right. The columns stack at 900px. The offers
+  panel below has its own debounced search, header-click sorting
+  (server-side `company_id` query), per-page selector and pagination.
+  Merging always asks which company row to keep; nothing is merged
+  automatically.
 - **Interview prep** (`#/interview-prep`) — a personal FAQ of anticipated
   interview questions and prepared answers. Entries are grouped into one
   section per category, sorted alphabetically with "Uncategorized" last; a
@@ -295,8 +307,9 @@ cat offers.json | ./jobwatch import -
 ```
 
 JSON fields are `company` and `title` (required for raw JSON), `location`,
-`url` and `description`. If the company and title match an existing
-offer, the URL is added to that offer instead of creating a duplicate.
+`url` and `description`. If the URL already belongs to an offer, the
+import attaches to that offer instead of creating a duplicate; a new URL
+creates a new offer even when the company and title match another one.
 When a page cannot be read, the API returns the extracted fields to the
 UI's manual fallback; the CLI asks for `--company`/`--title` (or
 `--no-fetch`).
@@ -318,10 +331,11 @@ register that board instead so future scans track it automatically. See
 ### Offer states
 
 - `active`: seen in the latest scan.
-- `changed`: the description changed (each version is kept as a snapshot
-  with its scan/manual origin; the detail page browses the versions and
-  shows the added/removed lines against the previous one).
 - `disappeared`: no longer listed on any source. Scans never delete offers.
+
+A description edit is not an offer state. Every distinct version is kept
+as a snapshot with its scan/manual origin; the detail page browses the
+versions and shows the added/removed lines against the previous one.
 
 The full transition table, including reappearance and multi-source
 behavior, is in [DATA-MODEL.md](DATA-MODEL.md#offer_state-written-by-scans-and-imports).
@@ -348,6 +362,27 @@ older offers; `--all` recomputes after changing the tables.
 The scoring rules, caps and reason lists are described in
 [ARCHITECTURE.md](ARCHITECTURE.md#classification-internalclassify).
 
+## Re-attribution
+
+Scans never rewrite the company or title of an existing offer, so an
+adapter that starts extracting an employer or a canonical title does not
+change offers recorded before the fix. `reattribute` corrects them
+explicitly:
+
+```sh
+./jobwatch reattribute --source 36   # one source by ID
+./jobwatch reattribute --all         # every enabled source (the default)
+```
+
+It re-fetches the source, matches stored offers by `(source, uid)` and
+writes the adapter's current company and title. Events, notes, snapshots,
+application/listing states and `last_seen_at` are preserved; the
+classifier is re-run for the new title. The command is idempotent, skips
+user-repaired offers and offers with no current uid match, and reports
+per source how many offers moved, stayed unchanged or were skipped, plus
+any company left without offers. An emptied company stays in the
+database for you to delete.
+
 ## Backups
 
 ```sh
@@ -370,6 +405,7 @@ backup is a normal SQLite file; point `--db` at it to use it.
 | `list [--offer-state S] [--app-state S] [--limit N] [--sources]` | List offers (most recently seen first) or sources |
 | `import <url \| json \| file.json \| ->` | Add an offer seen elsewhere. A bare URL is fetched for JSON-LD/Open Graph/title metadata (`--no-fetch` disables); JSON fields can be supplied manually |
 | `reclassify [--all]` | Backfill title/location scores and remote policies with the deterministic classifier; `--all` recomputes every offer |
+| `reattribute [--all \| --source <id>]` | Re-fetch a source and move offers matched by `(source, uid)` to the company and title the adapter now reports, preserving history; `--source` accepts a disabled source |
 | `backup <dest>` | Write and validate a consistent copy of the database (must not exist) |
 
 All commands accept the global `--db <path>` flag (default
@@ -399,10 +435,12 @@ All commands accept the global `--db <path>` flag (default
 # Headless usage still works
 ./jobwatch scan
 ./jobwatch list                  # ID, company, title, location, remote, T/L scores, states
-./jobwatch list --offer-state changed
+./jobwatch list --offer-state disappeared
 ./jobwatch list --sources        # includes notes on disabled seeded sources
 ./jobwatch reclassify            # backfill scores of older offers
 ./jobwatch reclassify --all      # recompute every score after keyword changes
+./jobwatch reattribute --source 36   # move old We Work Remotely offers to their employers
+./jobwatch reattribute --all         # reattribute every enabled source
 ./jobwatch backup ~/jobwatch-$(date +%F).db   # validated copy
 ```
 
@@ -417,6 +455,7 @@ All commands accept the global `--db <path>` flag (default
 | `list` | `--offer-state`, `--app-state`, `--limit` (default 100; `0` = no limit), `--sources` |
 | `import` | `--company`, `--title`, `--location`, `--description`, `--no-fetch` |
 | `reclassify` | `--all` |
+| `reattribute` | `--all` or `--source <id>`; no argument |
 | `backup` | none; destination must not exist |
 
 Field flags cannot be combined with a JSON array. `scan` exits non-zero

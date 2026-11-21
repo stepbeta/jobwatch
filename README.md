@@ -4,7 +4,7 @@ JobWatch is a local, single-user web application that tracks job offers
 during one job search. It is aimed at a full-remote Platform Engineer /
 SRE search in France. It scans ATS boards (Greenhouse, Lever, Ashby,
 Personio, Workable, BambooHR), Welcome to the Jungle company pages,
-RSS/Atom feeds and CSS-selector career pages, and records new, changed
+RSS/Atom feeds and CSS-selector career pages, and records new, updated
 and disappeared offers. Classification is
 deterministic and rule-based — there is no LLM in the scan loop — and
 offers, states, timeline events, notes and description versions all live
@@ -82,11 +82,14 @@ choose another file.
    Applications Refresh on the dashboard, or `jobwatch scan`. Each source
    is fetched politely, parsed by its adapter, and written in one
    transaction. A failing source is marked `error` or `blocked` without
-   stopping the others.
+   stopping the others. An item missing a company or title is kept as an
+   incomplete offer (reported in the scan summary) and hidden from the
+   lists until it is repaired.
 3. **Classify and review.** Every sighting gets a title score, a location
-   score and a derived remote policy. Offers are deduplicated by company
-   and fingerprint; changed descriptions keep a new snapshot, and offers
-   that disappear are marked `disappeared`, never deleted. The **Offers**
+   score and a derived remote policy. Offers are identified by their
+   source link (external uid, then URL); a description edit keeps a new
+   snapshot, and offers that disappear are marked `disappeared`, never
+   deleted. The **Offers**
    page filters and sorts by state, remote policy and both scores.
 4. **Bookmark and apply.** The star is a personal bookmark, independent
    of application state. Set an application state on the offer, then keep
@@ -98,9 +101,9 @@ flowchart TD
     B --> C{"Polite fetch: robots.txt and per-host rate limit"}
     C -->|ok| D["Parse offers with the source adapter"]
     C -->|blocked or error| S["Mark the source blocked or error; other sources continue"]
-    D --> E["Resolve company and deduplicate by offer fingerprint"]
+    D --> E["Resolve the company and identify the offer by source link"]
     E --> F["Deterministic classification: title score, location score, remote policy"]
-    F --> G["New offers become active; changed descriptions mark changed; missing offers become disappeared"]
+    F --> G["New offers become active; description edits keep a snapshot; missing offers become disappeared"]
     G --> H["Review in Offers: filter by state, remote policy and scores"]
     H --> I["Bookmark in Saved"]
     H --> J["Set application state"]
@@ -119,6 +122,7 @@ flowchart TD
 | `list` | Print offers and states; `--sources` lists sources instead |
 | `import <url \| json \| file.json \| ->` | Add an offer seen elsewhere |
 | `reclassify [--all]` | Backfill or recompute classifier scores |
+| `reattribute [--all \| --source <id>]` | Re-fetch a source and move offers matched by `(source, uid)` to the company and title the adapter now reports, preserving history |
 | `backup <dest>` | Write and validate a consistent copy of the database |
 
 All commands accept `--db <path>` (default `./jobwatch.db`). Run
@@ -134,6 +138,9 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
   badges, a searchable company filter, persisted column picker, per-page
   selector, URL-restored filters, a bookmark toggle on every row, and the
   **Add offer** import dialog.
+- **Incomplete** (`#/incomplete`) — items a source could not normalize,
+  with the item count, the reported values and a repair form that assigns
+  a company and title while keeping the source link and history.
 - **Sources** — enable/disable switch, filters, scan status, selectable
   rows with bulk refresh/delete, icon row actions, Refresh all, and
   add/edit in a modal with type-dependent config fields.

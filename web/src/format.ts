@@ -19,7 +19,7 @@ export const APP_STATES: ApplicationState[] = [
   'positive',
 ]
 
-export const OFFER_STATES: OfferState[] = ['active', 'changed', 'disappeared']
+export const OFFER_STATES: OfferState[] = ['active', 'disappeared']
 
 export const REMOTE_POLICIES: RemotePolicy[] = ['remote', 'hybrid', 'onsite', 'unknown']
 

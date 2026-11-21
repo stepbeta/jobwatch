@@ -15,7 +15,7 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 | `internal/scan` | Scan pipeline, manual import and classifier backfill; depends on `db`, `classify` and `sources`, shared by CLI and API |
 | `internal/importmeta` | Lightweight metadata extraction from a job page (JSON-LD, Open Graph, meta tags, title) for URL imports |
 | `internal/classify` | Deterministic title/location scoring, remote-policy derivation and reason lists |
-| `internal/diff` | Small line diff used for snapshot version comparisons and the changed-offer view |
+| `internal/diff` | Small line diff used for snapshot version comparisons |
 | `internal/api` | REST handlers under `/api`: sources, offers, events, notes, companies, import, health |
 | `web/` | React + TypeScript SPA source and its Go embedding (`Handler`) |
 
@@ -27,9 +27,20 @@ type Fetcher interface {
 }
 type RawOffer struct {
     ExternalUID, Title, Location, URL, Description string
-    Company string
+    Company    string                  // display-name evidence
+    CompanyKey string                  // namespaced attested identifier
+    IncompleteReason model.IncompleteReason // set when the item is unusable
 }
 ```
+
+Every adapter emits a stable uid, the canonical title and location, and
+company evidence. Typed adapters set `CompanyKey` to their existing token
+(`greenhouse:<board_token>`, `lever:<site>`, `ashby:<org>`,
+`personio:<tenant>`, `workable:<account>`, `bamboohr:<subdomain>`,
+`wttj:<org slug>`); RSS/HTML have no token and rely on the declared
+`company` or the employer rule. An item missing a title or company is
+returned with `IncompleteReason` (`missing_title`, `missing_company`,
+`missing_company_title`) instead of being silently dropped.
 
 Adapters (`sources.NewRegistry`):
 
@@ -42,8 +53,8 @@ Adapters (`sources.NewRegistry`):
 | workable | `GET https://apply.workable.com/api/v1/widget/accounts/{account}?details=true` | keyless widget API; entries with the same `shortcode` are grouped, all `locations` joined, `telecommuting` adds a remote marker; `name` is the company |
 | bamboohr | `GET https://{subdomain}.bamboohr.com/careers/list` | public JSON listing; `id` is the external UID and builds `/careers/{id}`, `jobOpeningName` the title, `location`/`atsLocation` fields joined (empty parts and repeated city/state dropped), `isRemote` adds a remote marker; no per-offer description fetch, so `Description` stays empty |
 | wttj | `GET https://api.welcometothejungle.com/api/v1/pages?path={careers path}`, then `POST https://{app_id}-dsn.algolia.net/1/indexes/*/queries` | credentials, index, filters and page language are discovered from the page tree at every scan; the Algolia call sends a browser `User-Agent`, the fixed `Referer` and the form content type with a JSON body; `reference` is the external UID (`objectID` fallback), `profile` markdown is stored verbatim, offers are paged at 50 hits with the discovered filters |
-| rss | `GET <source url>` | RSS 2.0 and Atom; item/field mapping in config (`item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field`); paths are child local names joined with `/` (e.g. `locations/location/name`) with `@attr` and `#text`; Atom alternate links and HTML descriptions handled |
-| html | `GET <source url>` | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); cascadia supports `:has()` and `:haschild()` for row containers; one request per scan, no per-offer page fetches; minimum interval 5 s |
+| rss | `GET <source url>` | RSS 2.0 and Atom; item/field mapping in config (`item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field`); paths are child local names joined with `/` (e.g. `locations/location/name`) with `@attr` and `#text`; Atom alternate links and HTML descriptions handled; optional `employer` rule splits `Employer: Role` or reads a separate field |
+| html | `GET <source url>` | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); cascadia supports `:has()` and `:haschild()` for row containers; one request per scan, no per-offer page fetches; minimum interval 5 s; optional `employer` rule (`separator` and/or `selector`) rewrites company and title |
 
 `manual` has no fetcher; manual offers come from the import path.
 Disabled seeded rows are `html`/`wttj` sources with a `note` in
@@ -111,17 +122,64 @@ never stops on a failing one:
 1. `now` = scan start (UTC, seconds); fetch outside any transaction.
 2. Fetch error → `last_scan_status = blocked|error`, `last_scan_at = now`, stop.
 3. One transaction:
-   - for each `RawOffer` (skipped if no title or URL): company =
-     `RawOffer.Company` → `config.company` → source name;
-     `ResolveCompany` (exact normalized match or insert); `resolveOffer`
-     by fingerprint with location-bucket fallback; insert (+ snapshot with
-     `origin = scan`) or update per the offer_state machine
-     (DATA-MODEL.md); classify the title/location/description, persist the
-     scores and remote policy; upsert provenance `(offer_id, url)` with
-     `source_id`, `external_uid`, `last_seen_at = now`.
+   - for each `RawOffer`: resolve the offer through provenance,
+     `(source, external_uid)` first and `(source, url)` second. An item
+     without a URL has no provenance identity and is skipped. The
+     pipeline recomputes usability from the fields rather than trusting
+     the adapter hint: a missing company or title (or both) stores an
+     **incomplete offer** instead of skipping the item. The incomplete
+     row keeps the known company, its URL/provenance and any snapshot,
+     and stores the values the source reported as JSON in
+     `incomplete_raw`; `incomplete_reason` records what is missing and
+     `Result.Incomplete` is incremented. A rescan of the same identity
+     only refreshes `last_seen_at`/provenance.
+   - for a usable item, company evidence is `RawOffer.CompanyKey`
+     (adapter token) and/or `RawOffer.Company` → `config.company`;
+     `ResolveCompany` tries the key, then the source alias, then the
+     confirmed global alias, and creates a company only when none
+     matches. The source name is not a company fallback. Insert the
+     offer (+ snapshot with `origin = scan`). On a hit, update the title
+     and a reported location, apply the offer_state machine
+     (DATA-MODEL.md), keep a new description as a snapshot, and
+     never rewrite the company or canonical URL from the sighting.
+     Classify the title/location/description, persist the scores and
+     remote policy, and upsert provenance by `(source, external_uid)`
+     first, then `(offer_id, url)`, with `last_seen_at = now`. A
+     repaired offer is identified by `incomplete_raw` still being set
+     after `incomplete_reason` was cleared: scans then keep the user's
+     company, title and location instead of the sighting's values.
    - `MarkDisappeared(source, now)`.
    - `last_scan_status = ok`, `last_scan_at = now`; commit.
 4. A failure inside the transaction rolls back and marks the source `error`.
+
+Incomplete offers are stored, not displayed: the offers list, dashboard
+and search exclude `incomplete_reason IS NOT NULL` by default
+(`OfferQuery.IncompleteOnly` lists them for the repair view), and the CLI
+`list` hides them. `POST /api/offers/:id/repair` assigns a company and
+title, re-runs the classifier, and clears `incomplete_reason` while
+keeping `incomplete_raw` as the repair marker.
+
+## Re-attribution (`jobwatch reattribute`)
+
+`scan.ReattributeSource` re-fetches one source and corrects offers whose
+company or title predates an adapter change. It reads the stored
+provenance rows for the source with a non-empty uid, matches the
+adapter's current `RawOffer` by `(source, uid)`, and for each match:
+
+- resolves the target company with the scan order (attested key, source
+  alias, confirmed global alias, create);
+- writes only `company_id`, `title`/`title_normalized` and `updated_at`,
+  then re-runs the classifier;
+- leaves events, notes, snapshots, `application_state`, `offer_state`,
+  `last_seen_at` and provenance untouched.
+
+It skips user-repaired offers (`incomplete_raw` non-null), offers with
+no current uid match, and adapter items that are still incomplete. The
+pass is idempotent: a second run with the same source output changes
+nothing. Per source it reports fetched, re-attributed, unchanged and
+skipped counts plus the companies left without offers; an emptied
+company stays visible for the user to delete. `ReattributeAll` loops the
+enabled sources; the CLI adds `--all` and `--source <id>`.
 
 ## Classification (`internal/classify`)
 
@@ -160,8 +218,11 @@ and reads JSON-LD `JobPosting`, Open Graph/meta tags and the page title.
 Explicit fields win; the canonical JSON-LD URL is used only when the
 input has no URL. A complete result runs the same sighting logic
 (including classification) in one transaction with `source_id = NULL`;
-a matching fingerprint adds a provenance row to the existing offer. If
-metadata is incomplete the API returns `422` with the extracted fields
+a URL already linked to an offer attaches the import to that offer, while
+a new URL creates a new offer even when the company and title match
+another one (title and company are attributes, not identity). A manual
+import does not rewrite the title or location of an offer it attaches to.
+If metadata is incomplete the API returns `422` with the extracted fields
 for the UI's manual fallback; the CLI asks for `--company`/`--title` or
 `--no-fetch`. Import never scans a source.
 
@@ -217,7 +278,8 @@ An explicit offer merge (`POST /api/offers/{id}/merge`) moves every
 provenance row, event, offer note and snapshot of the absorbed offer to
 the target, keeps the earliest `first_seen_at` and latest `last_seen_at`,
 adopts the source application state when the target is still `todo`, and
-keeps `changed` if either side was changed. Duplicate provenance URLs are
+keeps the offer active if either side was active; only two disappeared
+offers stay disappeared. Duplicate provenance URLs are
 collapsed into one row with the earliest first-seen and latest last-seen.
 The absorbed offer row is then deleted after all children have moved;
 nothing is lost. Only the UI's explicit merge action calls this.
@@ -226,9 +288,9 @@ A split (`POST /api/offers/{id}/split`) takes the selected provenance
 rows and creates a second offer in the same company, with an optional
 title/location override. Events, notes and snapshots stay on the original
 because they belong to the tracked application. At least one link must
-remain on the original. The new fingerprint follows the same
-location-bucket collision rule as scans and is rejected with
-`409 offer_conflict` when the company+title+location already exists.
+remain on the original. The new offer gets a base fingerprint; a
+company+title+location match with another offer is allowed because
+identity is provenance, not the fingerprint.
 
 ## Company matching, rename and merge (`internal/db`)
 
@@ -239,18 +301,24 @@ of 5+ characters with ≤ 20% changes. Scores below
 `model.MinCompanyCandidateScore` (60) are dropped. Nothing merges
 automatically.
 
-`db.MergeCompanies` and `db.UpdateCompany` (rename) share
-`planFingerprintUpdates`: for every offer of the source company it
-rebuilds the fingerprint with the target normalized name, preserving
-whether the offer used the base or the location-bucketed form. If any
-new fingerprint already exists outside the company (or twice in the
-plan), the whole operation is rejected with `db.ConflictError` and
-nothing is written. Merge moves offers and company notes, copies the
-website when the target has none, and deletes the emptied company.
-Rename changes `name`/`name_normalized` and rewrites fingerprints in
-the same transaction. Deleting a company is refused while it owns
-offers; deleting a source detaches its provenance rows (`source_id`
-becomes NULL) instead of deleting offers.
+`db.ResolveCompany` takes `{Key, Name, SourceID}`. It tries the
+namespaced adapter key, then the name alias for that source, then the
+confirmed global alias, and creates a company only when none matches.
+A name-only claim is recorded for its source, so the same name from two
+sources creates two companies until the user merges them; the source
+name is never used as a fallback. A new company gets a source alias
+(or a global alias for a manual import), and a key/alias that resolves
+an existing company is linked to it.
+
+`db.MergeCompanies` moves offers, company notes, keys and aliases to the
+target, records the absorbed display name as a confirmed global alias,
+copies the website when the target has none, and deletes the emptied
+company. A key or alias the target already holds is kept once. Rename
+changes `name`/`name_normalized` and records both the old and new name
+as global aliases. Neither operation rewrites offer fingerprints: names
+are attributes and identity is provenance. Deleting a company is
+refused while it owns offers; deleting a source detaches its provenance
+rows (`source_id` becomes NULL) instead of deleting offers.
 
 ## Web UI (`web/`)
 
@@ -258,19 +326,20 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 
 | Path | Content |
 |---|---|
-| `App.tsx` | top bar with navigation only, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
-| `router.ts` | hash routing (`#/`, `#/offers`, `#/offers?saved=true`, `#/sources`, `#/interview-prep`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
+| `App.tsx` | top bar with navigation (including the incomplete count), source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
+| `router.ts` | hash routing (`#/`, `#/offers`, `#/offers?saved=true`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with a Refresh button that fans out over the enabled sources behind those applications, and a Saved section (bookmarks, `saved=true`, `sort=saved`) |
 | `pages/OffersPage.tsx` | full offers table: URL-restored filters (including saved/unsaved and a searchable company combobox), debounced FTS search, header-click server sorting, column picker, per-page selector and pagination, bookmark toggle per row, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
+| `pages/IncompletePage.tsx` | incomplete offers with the count, the source-reported company/title/location, the reason and source link; a repair modal reuses the manual import layout and company combobox and calls `POST /api/offers/:id/repair` |
 | `pages/SourcesPage.tsx` | source list with enabled/type/status/name filters, URL-restored client sorting and pagination, column picker, row selection with bulk refresh/delete, right-aligned enable switch, icon row actions, company links resolved from the local company list, header Refresh all, and an add/edit modal with type-dependent config fields (personio/workable/rss/html included) and explanatory notes on seeded sources |
-| `pages/OfferPage.tsx` | two-column header: identity (bookmark, editable states/location, score badges, merge/split actions) on the left and an always-visible compact provenance list on the right; timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save through the shared Edit/View editor) |
+| `pages/OfferPage.tsx` | two-column header: identity (bookmark, editable states/location, score badges, merge/split actions, description version count) on the left and an always-visible compact provenance list on the right; timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save through the shared Edit/View editor) |
 | `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note, refresh) |
-| `pages/CompanyPage.tsx` | one two-column header block: company identity, actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; a separate offers panel below with URL-restored FTS search, server-side sorting, per-page selector and pagination. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
+| `pages/CompanyPage.tsx` | one two-column header block: company identity (including its attested keys), actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; a separate offers panel below with URL-restored FTS search, server-side sorting, per-page selector and pagination. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
 | `pages/InterviewPrepPage.tsx` | personal interview FAQ grouped into category sections, with an empty-answer cue, native HTML5 drag-and-drop for entries and sections (persisting `display_order`/`category` through PATCH; section order in `localStorage`), per-entry Edit/Delete, and an Add/Edit modal with a category dropdown and the shared Edit/View answer editor |
 | `components/Markdown.tsx` | deliberately small markdown renderer for interview answers: headings, bold, italic, inline code, fenced code blocks and lists, emitted as React elements (never HTML) |
 | `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source(s)/event/note/company) |
-| `components/Modal.tsx` | shared dialog shell (fixed backdrop, titled head, Escape/backdrop close, wide variant) used by the source add/edit form and the offer import dialog |
+| `components/Modal.tsx` | shared dialog shell (fixed backdrop, titled head, Escape/backdrop close, wide variant) used by the source add/edit form, the offer import dialog and the incomplete repair dialog |
 | `components/BookmarkButton.tsx` | dependency-free star toggle used in offer rows and the offer detail header |
 | `components/OfferTable.tsx` | reusable offers table with optional/selectable columns, optional company/application columns, optional bookmark toggle, and clickable sortable headers driven by the caller's server sort key |
 | `components/TableControls.tsx` | shared column picker with localStorage persistence of hidden columns, `SortHeader`, per-page selector, debounced-value hook and sort toggle helper |
@@ -289,6 +358,14 @@ prefills the extracted fields for manual entry. The bookmark (`saved_at`)
 is independent of both state machines: saving never changes
 `offer_state` or `application_state`, and a saved offer that becomes an
 application stays in Saved until the user un-bookmarks it.
+
+The Incomplete page (`#/incomplete`) lists the offers a source could not
+normalize (`GET /api/offers?incomplete=true`) with the item count, the
+reported values, the reason and the source link. Its Repair dialog
+reuses the import form layout and the company combobox, calls
+`POST /api/offers/:id/repair`, and refreshes the list and the navigation
+count. Incomplete offers are absent from the Offers table, dashboard and
+search until repaired.
 
 The Offers and Sources tables share `components/TableControls.tsx`.
 Column pickers persist the hidden column ids (`offers.columns`,
@@ -315,9 +392,10 @@ provenance rows; the provenance URL and external UID are untouched and
 reuses `scanBatch` and runs one request at a time.
 
 The company page (`#/companies/:id`) renders identity and notes in one
-two-column header panel: company name/website/offer count/created time,
-Edit and Delete company, and the possible-duplicate banner on the left;
-the unchanged company-note list and new-note form on the right. The
+two-column header panel: company name/website/offer count/created time
+and the attested keys, Edit and Delete company, and the
+possible-duplicate banner on the left; the unchanged company-note list
+and new-note form on the right. The
 offers table remains a separate panel below. Both columns stack at
 `max-width: 900px`, the breakpoint already used by `.detail-columns`.
 

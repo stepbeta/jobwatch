@@ -110,14 +110,34 @@ func Migrate(ctx context.Context, sqlDB *sql.DB, fsys fs.FS) error {
 	return nil
 }
 
+// applyMigration runs one migration on a pinned connection with foreign
+// keys disabled. SQLite cannot rebuild a table while foreign keys are
+// enforced: the DROP TABLE step would cascade into child rows. The
+// migration's result is checked with PRAGMA foreign_key_check before the
+// transaction commits, and enforcement is restored on the connection
+// afterwards.
 func applyMigration(ctx context.Context, sqlDB *sql.DB, m migration, body string) error {
-	tx, err := sqlDB.BeginTx(ctx, nil)
+	conn, err := sqlDB.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire connection for migration %s: %w", m.file, err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return fmt.Errorf("disable foreign keys for migration %s: %w", m.file, err)
+	}
+	defer conn.ExecContext(context.Background(), "PRAGMA foreign_keys=ON")
+
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin migration %s: %w", m.file, err)
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, body); err != nil {
 		return fmt.Errorf("apply migration %s: %w", m.file, err)
+	}
+	if err := checkForeignKeys(ctx, tx); err != nil {
+		return fmt.Errorf("migration %s: %w", m.file, err)
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)`,
@@ -128,4 +148,25 @@ func applyMigration(ctx context.Context, sqlDB *sql.DB, m migration, body string
 		return fmt.Errorf("commit migration %s: %w", m.file, err)
 	}
 	return nil
+}
+
+// checkForeignKeys fails on the first foreign key violation reported by
+// PRAGMA foreign_key_check. It runs inside the migration transaction.
+func checkForeignKeys(ctx context.Context, q Querier) error {
+	rows, err := q.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return fmt.Errorf("foreign key check: %w", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		var table, parent string
+		var rowid sql.NullInt64
+		var fkid int
+		if err := rows.Scan(&table, &rowid, &parent, &fkid); err != nil {
+			return fmt.Errorf("foreign key check: %w", err)
+		}
+		return fmt.Errorf("foreign key violation: table %q row %v references %q (constraint %d)",
+			table, rowid, parent, fkid)
+	}
+	return rows.Err()
 }

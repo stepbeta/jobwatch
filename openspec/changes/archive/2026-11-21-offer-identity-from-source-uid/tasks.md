@@ -1,0 +1,65 @@
+# Tasks
+
+## 1. Schema and migration
+
+- [x] 1.0 Check no `jobwatch` process holds the database (`pgrep -af jobwatch`); if one is running, ask the user to stop it, then back up with `jobwatch backup jobwatch.db.<timestamp>.bkp`
+- [x] 1.1 Add migration `00NN_company_identity.sql`: `company_keys`, `company_aliases`, `job_offers.incomplete_reason`, `job_offers.incomplete_raw`
+- [x] 1.2 Backfill one alias per existing company from `name_normalized`; backfill keys from source config tokens where a source's offers map to one company
+- [x] 1.3 Assert uniqueness on `job_offer_provenance(source_id, external_uid)`; stop writing `job_offers.fingerprint` as identity and drop its unique index
+- [x] 1.4 Update `changed` rows to `active`, then remove the value from the enum
+- [x] 1.5 Table-driven migration tests: repeated runs, existing data preserved, rollback notes in `docs/DATA-MODEL.md`
+
+## 2. Offer identity
+
+- [x] 2.1 Resolve a sighting through provenance `(source, uid)` first, `(source, url)` second; create an offer only on a miss
+- [x] 2.2 Update an existing offer's title and location when the source reports new values, without creating a row
+- [x] 2.3 Keep `MarkDisappeared` semantics: an offer disappears only when no successfully scanned source still lists it
+- [x] 2.4 Replace `OutcomeChanged`/`Result.Changed` with snapshot-only recording; keep `snapshots` writes unchanged
+- [x] 2.5 Tests: title edit, same-title siblings, closed-then-reopened, company rename, description edit
+
+## 3. Company resolution
+
+- [x] 3.1 Replace `db.ResolveCompany` with key-then-alias resolution (`key`, source alias, confirmed alias, create)
+- [x] 3.2 Remove `src.Name` from the sighting fallback; require adapter evidence or `config.company`
+- [x] 3.3 Extend merge to record the absorbed company's keys and aliases on the absorbing company before deleting it
+- [x] 3.4 Tests: identifier seen twice, board reporting a new display name, duplicate names, merge reuse on the next scan, merge leaves no addressable ghost
+
+## 4. Adapter normalization
+
+- [x] 4.1 Extend `RawOffer` with company evidence (identifier and name) and a per-item incomplete reason
+- [x] 4.2 Each typed adapter emits its existing token as the company identifier
+- [x] 4.3 RSS and HTML gain a declarative employer rule that rewrites company and title together
+- [x] 4.4 Set `config.company` on the enabled single-employer rss/html sources; configure extraction for We Work Remotely
+- [x] 4.5 Fixture tests: scan each adapter twice and assert identical uids; WWR fixture yields 169 distinct employers
+
+## 5. Incomplete items
+
+- [x] 5.1 Store items with missing company or title as incomplete offers with the raw reported values
+- [x] 5.2 Exclude incomplete offers from list, dashboard and search queries
+- [x] 5.3 Add repair: assign company and title, clear the incomplete marker, never overwritten by later scans
+- [x] 5.4 Report the incomplete count per source in the scan result
+
+## 6. Existing data remediation
+
+- [x] 6.1 Add a one-shot command (`jobwatch reattribute [--all] [--source id]`) that re-fetches a source and writes the adapter's canonical company and title onto offers matched by `(source, uid)`, preserving events, notes, snapshots and application state
+- [x] 6.2 Resolve the target company with the same resolution order as a scan (key, source alias, confirmed alias, create) so a re-attributed offer lands on its real employer
+- [x] 6.3 Keep it idempotent: a second run changes nothing, and offers without a `(source, uid)` match are left untouched
+- [x] 6.4 Report per source: re-attributed offers, companies left without offers, skipped offers
+- [x] 6.5 Run it on the live database against We Work Remotely and assert the offer count moves from the feed to its employers
+- [x] 6.6 Leave the offers that have no provenance untouched and document them as history; the emptied feed company stays visible for the user to delete
+- [x] 6.7 Tests: fixture offer attributed to a feed company is moved by remediation with history intact, and a second run is a no-op
+
+## 7. API and UI
+
+- [x] 7.1 `GET /api/offers` excludes incomplete by default; add a filter to list them
+- [x] 7.2 Add the incomplete view with count and repair form; reuse the manual import form
+- [x] 7.3 Remove `changed` from the offer state type, filter and badge; show a version count instead
+- [x] 7.4 Show the company key(s) on the company page so same-named companies are distinguishable
+
+## 8. Documentation
+
+- [x] 8.1 `docs/DATA-MODEL.md`: company keys and aliases, offer identity, incomplete marker, state machine without `changed`
+- [x] 8.2 `docs/ARCHITECTURE.md`: adapter contract, resolution order, incomplete path, remediation command
+- [x] 8.3 `docs/API.md`: incomplete filter and repair endpoint, offer state enum
+- [x] 8.4 `docs/SPEC.md` revision entry; `CHANGELOG.md`; `docs/MILESTONES.md` known-gaps rows that this change closes
+- [x] 8.5 `README.md` command reference: `reattribute`

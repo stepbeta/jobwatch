@@ -36,6 +36,10 @@ func (g *Greenhouse) Fetch(ctx context.Context, src model.Source) ([]RawOffer, e
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := ParseConfig(src)
+	if err != nil {
+		return nil, err
+	}
 	base := g.BaseURL
 	if base == "" {
 		base = greenhouseBaseURL
@@ -46,19 +50,21 @@ func (g *Greenhouse) Fetch(ctx context.Context, src model.Source) ([]RawOffer, e
 	if err := g.Client.GetJSON(ctx, src, u, &resp); err != nil {
 		return nil, fmt.Errorf("greenhouse %s: %w", token, err)
 	}
+	key := companyKey(model.SourceGreenhouse, token)
 	out := make([]RawOffer, 0, len(resp.Jobs))
 	for _, j := range resp.Jobs {
-		if j.Title == "" || j.AbsoluteURL == "" {
+		if j.AbsoluteURL == "" {
 			continue
 		}
-		out = append(out, RawOffer{
+		out = append(out, finalizeOffer(RawOffer{
 			ExternalUID: strconv.FormatInt(j.ID, 10),
 			Title:       j.Title,
 			Location:    j.Location.Name,
 			URL:         j.AbsoluteURL,
 			Description: HTMLToText(html.UnescapeString(j.Content)),
 			Company:     j.CompanyName,
-		})
+			CompanyKey:  key,
+		}, cfg.Company))
 	}
 	return out, nil
 }

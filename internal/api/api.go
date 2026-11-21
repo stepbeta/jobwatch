@@ -57,6 +57,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/offers/{id}/snapshot-diff", s.snapshotDiff)
 	mux.HandleFunc("POST /api/offers/{id}/merge", s.mergeOffer)
 	mux.HandleFunc("POST /api/offers/{id}/split", s.splitOffer)
+	mux.HandleFunc("POST /api/offers/{id}/repair", s.repairOffer)
 	mux.HandleFunc("GET /api/offers/{id}/events", s.listEvents)
 	mux.HandleFunc("POST /api/offers/{id}/events", s.createEvent)
 	mux.HandleFunc("PATCH /api/offers/{id}/events/{eventID}", s.patchEvent)

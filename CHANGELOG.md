@@ -2,6 +2,243 @@
 
 ## Unreleased
 
+### Offer identity from source uid (OpenSpec change, task group 1)
+
+#### Added
+- Migration 0012 (`company_keys`, `company_aliases`): companies gain
+  attested identifiers (namespaced ATS board/site/org/tenant/account/
+  subdomain tokens) and per-source or global name aliases. Existing
+  companies get one confirmed alias each, and typed single-employer
+  sources get a key backfilled from their config token.
+- `job_offers.incomplete_reason` and `job_offers.incomplete_raw`, and a
+  nullable `job_offers.company_id`, so an item a source cannot normalize
+  can be stored instead of dropped.
+- A partial unique index on `job_offer_provenance(source_id,
+  external_uid)` for non-empty uids: a posting seen again on the same
+  source can no longer point at two offers.
+- Table-driven migration test covering the rebuild, the provenance
+  squash, key/alias backfill, the `changed` conversion, nullable
+  companies, duplicate fingerprints, FTS triggers, foreign keys and a
+  second no-op run.
+
+#### Changed
+- `offer_state` is now `active | disappeared`. Existing `changed` rows are
+  migrated to `active`; a description edit records a snapshot and keeps
+  the offer active. `changed` is removed from the Go enum, the API filter
+  and the UI state filter.
+- The migration runner runs each migration on a pinned connection with
+  foreign keys disabled (required for the `job_offers` rebuild) and
+  verifies `PRAGMA foreign_key_check` before committing.
+- `job_offers.fingerprint` is no longer UNIQUE. The current scan code
+  still writes and resolves by it until the offer-identity task group
+  lands.
+
+#### Fixed
+- 80 duplicate `(source, external_uid)` pairs (81 extra provenance rows)
+  from the old fingerprint identity are squashed onto the surviving
+  offer. No offer, event, note or snapshot is deleted; the old duplicate
+  offers remain, but without a source link. The live database went from
+  2465 to 2384 provenance rows.
+
+### Offer identity from source uid (OpenSpec change, task group 2)
+
+#### Added
+- Scans resolve a sighting through provenance: `(source, external_uid)`
+  first, then `(source, url)`. A company is resolved and an offer created
+  only on a miss, so the same posting keeps one offer through title,
+  location, company-name and description changes.
+- Title and a reported location follow the source on later sightings; the
+  offer's company and canonical URL are not rewritten by a sighting.
+- Manual imports use the URL as identity: a URL already linked to an offer
+  attaches to it, while a new URL creates a new offer even when the
+  company and title match another one.
+
+#### Changed
+- The scan summary no longer reports `changed`: a description edit keeps
+  the offer `active` and only records a snapshot. `Result.Changed`,
+  `OutcomeChanged`, the API `changed` field and the CLI/UI scan summaries
+  are gone.
+- Same-title siblings with different uids are separate offers; they are no
+  longer collapsed by the fingerprint. A source reporting a new company
+  name for the same uid no longer duplicates or moves the offer.
+- `UpsertProvenance` updates the row by `(source, uid)` before
+  `(offer, url)`, so a new URL under a known uid cannot create a second
+  provenance row. The link keeps the first-seen URL.
+
+#### Fixed
+- The `TestScanDedup` and Lever fixture expectations now assert distinct
+  uids and offers instead of distinct fingerprints.
+
+### Offer identity from source uid (OpenSpec change, task group 3)
+
+#### Added
+- Migration 0013: `companies.name_normalized` is no longer UNIQUE (display
+  names are attributes, not identity), with a non-unique lookup index.
+  Enabled single-employer sources get `config.company` set to their
+  current display name so the scan pipeline can stop using the source
+  name as a company fallback. We Work Remotely is left for the RSS/HTML
+  employer extraction task.
+- Company resolution is key → source alias → confirmed global alias →
+  create. A name-only claim is recorded for its source; a new company gets
+  a source alias (or a global alias for a manual import). A key that
+  resolves an existing company is linked to it.
+- Company merge moves offers, notes, keys and aliases to the target and
+  records the absorbed display name as a confirmed global alias. A rename
+  records both the old and the new name as aliases. Neither rewrites offer
+  fingerprints.
+
+#### Changed
+- The scan pipeline no longer uses `sources.name` as a company fallback.
+  An item with no adapter company evidence and no `config.company` is
+  skipped (and counted in `skipped`) until the incomplete-listing task
+  stores it with its raw values.
+- `POST /api/companies` and `PATCH /api/companies/:id` allow duplicate
+  normalized names; `409 duplicate_company` is gone. Company rename and
+  merge no longer return `409 merge_conflict`, and offer split no longer
+  returns `409 offer_conflict`; same-title offers are legitimate because
+  identity is provenance.
+- Offer split computes a base fingerprint and does not check collisions.
+
+#### Fixed
+- Merging two companies with same-title offers now succeeds instead of
+  reporting a fingerprint conflict, and a later scan cannot recreate the
+  absorbed company because its keys and names resolve to the target.
+
+### Offer identity from source uid (OpenSpec change, task group 4)
+
+#### Added
+- `RawOffer` carries `CompanyKey` (the namespaced identifier the adapter
+  already holds) and `IncompleteReason` (`missing_company`,
+  `missing_title`, `missing_company_title`). Every typed adapter emits its
+  token: `greenhouse:<board_token>`, `lever:<site>`, `ashby:<org>`,
+  `personio:<tenant>`, `workable:<account>`, `bamboohr:<subdomain>`,
+  `wttj:<org slug>`.
+- A declarative `employer` rule for RSS and HTML sources. With
+  `{"separator":":"}` it splits `Employer: Role` and rewrites both the
+  company and the title; `field` (RSS) or `selector` (HTML) reads the
+  employer from a separate element and strips the repeated prefix.
+- Migration 0014 configures the rule for We Work Remotely. A recorded
+  169-employer fixture (`wwr_feed.xml`) scans twice and asserts 169
+  distinct employers and stable uids.
+- Fixture tests fetch every adapter twice and compare the external uids:
+  Greenhouse, Lever, Ashby, Personio, Workable, BambooHR, WTTJ, RSS and
+  HTML.
+
+#### Changed
+- Adapters no longer silently drop an item with an empty title or no
+  company: they return it with an `IncompleteReason`. The scan pipeline
+  still counts such items as `skipped` until the incomplete-listing group
+  stores them.
+- RSS/HTML titles are rewritten by the employer rule, so a multi-employer
+  feed no longer attributes its offers to the feed itself.
+
+#### Fixed
+- We Work Remotely titles such as `Hometap: Underwriter` now yield
+  company `Hometap` and title `Underwriter` instead of a verbatim title
+  and an empty company. Offers recorded before the rule keep their old
+  company until explicitly reattributed.
+
+### Offer identity from source uid (OpenSpec change, task group 5)
+
+#### Added
+- Items a source cannot normalize are stored as incomplete offers
+  instead of dropped. A missing company leaves `company_id` NULL; a
+  missing title leaves `title` empty. The values the source reported are
+  kept as JSON in `incomplete_raw`, and `incomplete_reason` records
+  `missing_company`, `missing_title` or `missing_company_title`. The
+  offer keeps its provenance, snapshots and notes, and a rescan of the
+  same identity only refreshes `last_seen_at`.
+- `POST /api/offers/:id/repair` assigns a company and title to an
+  incomplete offer, optionally sets the location, clears
+  `incomplete_reason` and re-runs the classifier.
+- The scan result and the CLI/UI summaries report an `incomplete` count
+  per source.
+
+#### Changed
+- The offers list, dashboard, search and CLI `list` exclude incomplete
+  offers by default; `OfferQuery.IncompleteOnly` (used by the repair
+  view) lists them. Incomplete offers with no company come back with an
+  empty company name and `company_id: null`.
+- A repaired offer keeps `incomplete_raw` after `incomplete_reason` is
+  cleared. Later scans use that marker to preserve the user's company,
+  title and location, even when the source later reports a usable item.
+- The scan pipeline recomputes incompleteness from the item fields; the
+  adapter's `IncompleteReason` is only a hint. An item without a URL is
+  still skipped because it has no provenance identity.
+
+#### Fixed
+- The company-name fallback test now asserts an incomplete offer instead
+  of a skipped item, and the dedup test keeps a URL-less item skipped
+  while a title-less item is stored incomplete.
+
+### Offer identity from source uid (OpenSpec change, task group 6)
+
+#### Added
+- `jobwatch reattribute [--all | --source <id>]` re-fetches a source and
+  moves the offers linked by `(source, uid)` to the company and title the
+  adapter now reports. Events, notes, snapshots, application state and
+  listing state are preserved, and the classifier is re-run for the new
+  title. The target company uses the scan resolution order (key, source
+  alias, confirmed global alias, create).
+- Per-source output reports fetched, re-attributed, unchanged, skipped
+  offers and the companies the pass emptied. An emptied company stays in
+  the database for the user to delete.
+- The pass is idempotent and skips offers without a current `(source,
+  uid)` sighting, offers with no uid link, and user-repaired offers.
+
+#### Changed
+- Live remediation of We Work Remotely moved 33 of its 289 offers from
+  the feed company to 26 extracted employers; the total offer count was
+  unchanged and a second run moved nothing. The other 256 offers predate
+  the current 98-item feed and have no uid match, so they remain under
+  the feed as history (task 6.6).
+
+### Offer identity from source uid (OpenSpec change, task group 7)
+
+#### Added
+- `GET /api/offers?incomplete=true` lists incomplete offers; the
+  default list still excludes them. The `incomplete` value is validated
+  like `saved`.
+- An **Incomplete** page (`#/incomplete`) with the item count, the
+  values each source reported, the reason, and a repair form. The form
+  reuses the manual import layout and company combobox; saving calls
+  `POST /api/offers/:id/repair` and the item leaves the view.
+- The app navigation shows the incomplete count, refreshed after scans
+  and repairs.
+- `GET /api/companies/:id` returns the company's attested keys, and the
+  company page shows them so same-named companies are distinguishable.
+
+#### Changed
+- `changed` is gone from the offer-state type, filter and badge. The
+  offer page shows the description version count in the header and in
+  the snapshot summary, and no longer opens a changed-description
+  banner.
+- Offer rows with no company render a dash instead of a broken company
+  link; the offer detail page handles a null company.
+
+### Offer identity from source uid (OpenSpec change, task group 8)
+
+#### Changed
+- Documentation synchronized with the implemented change:
+  `DATA-MODEL.md` covers company keys/aliases, provenance identity, the
+  incomplete marker and the two-state offer machine;
+  `ARCHITECTURE.md` documents the adapter contract, company resolution,
+  the incomplete scan path and the re-attribution command; `API.md`
+  documents the `incomplete` filter, the repair endpoint, the offer
+  state/reason enums and the company `keys` response; `README.md` and
+  `USAGE.md` add the `reattribute` command and the Incomplete page;
+  `SPEC.md` records groups 1–8; and `MILESTONES.md` closes the
+  fingerprint-identity, RSS title-splitting and We Work Remotely gaps.
+
+### Offer identity from source uid (OpenSpec change, archive)
+
+#### Changed
+- The change is archived. Its four capabilities were synced to
+  `openspec/specs/` (offer-lifecycle, company-resolution,
+  source-normalization, incomplete-listings), and the matching
+  `docs/SPEC.md` sections now point there instead of restating the
+  behavior. `docs/MILESTONES.md` records the archive as done.
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.

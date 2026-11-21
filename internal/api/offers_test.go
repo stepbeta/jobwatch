@@ -183,14 +183,14 @@ func TestPatchOffer(t *testing.T) {
 
 	rec := ts.do(t, "PATCH", "/api/offers/1", map[string]any{
 		"application_state": "interview",
-		"offer_state":       "changed",
+		"offer_state":       "disappeared",
 		"location":          "Remote - France",
 	})
 	wantCode(t, rec, 200)
 	got := decodeBody[struct {
 		Offer offerJSON `json:"offer"`
 	}](t, rec).Offer
-	if got.ApplicationState != "interview" || got.OfferState != "changed" || got.Location == nil || *got.Location != "Remote - France" {
+	if got.ApplicationState != "interview" || got.OfferState != "disappeared" || got.Location == nil || *got.Location != "Remote - France" {
 		t.Errorf("patched = %+v", got)
 	}
 
@@ -365,6 +365,77 @@ func TestPatchOfferDescription(t *testing.T) {
 		404, "not_found")
 }
 
+func TestRepairIncompleteOffer(t *testing.T) {
+	ts := newTestServer(t)
+	acme := ts.seedCompany(t, "Acme")
+	url := "https://x/1"
+	o, err := db.InsertIncompleteOffer(context.Background(), ts.db, model.JobOffer{
+		Title: "Mystery Role", TitleNormalized: model.NormalizeTitle("Mystery Role"), URL: &url,
+	}, model.IncompleteMissingCompany, `{"title":"Mystery Role","url":"https://x/1"}`, ts.clock.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/offers/" + strconv.FormatInt(o.ID, 10)
+
+	// The detail endpoint returns the incomplete offer with no company.
+	rec := ts.do(t, "GET", path, nil)
+	wantCode(t, rec, 200)
+	detail := decodeBody[offerDetailResp](t, rec)
+	if detail.Offer.CompanyID != nil || detail.Company.ID != 0 {
+		t.Errorf("incomplete detail company = %v / %+v", detail.Offer.CompanyID, detail.Company)
+	}
+	if detail.Offer.IncompleteReason != string(model.IncompleteMissingCompany) {
+		t.Errorf("incomplete reason = %q", detail.Offer.IncompleteReason)
+	}
+
+	// The default list excludes the item; incomplete=true lists only it.
+	rec = ts.do(t, "GET", "/api/offers", nil)
+	wantCode(t, rec, 200)
+	if list := decodeBody[offerListResp](t, rec); list.Total != 0 {
+		t.Errorf("default offer list total = %d, want 0", list.Total)
+	}
+	rec = ts.do(t, "GET", "/api/offers?incomplete=true", nil)
+	wantCode(t, rec, 200)
+	if list := decodeBody[offerListResp](t, rec); list.Total != 1 || len(list.Offers) != 1 ||
+		list.Offers[0].ID != o.ID || list.Offers[0].IncompleteReason != string(model.IncompleteMissingCompany) {
+		t.Errorf("incomplete offer list = %+v", list)
+	}
+	wantErrorCode(t, ts.do(t, "GET", "/api/offers?incomplete=maybe", nil), 400, "validation_failed")
+
+	wantErrorCode(t, ts.do(t, "POST", path+"/repair", map[string]any{}),
+		400, "validation_failed")
+	wantErrorCode(t, ts.do(t, "POST", path+"/repair", map[string]any{
+		"company_id": 99, "title": "SRE",
+	}), 404, "not_found")
+
+	rec = ts.do(t, "POST", path+"/repair", map[string]any{
+		"company_id": acme.ID, "title": "Site Reliability Engineer", "location": "Paris",
+	})
+	wantCode(t, rec, 200)
+	repaired := decodeBody[struct {
+		Offer offerJSON `json:"offer"`
+	}](t, rec).Offer
+	if repaired.CompanyID == nil || *repaired.CompanyID != acme.ID ||
+		repaired.Title != "Site Reliability Engineer" || repaired.IncompleteReason != "" ||
+		repaired.Location == nil || *repaired.Location != "Paris" {
+		t.Errorf("repaired offer = %+v", repaired)
+	}
+	if len(repaired.IncompleteRaw) == 0 {
+		t.Error("incomplete_raw was cleared on repair")
+	}
+
+	// The offer is no longer repairable and is visible as a normal offer.
+	wantErrorCode(t, ts.do(t, "POST", path+"/repair", map[string]any{
+		"company_id": acme.ID, "title": "Again",
+	}), 400, "validation_failed")
+	rec = ts.do(t, "GET", path, nil)
+	wantCode(t, rec, 200)
+	detail = decodeBody[offerDetailResp](t, rec)
+	if detail.Company.ID != acme.ID || detail.Offer.CompanyID == nil || *detail.Offer.CompanyID != acme.ID {
+		t.Errorf("detail after repair = %+v / %+v", detail.Company, detail.Offer)
+	}
+}
+
 func TestImportOffer(t *testing.T) {
 	ts := newTestServer(t)
 
@@ -381,7 +452,7 @@ func TestImportOffer(t *testing.T) {
 	}
 
 	rec = ts.do(t, "POST", "/api/offers/import", map[string]any{
-		"company": "Qonto SAS", "title": "SRE", "url": "https://example.com/job/2",
+		"company": "Qonto SAS", "title": "SRE", "url": "https://example.com/job/1",
 	})
 	wantCode(t, rec, 200)
 	second := decodeBody[struct {
@@ -392,11 +463,25 @@ func TestImportOffer(t *testing.T) {
 		t.Errorf("second import = %+v, want existing offer %d", second, first.OfferID)
 	}
 
-	rec = ts.do(t, "GET", "/api/offers/1", nil)
+	// A different URL is a different offer even when company and title
+	// match: title and company are attributes, not identity.
+	rec = ts.do(t, "POST", "/api/offers/import", map[string]any{
+		"company": "Qonto", "title": "SRE", "url": "https://example.com/job/2",
+	})
+	wantCode(t, rec, 201)
+	third := decodeBody[struct {
+		OfferID int64 `json:"offer_id"`
+		Created bool  `json:"created"`
+	}](t, rec)
+	if !third.Created || third.OfferID == first.OfferID {
+		t.Errorf("third import = %+v, want a new offer", third)
+	}
+
+	rec = ts.do(t, "GET", "/api/offers/"+strconv.FormatInt(first.OfferID, 10), nil)
 	wantCode(t, rec, 200)
 	detail := decodeBody[offerDetailResp](t, rec)
-	if len(detail.Provenance) != 2 {
-		t.Errorf("provenance = %d, want 2", len(detail.Provenance))
+	if len(detail.Provenance) != 1 {
+		t.Errorf("provenance = %d, want 1", len(detail.Provenance))
 	}
 
 	wantErrorCode(t, ts.do(t, "POST", "/api/offers/import", map[string]any{"company": "Qonto"}),
@@ -593,7 +678,7 @@ func TestSnapshotOriginsScanAndPatch(t *testing.T) {
 	ctx := context.Background()
 	src, err := db.InsertSource(ctx, ts.db, model.Source{
 		Name: "Scan Co", URL: "https://scan.example/board", Type: model.SourceGreenhouse,
-		ConfigJSON: "{}", Enabled: true,
+		ConfigJSON: `{"company":"Scan Co"}`, Enabled: true,
 	}, ts.clock.now())
 	if err != nil {
 		t.Fatal(err)
@@ -727,10 +812,20 @@ func TestSplitOfferAPI(t *testing.T) {
 		"title":          "SRE - Payments",
 	}), 400, "validation_failed")
 
-	// Same title and location collide with the original fingerprint.
-	wantErrorCode(t, ts.do(t, "POST", "/api/offers/1/split", map[string]any{
+	// A same-title, same-location split is allowed: identity is the
+	// provenance row, not the fingerprint.
+	rec = ts.do(t, "POST", "/api/offers/1/split", map[string]any{
 		"provenance_ids": []int64{provIDs[2]},
-	}), 409, "offer_conflict")
+	})
+	wantCode(t, rec, 201)
+	same := decodeBody[struct {
+		Offer           offerJSON `json:"offer"`
+		MovedProvenance int       `json:"moved_provenance"`
+	}](t, rec)
+	if same.Offer.ID == o.ID || same.Offer.Title != o.Title ||
+		same.Offer.Location == nil || *same.Offer.Location != "Paris" || same.MovedProvenance != 1 {
+		t.Errorf("same-title split = %+v", same)
+	}
 
 	wantErrorCode(t, ts.do(t, "POST", "/api/offers/1/split", map[string]any{}),
 		400, "validation_failed")

@@ -189,10 +189,15 @@ func TestWTTJMapHit(t *testing.T) {
 			wantOK: true,
 		},
 		{
-			name:   "no title is dropped",
+			name:   "no title is kept as incomplete",
 			hit:    wttjHit{Reference: "A", Slug: "sre"},
 			search: search,
-			wantOK: false,
+			want: RawOffer{
+				ExternalUID:      "A",
+				URL:              "https://www.welcometothejungle.com/en/companies/fabriq/jobs/sre",
+				IncompleteReason: model.IncompleteMissingTitle,
+			},
+			wantOK: true,
 		},
 		{
 			name:   "no slug is dropped",
@@ -218,6 +223,8 @@ func TestWTTJMapHit(t *testing.T) {
 			}
 			// Company comes from organization.name; the table sets it below.
 			tt.want.Company = strings.TrimSpace(tt.hit.Organization.Name)
+			tt.want.CompanyKey = companyKey(model.SourceWTTJ,
+				firstNonEmpty(tt.hit.Organization.Slug, tt.search.OrgSlug))
 			if got != tt.want {
 				t.Errorf("offer = %+v, want %+v", got, tt.want)
 			}
@@ -526,6 +533,13 @@ func TestWTTJFetch(t *testing.T) {
 	if second.ExternalUID != "FABRI_wqJ1xND" || second.Title != "Senior Front-end Engineer (F/H)" ||
 		second.URL != first.URL {
 		t.Errorf("second offer = %+v", second)
+	}
+	again, err := w.Fetch(context.Background(), src)
+	if err != nil {
+		t.Fatalf("second Fetch: %v", err)
+	}
+	if !sameUIDs(got, again) {
+		t.Errorf("uids are not stable across fetches: %v vs %v", uidsOf(got), uidsOf(again))
 	}
 }
 

@@ -53,7 +53,7 @@ func newScanCmd(opts *rootOptions) *cobra.Command {
 			}
 
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tSOURCE\tSTATUS\tFETCHED\tNEW\tSEEN\tCHANGED\tREAPPEARED\tDISAPPEARED\tERROR")
+			fmt.Fprintln(tw, "ID\tSOURCE\tSTATUS\tFETCHED\tNEW\tSEEN\tREAPPEARED\tDISAPPEARED\tINCOMPLETE\tERROR")
 			failed := 0
 			for _, r := range results {
 				status := string(r.Status)
@@ -68,7 +68,7 @@ func newScanCmd(opts *rootOptions) *cobra.Command {
 					}
 				}
 				fmt.Fprintf(tw, "%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n",
-					r.SourceID, r.SourceName, status, r.Fetched, r.New, r.Seen, r.Changed, r.Reappeared, r.Disappeared, msg)
+					r.SourceID, r.SourceName, status, r.Fetched, r.New, r.Seen, r.Reappeared, r.Disappeared, r.Incomplete, msg)
 			}
 			tw.Flush()
 			if len(results) == 0 {

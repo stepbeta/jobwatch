@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 export type Route =
   | { name: 'dashboard' }
   | { name: 'offers'; saved?: boolean }
+  | { name: 'incomplete' }
   | { name: 'sources' }
   | { name: 'interviewPrep' }
   | { name: 'offer'; id: number }
@@ -20,6 +21,7 @@ export function parseRoute(hash: string): Route {
     return { name: 'offers', saved: saved === 'true' ? true : saved === 'false' ? false : undefined }
   }
   if (parts[0] === 'sources' && parts.length === 1) return { name: 'sources' }
+  if (parts[0] === 'incomplete' && parts.length === 1) return { name: 'incomplete' }
   if (parts[0] === 'interview-prep' && parts.length === 1) return { name: 'interviewPrep' }
   if (parts[0] === 'offers' && parts[1]) {
     const id = Number(parts[1])

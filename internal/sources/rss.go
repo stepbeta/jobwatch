@@ -61,11 +61,7 @@ func rssItems(root *xmlNode, cfg Config) []*xmlNode {
 }
 
 func rssOffer(item *xmlNode, cfg Config, base string) (RawOffer, bool) {
-	title := rssField(item, cfg.TitleField, "title")
-	title = HTMLToText(title)
-	if title == "" {
-		return RawOffer{}, false
-	}
+	title := HTMLToText(rssField(item, cfg.TitleField, "title"))
 	link := rssField(item, cfg.LinkField, "link")
 	if link == "" {
 		link = rssLinkHref(item)
@@ -95,14 +91,20 @@ func rssOffer(item *xmlNode, cfg Config, base string) (RawOffer, bool) {
 	if uid == "" {
 		uid = link
 	}
-	return RawOffer{
+	company := HTMLToText(rssField(item, cfg.CompanyField, ""))
+	employerValue := ""
+	if cfg.Employer != nil && strings.TrimSpace(cfg.Employer.Field) != "" {
+		employerValue = HTMLToText(rssField(item, cfg.Employer.Field, ""))
+	}
+	title, company = cfg.Employer.apply(title, company, employerValue)
+	return finalizeOffer(RawOffer{
 		ExternalUID: uid,
 		Title:       title,
 		Location:    HTMLToText(rssField(item, cfg.LocationField, "")),
 		URL:         link,
 		Description: HTMLToText(desc),
-		Company:     HTMLToText(rssField(item, cfg.CompanyField, "")),
-	}, true
+		Company:     company,
+	}, cfg.Company), true
 }
 
 // rssField evaluates a configured path, or def when the config is empty.

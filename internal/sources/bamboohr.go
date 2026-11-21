@@ -50,6 +50,10 @@ func (b *BambooHR) Fetch(ctx context.Context, src model.Source) ([]RawOffer, err
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := ParseConfig(src)
+	if err != nil {
+		return nil, err
+	}
 	base := b.BaseURL
 	if base == "" {
 		base = fmt.Sprintf("https://%s.bamboohr.com", subdomain)
@@ -61,22 +65,22 @@ func (b *BambooHR) Fetch(ctx context.Context, src model.Source) ([]RawOffer, err
 		return nil, fmt.Errorf("bamboohr %s: %w", subdomain, err)
 	}
 
+	key := companyKey(model.SourceBambooHR, subdomain)
 	out := make([]RawOffer, 0, len(resp.Result))
 	for _, job := range resp.Result {
 		id := strings.TrimSpace(job.ID)
-		title := strings.TrimSpace(job.JobOpeningName)
-		if id == "" || title == "" {
+		if id == "" {
 			continue
 		}
 		// DepartmentLabel is available but RawOffer has no department
 		// field; it is deliberately not mixed into the description.
-		out = append(out, RawOffer{
+		out = append(out, finalizeOffer(RawOffer{
 			ExternalUID: id,
-			Title:       title,
+			Title:       strings.TrimSpace(job.JobOpeningName),
 			Location:    bambooHRJobLocation(job),
 			URL:         fmt.Sprintf("%s/careers/%s", base, url.PathEscape(id)),
-			// Company stays empty: the source name is the company.
-		})
+			CompanyKey:  key,
+		}, cfg.Company))
 	}
 	return out, nil
 }

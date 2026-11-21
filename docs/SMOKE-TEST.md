@@ -46,7 +46,7 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
    Greenhouse/Lever/Ashby, Personio or Workable board URL. The type and
    board key are detected; leave the form's defaults otherwise. Save.
 2. Click **Refresh** on that row. Wait for the scan to finish (the
-   button shows “Scanning…”). A toast reports `N new, M changed, D
+   button shows “Scanning…”). A toast reports `N new, M incomplete, D
    disappeared`. The row's status becomes `OK`; failures show `Error`
    or `Blocked` with the reason in the last-result column.
 3. **Offers.** New offers appear. Hover the `T`/`L` badges to see the

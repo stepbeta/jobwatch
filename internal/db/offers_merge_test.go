@@ -13,7 +13,7 @@ func seedMergeOffer(t *testing.T, q Querier, company model.Company, title, locat
 	t.Helper()
 	ctx := context.Background()
 	o := model.JobOffer{
-		CompanyID:       company.ID,
+		CompanyID:       &company.ID,
 		Title:           title,
 		TitleNormalized: model.NormalizeTitle(title),
 		Fingerprint:     model.Fingerprint(company.NameNormalized, model.NormalizeTitle(title), ""),
@@ -39,7 +39,7 @@ func TestMergeOffersMovesEverything(t *testing.T) {
 	target := seedMergeOffer(t, sqlDB, company, "SRE", "Paris")
 	source := seedMergeOffer(t, sqlDB, company, "SRE - Platform", "Lyon")
 	if _, err := sqlDB.ExecContext(ctx,
-		`UPDATE job_offers SET application_state = 'applied', offer_state = 'changed' WHERE id = ?`, source.ID); err != nil {
+		`UPDATE job_offers SET application_state = 'applied', offer_state = 'disappeared' WHERE id = ?`, source.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,8 +82,8 @@ func TestMergeOffersMovesEverything(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if merged.OfferState != model.OfferChanged {
-		t.Errorf("offer_state = %q, want changed", merged.OfferState)
+	if merged.OfferState != model.OfferActive {
+		t.Errorf("offer_state = %q, want active", merged.OfferState)
 	}
 	if merged.ApplicationState != model.AppApplied {
 		t.Errorf("application_state = %q, want applied", merged.ApplicationState)
@@ -189,8 +189,8 @@ func TestSplitOfferMovesProvenance(t *testing.T) {
 	if res.Offer.ID == original.ID || res.Offer.Location == nil || *res.Offer.Location != lyon {
 		t.Errorf("new offer = %+v", res.Offer)
 	}
-	if res.Offer.Fingerprint == original.Fingerprint {
-		t.Errorf("new offer reused the original fingerprint")
+	if want := model.Fingerprint(company.NameNormalized, model.NormalizeTitle("SRE"), ""); res.Offer.Fingerprint != want {
+		t.Errorf("new offer fingerprint = %q, want base %q", res.Offer.Fingerprint, want)
 	}
 	if res.Offer.URL == nil || *res.Offer.URL != "https://ex.com/b" {
 		t.Errorf("new offer URL = %v", res.Offer.URL)
@@ -220,11 +220,22 @@ func TestSplitOfferValidation(t *testing.T) {
 	if _, err := SplitOffer(ctx, sqlDB, original.ID, OfferSplitInput{}, now); !errors.Is(err, ErrOfferSplitNoProvenance) {
 		t.Errorf("no provenance err = %v", err)
 	}
-	// Same title and location collides with the original offer.
-	if _, err := SplitOffer(ctx, sqlDB, original.ID, OfferSplitInput{
-		ProvenanceIDs: []int64{prov[0].ID},
-	}, now); !errors.Is(err, ErrOfferFingerprintTaken) {
-		t.Errorf("fingerprint err = %v", err)
+	// Same title and location is allowed: identity is the provenance row.
+	sameOriginal := seedMergeOffer(t, sqlDB, company, "SRE", "Paris")
+	for _, url := range []string{"https://ex.com/same-a", "https://ex.com/same-b"} {
+		if _, err := UpsertProvenance(ctx, sqlDB, sameOriginal.ID, nil, nil, url, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sameProv, _ := ListProvenance(ctx, sqlDB, sameOriginal.ID)
+	sameRes, err := SplitOffer(ctx, sqlDB, sameOriginal.ID, OfferSplitInput{
+		ProvenanceIDs: []int64{sameProv[0].ID},
+	}, now)
+	if err != nil {
+		t.Fatalf("same-title split: %v", err)
+	}
+	if sameRes.Offer.Title != "SRE" || sameRes.Offer.Location == nil || *sameRes.Offer.Location != "Paris" {
+		t.Errorf("same-title split offer = %+v", sameRes.Offer)
 	}
 	// All links cannot move away.
 	ids := []int64{prov[0].ID, prov[1].ID}

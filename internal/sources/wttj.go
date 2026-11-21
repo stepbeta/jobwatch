@@ -140,7 +140,7 @@ func (w *WTTJ) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 		}
 		for _, hit := range res.Hits {
 			if offer, ok := mapWTTJHit(hit, search); ok {
-				out = append(out, offer)
+				out = append(out, finalizeOffer(offer, cfg.Company))
 			}
 		}
 		// Algolia reports nbPages once per query; stop after the last
@@ -383,7 +383,7 @@ func wttjQueryBody(index, params string) ([]byte, error) {
 func mapWTTJHit(h wttjHit, search wttjSearch) (RawOffer, bool) {
 	title := strings.TrimSpace(h.Name)
 	slug := strings.TrimSpace(h.Slug)
-	if title == "" || slug == "" {
+	if slug == "" {
 		return RawOffer{}, false
 	}
 	// reference is the stable business id. objectID is only a fallback:
@@ -408,13 +408,17 @@ func mapWTTJHit(h wttjHit, search wttjSearch) (RawOffer, bool) {
 	if strings.TrimSpace(desc) == "" {
 		desc = h.Summary
 	}
+	company := strings.TrimSpace(h.Organization.Name)
+	key := companyKey(model.SourceWTTJ, org)
 	return RawOffer{
-		ExternalUID: uid,
-		Title:       title,
-		Location:    wttjLocation(h),
-		URL:         link,
-		Description: desc,
-		Company:     strings.TrimSpace(h.Organization.Name),
+		ExternalUID:      uid,
+		Title:            title,
+		Location:         wttjLocation(h),
+		URL:              link,
+		Description:      desc,
+		Company:          company,
+		CompanyKey:       key,
+		IncompleteReason: IncompleteReasonFor(company, key, title),
 	}, true
 }
 

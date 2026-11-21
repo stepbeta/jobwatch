@@ -17,7 +17,16 @@ import (
 // resolution and deduplication.
 type RawOffer struct {
 	ExternalUID, Title, Location, URL, Description string
-	Company                                        string // from the source, may override the source's own company
+	// Company is the display-name evidence the source reported. CompanyKey
+	// is the namespaced identifier it already holds (greenhouse:acme,
+	// lever:acme, …). Either may be empty; a source with neither cannot
+	// attribute the item.
+	Company    string
+	CompanyKey string
+	// IncompleteReason is set when the adapter could not normalize the
+	// item (missing title or company). The item is still returned so the
+	// pipeline can store it instead of silently dropping it.
+	IncompleteReason model.IncompleteReason
 }
 
 // Fetcher retrieves the current list of offers of a source.
@@ -73,6 +82,12 @@ type Config struct {
 	LocationField    string `json:"location_field,omitempty"`
 	CompanyField     string `json:"company_field,omitempty"`
 	UIDField         string `json:"uid_field,omitempty"`
+
+	// Employer is an optional declarative rule that derives the employer
+	// from the title (or a separate field/selector) and rewrites the title
+	// without the employer prefix. Used by RSS and HTML sources that list
+	// several employers.
+	Employer *EmployerRule `json:"employer,omitempty"`
 
 	// html: CSS selectors for the listing page.
 	ItemSelector        string `json:"item_selector,omitempty"`

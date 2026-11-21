@@ -11,7 +11,7 @@ export type SourceType =
   | 'manual'
 
 export type ScanStatus = 'ok' | 'error' | 'blocked'
-export type OfferState = 'active' | 'changed' | 'disappeared'
+export type OfferState = 'active' | 'disappeared'
 export type ApplicationState =
   | 'todo'
   | 'applied'
@@ -65,7 +65,7 @@ export interface CompanyCandidate {
 
 export interface Offer {
   id: number
-  company_id: number
+  company_id: number | null
   company_name: string
   title: string
   location: string | null
@@ -82,6 +82,17 @@ export interface Offer {
   last_event_at: string | null
   saved_at: string | null
   raw_text?: string | null
+  incomplete_reason?: string
+  incomplete_raw?: IncompleteRaw | null
+}
+
+export interface IncompleteRaw {
+  company?: string
+  company_key?: string
+  title?: string
+  location?: string
+  url?: string
+  external_uid?: string
 }
 
 export interface MatchReasons {
@@ -166,7 +177,7 @@ export interface SnapshotDiff {
 
 export interface OfferDetail {
   offer: Offer
-  company: Company
+  company: Company | null
   provenance: Provenance[]
   events: Event[]
   notes: Note[]
@@ -181,6 +192,7 @@ export interface CompanyDetail {
   offers: Offer[]
   notes: Note[]
   possible_duplicates: CompanyCandidate[]
+  keys: string[]
 }
 
 export interface OfferList {
@@ -205,9 +217,9 @@ export interface ScanResult {
   skipped: number
   new: number
   seen: number
-  changed: number
   reappeared: number
   disappeared: number
+  incomplete: number
   error?: string
 }
 

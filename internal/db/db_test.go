@@ -45,7 +45,8 @@ func TestOpenPragmasAndSchema(t *testing.T) {
 	}
 
 	for _, table := range []string{
-		"schema_migrations", "companies", "sources", "job_offers", "job_offer_provenance",
+		"schema_migrations", "companies", "company_keys", "company_aliases",
+		"sources", "job_offers", "job_offer_provenance",
 		"events", "notes", "snapshots", "job_offers_fts", "notes_fts",
 	} {
 		var n int
@@ -227,7 +228,7 @@ func TestSeed5cAudit(t *testing.T) {
 		url, name, typ, config string
 		enabled                bool
 	}{
-		{"https://weworkremotely.com/remote-jobs.rss", "We Work Remotely", "rss", `{"location_field":"region"}`, true},
+		{"https://weworkremotely.com/remote-jobs.rss", "We Work Remotely", "rss", `{"location_field":"region","employer":{"separator":":"}}`, true},
 		{"https://jobs.workable.com/search?location=France&workplace=remote", "Workable (search)", "html", `{"note":"robots.txt disallows the Workable job search path."}`, false},
 		{"https://www.flexjobs.com/search", "FlexJobs", "html", `{"note":"FlexJobs requires a paid membership/login and its robots.txt was unreachable; not crawled."}`, false},
 		{"https://jobgether.com", "Jobgether", "html", `{"note":"Jobgether is an aggregator that requires an account and renders matches client-side."}`, false},
@@ -323,8 +324,8 @@ func TestSeedBambooHRSource(t *testing.T) {
 	if src.Name != "Semble" || string(src.Type) != "bamboohr" || !src.Enabled {
 		t.Errorf("Semble row = %+v, want name/type/enabled Semble/bamboohr/true", src)
 	}
-	if src.ConfigJSON != `{"subdomain":"semble"}` {
-		t.Errorf("Semble config = %s, want {\"subdomain\":\"semble\"}", src.ConfigJSON)
+	if !strings.Contains(src.ConfigJSON, `"subdomain":"semble"`) || !strings.Contains(src.ConfigJSON, `"company":"Semble"`) {
+		t.Errorf("Semble config = %s, want subdomain semble and company Semble", src.ConfigJSON)
 	}
 
 	body, err := migrations.FS.ReadFile("0005_seed_bamboohr_sources.sql")
@@ -399,8 +400,8 @@ func TestSeedWTTJSource(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("Fabriq source rows = %d, want 1", n)
 	}
-	if src.Name != "Fabriq" || string(src.Type) != "wttj" || !src.Enabled || src.ConfigJSON != `{}` {
-		t.Errorf("Fabriq row = %+v, want name/type/enabled/config Fabriq/wttj/true/{}", src)
+	if src.Name != "Fabriq" || string(src.Type) != "wttj" || !src.Enabled || !strings.Contains(src.ConfigJSON, `"company":"Fabriq"`) {
+		t.Errorf("Fabriq row = %+v, want name/type/enabled/config Fabriq/wttj/true with company", src)
 	}
 
 	// The migration 0002 WTTJ row has a different URL and is never
@@ -483,12 +484,9 @@ func TestMigrationRenamesReplyReceived(t *testing.T) {
 	}
 
 	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
-	c, _, err := ResolveCompany(ctx, sqlDB, "Acme", now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := insertLegacyCompany(t, sqlDB, "Acme", "acme", now)
 	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
-		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0006",
+		CompanyID: &c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0006",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -589,12 +587,9 @@ func TestMigrationAddsSnapshotOrigin(t *testing.T) {
 	}
 
 	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
-	c, _, err := ResolveCompany(ctx, sqlDB, "Acme", now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := insertLegacyCompany(t, sqlDB, "Acme", "acme", now)
 	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
-		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0007",
+		CompanyID: &c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0007",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -706,12 +701,9 @@ func TestMigrationAddsOfferSavedAt(t *testing.T) {
 	}
 
 	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
-	c, _, err := ResolveCompany(ctx, sqlDB, "Acme", now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := insertLegacyCompany(t, sqlDB, "Acme", "acme", now)
 	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
-		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0008",
+		CompanyID: &c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0008",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -980,6 +972,288 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 }
 
+// TestMigrationCompanyIdentity upgrades a database shaped like the live
+// one before the change: two offers for the same (source, uid) because a
+// title or company name changed, a `changed` offer, and a typed source.
+// The migration squashes the duplicate link onto the surviving offer,
+// preserves every offer and child row, backfills keys and aliases, removes
+// `changed`, and makes company_id nullable.
+func TestMigrationCompanyIdentity(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "identity.db")
+	sqlDB, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+
+	base := fstest.MapFS{}
+	for _, name := range []string{
+		"0001_init.sql",
+		"0002_known_hard_sources.sql",
+		"0003_seed_remote_sources.sql",
+		"0004_seed_5c_sources.sql",
+		"0005_seed_bamboohr_sources.sql",
+		"0006_event_message_types.sql",
+		"0007_snapshot_origin.sql",
+		"0008_offer_saved_at.sql",
+		"0009_interview_entries.sql",
+		"0010_interview_entry_category.sql",
+		"0011_seed_wttj_sources.sql",
+	} {
+		body, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base[name] = &fstest.MapFile{Data: body}
+	}
+	if err := Migrate(ctx, sqlDB, base); err != nil {
+		t.Fatalf("apply migrations 0001-0011: %v", err)
+	}
+
+	mustExec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := sqlDB.ExecContext(ctx, query, args...); err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+	}
+	mustExec(`INSERT INTO companies(id, name, name_normalized, created_at) VALUES
+		(1, 'Acme', 'acme', '2026-11-01T00:00:00Z'),
+		(2, 'Acme Careers', 'acme careers', '2026-11-01T00:00:00Z'),
+		(3, 'Beta', 'beta', '2026-11-01T00:00:00Z')`)
+	mustExec(`INSERT INTO sources(id, name, url, source_type, config_json, enabled, created_at) VALUES
+		(1001, 'Acme board', 'https://boards.example/acme', 'greenhouse', '{"board_token":"acme"}', 1, '2026-11-01T00:00:00Z'),
+		(1002, 'Feed', 'https://feed.example/rss', 'rss', '{}', 1, '2026-11-01T00:00:00Z')`)
+	mustExec(`INSERT INTO job_offers(id, company_id, title, title_normalized, fingerprint, first_seen_at, last_seen_at, offer_state) VALUES
+		(1, 1, 'SRE', 'sre', 'fp-old', '2026-11-01T00:00:00Z', '2026-11-02T00:00:00Z', 'disappeared'),
+		(2, 2, 'SRE', 'sre', 'fp-new', '2026-11-03T00:00:00Z', '2026-11-04T00:00:00Z', 'active'),
+		(3, 2, 'Platform Engineer', 'platform engineer', 'fp-changed', '2026-11-03T00:00:00Z', '2026-11-05T00:00:00Z', 'changed'),
+		(4, 3, 'Other', 'other', 'fp-other', '2026-11-03T00:00:00Z', '2026-11-04T00:00:00Z', 'active'),
+		(5, 1, 'Changed Role Old', 'changed role old', 'fp-changed-old', '2026-11-01T00:00:00Z', '2026-11-02T00:00:00Z', 'disappeared')`)
+	mustExec(`INSERT INTO job_offer_provenance(offer_id, source_id, external_uid, url, first_seen_at, last_seen_at) VALUES
+		(1, 1001, 'u1', 'https://x/1', '2026-11-01T00:00:00Z', '2026-11-02T00:00:00Z'),
+		(2, 1001, 'u1', 'https://x/1', '2026-11-03T00:00:00Z', '2026-11-04T00:00:00Z'),
+		(3, 1001, 'u2', 'https://x/2', '2026-11-03T00:00:00Z', '2026-11-05T00:00:00Z'),
+		(5, 1001, 'u3', 'https://x/3', '2026-11-01T00:00:00Z', '2026-11-02T00:00:00Z'),
+		(3, 1001, 'u3', 'https://x/3', '2026-11-03T00:00:00Z', '2026-11-05T00:00:00Z'),
+		(4, 1002, NULL, 'https://feed/4', '2026-11-03T00:00:00Z', '2026-11-04T00:00:00Z')`)
+	mustExec(`INSERT INTO events(offer_id, type, occurred_at) VALUES
+		(1, 'note_added', '2026-11-01T00:00:00Z'),
+		(2, 'note_added', '2026-11-03T00:00:00Z')`)
+	mustExec(`INSERT INTO snapshots(offer_id, raw_text, captured_at) VALUES
+		(1, 'old text', '2026-11-01T00:00:00Z'),
+		(2, 'new text', '2026-11-03T00:00:00Z')`)
+	mustExec(`INSERT INTO notes(entity_type, entity_id, body) VALUES
+		('company', 1, 'acme note'),
+		('offer', 1, 'old note')`)
+
+	if err := Migrate(ctx, sqlDB, migrations.FS); err != nil {
+		t.Fatalf("upgrade with embedded migrations: %v", err)
+	}
+
+	// Every offer and child row survives.
+	counts := []struct {
+		name, query string
+		want        int
+	}{
+		{"companies", `SELECT COUNT(*) FROM companies`, 3},
+		{"offers", `SELECT COUNT(*) FROM job_offers`, 5},
+		{"provenance", `SELECT COUNT(*) FROM job_offer_provenance`, 4},
+		{"events", `SELECT COUNT(*) FROM events`, 2},
+		{"snapshots", `SELECT COUNT(*) FROM snapshots`, 2},
+		{"notes", `SELECT COUNT(*) FROM notes`, 2},
+	}
+	for _, c := range counts {
+		var got int
+		if err := sqlDB.QueryRowContext(ctx, c.query).Scan(&got); err != nil {
+			t.Fatalf("count %s: %v", c.name, err)
+		}
+		if got != c.want {
+			t.Errorf("%s = %d, want %d", c.name, got, c.want)
+		}
+	}
+
+	// The duplicate link survives on the active offer and inherits the
+	// earliest first-seen and latest last-seen time. The old duplicate
+	// offer keeps its row but loses the link.
+	var offerID int64
+	var first, last string
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT offer_id, first_seen_at, last_seen_at FROM job_offer_provenance
+		 WHERE source_id = 1001 AND external_uid = 'u1'`).Scan(&offerID, &first, &last); err != nil {
+		t.Fatal(err)
+	}
+	if offerID != 2 || first != "2026-11-01T00:00:00Z" || last != "2026-11-04T00:00:00Z" {
+		t.Errorf("u1 link = offer %d, %s..%s; want offer 2, 2026-11-01..2026-11-04", offerID, first, last)
+	}
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM job_offer_provenance WHERE offer_id = 1`).Scan(&offerID); err != nil {
+		t.Fatal(err)
+	}
+	if offerID != 0 {
+		t.Errorf("old duplicate offer 1 has %d provenance rows, want 0", offerID)
+	}
+
+	// A disappeared + changed pair resolves to the changed offer, which the
+	// migration turns into active.
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT offer_id FROM job_offer_provenance WHERE source_id = 1001 AND external_uid = 'u3'`).Scan(&offerID); err != nil {
+		t.Fatal(err)
+	}
+	if offerID != 3 {
+		t.Errorf("u3 link points at offer %d, want 3", offerID)
+	}
+	var state string
+	if err := sqlDB.QueryRowContext(ctx, `SELECT offer_state FROM job_offers WHERE id = 3`).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != string(model.OfferActive) {
+		t.Errorf("offer 3 state = %q, want active", state)
+	}
+	var changed int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM job_offers WHERE offer_state = 'changed'`).Scan(&changed); err != nil {
+		t.Fatal(err)
+	}
+	if changed != 0 {
+		t.Errorf("changed rows after migration = %d, want 0", changed)
+	}
+
+	// The unique identity index is in place and no duplicate remains.
+	var dupes int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM (
+		   SELECT source_id, external_uid FROM job_offer_provenance
+		   WHERE external_uid IS NOT NULL AND external_uid <> ''
+		   GROUP BY source_id, external_uid HAVING COUNT(*) > 1)`).Scan(&dupes); err != nil {
+		t.Fatal(err)
+	}
+	if dupes != 0 {
+		t.Errorf("duplicate (source, uid) pairs after migration = %d, want 0", dupes)
+	}
+
+	// One confirmed alias per company, and a key for the single-employer
+	// typed source. Source 1001 maps to company 2 after the squash.
+	var aliases int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM company_aliases WHERE source_id IS NULL`).Scan(&aliases); err != nil {
+		t.Fatal(err)
+	}
+	if aliases != 3 {
+		t.Errorf("global aliases = %d, want 3", aliases)
+	}
+	var keyCompany int64
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT company_id FROM company_keys WHERE key = 'greenhouse:acme'`).Scan(&keyCompany); err != nil {
+		t.Fatalf("backfilled key: %v", err)
+	}
+	if keyCompany != 2 {
+		t.Errorf("greenhouse:acme belongs to company %d, want 2", keyCompany)
+	}
+
+	// Incomplete offers can have no company, and fingerprints may repeat.
+	res, err := sqlDB.ExecContext(ctx,
+		`INSERT INTO job_offers(company_id, title, title_normalized, fingerprint, first_seen_at, last_seen_at, incomplete_reason, incomplete_raw)
+		 VALUES (NULL, 'Incomplete', 'incomplete', '', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z', 'missing_company', '{"company":""}')`)
+	if err != nil {
+		t.Fatalf("insert incomplete offer: %v", err)
+	}
+	incompleteID, _ := res.LastInsertId()
+	var companyID sql.NullInt64
+	var reason string
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT company_id, incomplete_reason FROM job_offers WHERE id = ?`, incompleteID).
+		Scan(&companyID, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if companyID.Valid || reason != "missing_company" {
+		t.Errorf("incomplete offer company=%v reason=%q, want NULL/missing_company", companyID, reason)
+	}
+	if _, err := sqlDB.ExecContext(ctx,
+		`INSERT INTO job_offers(company_id, title, title_normalized, fingerprint, first_seen_at, last_seen_at) VALUES
+		 (2, 'Dup A', 'dup a', 'same-fp', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z'),
+		 (3, 'Dup B', 'dup b', 'same-fp', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z')`); err != nil {
+		t.Fatalf("duplicate fingerprint rejected: %v", err)
+	}
+
+	// The rebuilt FTS table and its triggers still work.
+	if _, err := sqlDB.ExecContext(ctx,
+		`INSERT INTO job_offers(company_id, title, title_normalized, fingerprint, first_seen_at, last_seen_at)
+		 VALUES (2, 'Unique FTS Token', 'unique fts token', '', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	var hits int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM job_offers_fts WHERE job_offers_fts MATCH 'Unique'`).Scan(&hits); err != nil {
+		t.Fatal(err)
+	}
+	if hits != 1 {
+		t.Errorf("FTS hits after insert = %d, want 1", hits)
+	}
+	if _, err := sqlDB.ExecContext(ctx,
+		`UPDATE job_offers SET title = 'Renamed FTS Token' WHERE title = 'Unique FTS Token'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM job_offers_fts WHERE job_offers_fts MATCH 'Unique'`).Scan(&hits); err != nil {
+		t.Fatal(err)
+	}
+	if hits != 0 {
+		t.Errorf("FTS still finds the old title after update (%d hits)", hits)
+	}
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM job_offers_fts WHERE job_offers_fts MATCH 'Renamed'`).Scan(&hits); err != nil {
+		t.Fatal(err)
+	}
+	if hits != 1 {
+		t.Errorf("FTS hits for the new title = %d, want 1", hits)
+	}
+
+	// The rebuild left no dangling references.
+	rows, err := sqlDB.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows.Next() {
+		rows.Close()
+		t.Fatal("foreign_key_check reported a violation after migration")
+	}
+	rows.Close()
+	var integrity string
+	if err := sqlDB.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
+		t.Fatal(err)
+	}
+	if integrity != "ok" {
+		t.Errorf("integrity_check = %q, want ok", integrity)
+	}
+
+	// A second run is a no-op: the version is recorded once and nothing is
+	// squashed or rebuilt again.
+	offersBefore := 0
+	if err := sqlDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM job_offers`).Scan(&offersBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, sqlDB, migrations.FS); err != nil {
+		t.Fatalf("second Migrate: %v", err)
+	}
+	var recorded int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 12 AND name = 'company_identity'`).
+		Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Errorf("migration 0012 recorded %d times, want 1", recorded)
+	}
+	var offersAfter int
+	if err := sqlDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM job_offers`).Scan(&offersAfter); err != nil {
+		t.Fatal(err)
+	}
+	if offersAfter != offersBefore {
+		t.Errorf("offers after second Migrate = %d, want %d", offersAfter, offersBefore)
+	}
+}
+
 func TestMigrateRunner(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1063,13 +1337,13 @@ func TestFTSTriggers(t *testing.T) {
 	sqlDB := openTest(t)
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 
-	c, _, err := ResolveCompany(ctx, sqlDB, "Acme SAS", now)
+	c, _, err := ResolveCompany(ctx, sqlDB, CompanyInput{Name: "Acme SAS"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw := "Kubernetes clusters and Terraform"
 	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
-		CompanyID: c.ID, Title: "Ingénieur Plateforme", TitleNormalized: "ingenieur plateforme",
+		CompanyID: &c.ID, Title: "Ingénieur Plateforme", TitleNormalized: "ingenieur plateforme",
 		Fingerprint: "fp1", RawText: &raw,
 	}, now)
 	if err != nil {
@@ -1093,7 +1367,7 @@ func TestFTSTriggers(t *testing.T) {
 	}
 
 	newRaw := "Nomad and Consul"
-	if err := UpdateOfferSighting(ctx, sqlDB, o.ID, model.OfferChanged, &newRaw, nil, now); err != nil {
+	if err := UpdateOfferSighting(ctx, sqlDB, o.ID, o.Title, o.TitleNormalized, o.Location, model.OfferActive, &newRaw, nil, now); err != nil {
 		t.Fatal(err)
 	}
 	if got := match("job_offers_fts", "kubernetes"); got != 0 {
@@ -1130,42 +1404,97 @@ func TestResolveCompany(t *testing.T) {
 	sqlDB := openTest(t)
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 
-	tests := []struct {
-		name        string
-		in          string
-		wantCreated bool
-		wantNorm    string
-	}{
-		{"first insert", "Datadog, Inc.", true, "datadog"},
-		{"exact normalized match", "DATADOG", false, "datadog"},
-		{"different company", "Qonto SAS", true, "qonto"},
-		{"suffix variant", "Qonto", false, "qonto"},
+	src1, err := InsertSource(ctx, sqlDB, model.Source{
+		Name: "One", URL: "https://one.example/jobs", Type: model.SourceGreenhouse, Enabled: true,
+	}, now)
+	if err != nil {
+		t.Fatal(err)
 	}
-	ids := map[string]int64{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, created, err := ResolveCompany(ctx, sqlDB, tt.in, now)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if created != tt.wantCreated || c.NameNormalized != tt.wantNorm {
-				t.Errorf("got created=%v norm=%q, want %v %q", created, c.NameNormalized, tt.wantCreated, tt.wantNorm)
-			}
-			if prev, ok := ids[c.NameNormalized]; ok && prev != c.ID {
-				t.Errorf("same normalized name resolved to different IDs %d and %d", prev, c.ID)
-			}
-			ids[c.NameNormalized] = c.ID
-		})
+	src2, err := InsertSource(ctx, sqlDB, model.Source{
+		Name: "Two", URL: "https://two.example/jobs", Type: model.SourceLever, Enabled: true,
+	}, now)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, _, err := ResolveCompany(ctx, sqlDB, "  ", now); err == nil {
-		t.Error("empty company name accepted")
+	src1ID, src2ID := src1.ID, src2.ID
+
+	// A key seen twice resolves to the same company even when the board
+	// starts reporting a new display name; the new name is recorded for
+	// that source.
+	a, created, err := ResolveCompany(ctx, sqlDB,
+		CompanyInput{Key: "greenhouse:acme", Name: "Acme", SourceID: &src1ID}, now)
+	if err != nil || !created || a.NameNormalized != "acme" {
+		t.Fatalf("first key resolution = %+v created=%v err=%v", a, created, err)
 	}
+	b, created, err := ResolveCompany(ctx, sqlDB,
+		CompanyInput{Key: "greenhouse:acme", Name: "Acme Careers", SourceID: &src1ID}, now)
+	if err != nil || created || b.ID != a.ID {
+		t.Errorf("second key resolution = %+v created=%v err=%v, want company %d", b, created, err, a.ID)
+	}
+	if _, err := GetCompanyByAlias(ctx, sqlDB, "acme careers", src1ID); err != nil {
+		t.Errorf("new display name was not recorded for the source: %v", err)
+	}
+
+	// The same display name under a different key and source is a
+	// different company.
+	c, created, err := ResolveCompany(ctx, sqlDB,
+		CompanyInput{Key: "lever:acme", Name: "Acme", SourceID: &src2ID}, now)
+	if err != nil || !created || c.ID == a.ID {
+		t.Errorf("different key = %+v created=%v err=%v, want a separate company", c, created, err)
+	}
+
+	// A name-only claim is scoped to its source: the same name from two
+	// sources creates two companies until the user merges them.
+	d, created, err := ResolveCompany(ctx, sqlDB, CompanyInput{Name: "Beta", SourceID: &src1ID}, now)
+	if err != nil || !created {
+		t.Fatalf("name-only source 1 = %+v created=%v err=%v", d, created, err)
+	}
+	e, created, err := ResolveCompany(ctx, sqlDB, CompanyInput{Name: "Beta", SourceID: &src2ID}, now)
+	if err != nil || !created || e.ID == d.ID {
+		t.Errorf("name-only source 2 = %+v created=%v err=%v, want a separate company", e, created, err)
+	}
+
+	// A confirmed global alias (explicit company creation) resolves for
+	// any source.
+	g, err := CreateCompany(ctx, sqlDB, "Global Co", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, created, err := ResolveCompany(ctx, sqlDB, CompanyInput{Name: "Global Co", SourceID: &src2ID}, now)
+	if err != nil || created || got.ID != g.ID {
+		t.Errorf("global alias resolution = %+v created=%v err=%v, want company %d", got, created, err, g.ID)
+	}
+
+	// No usable evidence.
+	if _, _, err := ResolveCompany(ctx, sqlDB, CompanyInput{}, now); !errors.Is(err, ErrCompanyUnknown) {
+		t.Errorf("empty input error = %v, want ErrCompanyUnknown", err)
+	}
+	if _, _, err := ResolveCompany(ctx, sqlDB, CompanyInput{Key: "ashby:unknown"}, now); !errors.Is(err, ErrCompanyUnknown) {
+		t.Errorf("unknown key without a name error = %v, want ErrCompanyUnknown", err)
+	}
+}
+
+// insertLegacyCompany writes a company directly, for upgrade tests whose
+// base schema predates company_keys/company_aliases (migration 0012).
+func insertLegacyCompany(t *testing.T, sqlDB *sql.DB, name, norm string, now time.Time) model.Company {
+	t.Helper()
+	res, err := sqlDB.ExecContext(context.Background(),
+		`INSERT INTO companies(name, name_normalized, created_at) VALUES (?, ?, ?)`,
+		name, norm, model.FormatTime(now))
+	if err != nil {
+		t.Fatalf("insert legacy company %q: %v", name, err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return model.Company{ID: id, Name: name, NameNormalized: norm, CreatedAt: now}
 }
 
 func TestBackup(t *testing.T) {
 	ctx := context.Background()
 	sqlDB := openTest(t)
-	if _, _, err := ResolveCompany(ctx, sqlDB, "Acme", time.Now()); err != nil {
+	if _, _, err := ResolveCompany(ctx, sqlDB, CompanyInput{Name: "Acme"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	dest := filepath.Join(t.TempDir(), "backup.db")
@@ -1177,7 +1506,7 @@ func TestBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer copyDB.Close()
-	if _, err := GetCompanyByNormalized(ctx, copyDB, "acme"); err != nil {
+	if _, err := GetCompanyByGlobalAlias(ctx, copyDB, "acme"); err != nil {
 		t.Errorf("company missing from backup: %v", err)
 	}
 	if err := Backup(ctx, sqlDB, dest); err == nil {

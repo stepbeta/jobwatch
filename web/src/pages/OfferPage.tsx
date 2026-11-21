@@ -463,7 +463,7 @@ export function OfferPage({
   }
 
   async function openMerge() {
-    if (!detail) return
+    if (!detail || !detail.company) return
     setMergeOpen(true)
     setMergeLoading(true)
     setMergeError('')
@@ -551,24 +551,24 @@ export function OfferPage({
   return (
     <div className="page">
       <div className="breadcrumb">
-        <Link to="/">Dashboard</Link> / <Link to={`/companies/${detail.company.id}`}>{detail.company.name}</Link>
+        <Link to="/">Dashboard</Link> /{' '}
+        {detail.company ? (
+          <Link to={`/companies/${detail.company.id}`}>{detail.company.name}</Link>
+        ) : (
+          <span>Incomplete offer</span>
+        )}
       </div>
 
       {error && <div className="error-box">{error}</div>}
-      {detail.offer.offer_state === 'changed' && (
-        <div className="changed-banner">
-          <strong>Description changed.</strong> Review the added and removed lines in the description diff
-          below. Set the offer state back to <em>active</em> to acknowledge it.
-        </div>
-      )}
 
       <section className="panel offer-header">
         <div className="offer-identity">
           <div className="offer-title">
-            <h1>{detail.offer.title}</h1>
+            <h1>{detail.offer.title || 'Untitled offer'}</h1>
             <div className="muted">
               {detail.offer.location ?? 'No location'} · {detail.offer.remote_policy} · first seen{' '}
-              {fmtDateTime(detail.offer.first_seen_at)}
+              {fmtDateTime(detail.offer.first_seen_at)} · {detail.snapshot_count} description{' '}
+              version{detail.snapshot_count === 1 ? '' : 's'}
             </div>
           </div>
           <div className="badges">
@@ -1019,9 +1019,9 @@ export function OfferPage({
         </section>
       </div>
 
-      <details className="panel snapshot" open={detail.offer.offer_state === 'changed'}>
+      <details className="panel snapshot">
         <summary>
-          Description ({detail.snapshot_count} snapshot{detail.snapshot_count === 1 ? '' : 's'})
+          Description ({detail.snapshot_count} version{detail.snapshot_count === 1 ? '' : 's'})
         </summary>
         {snapshots.length > 0 && activeSnapshot ? (
           <div className="snapshot-viewer">

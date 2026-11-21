@@ -1,0 +1,206 @@
+# Design
+
+## Context
+
+See `proposal.md - Why`. Current constraints that shape the approach:
+
+- `job_offers.fingerprint` is `UNIQUE` and composed of the company's normalized
+  display name, the normalized title and a location bucket.
+- `job_offer_provenance` already stores `external_uid` per `(offer, source, url)`;
+  it is populated for most rows but unused for identity.
+- `db.ResolveCompany` looks a company up by `name_normalized` and creates it if
+  missing; the scan pipeline supplies its input as
+  `firstNonEmpty(raw.Company, cfg.Company, src.Name)`.
+- Companies own offers and company-level notes; a confirmed merge already moves both
+  and rewrites fingerprints.
+- The UI reaches a company only through an offer or the dashboard.
+
+## Goals / Non-Goals
+
+**Goals:**
+
+- Identity and company attribution are decided from values the source attests to.
+- A confirmed decision (merge, repair) is durable and never re-asked.
+- Existing data survives: no offer, event, note or snapshot is lost by the migration.
+
+**Non-Goals:**
+
+- Redesigning the UI beyond what the behavior changes require.
+- Adding scheduling, notifications, or new source types.
+- Deciding how descriptions are compared; history is kept, comparison is a
+  presentation concern.
+
+## Decisions
+
+### Identity is `(source, external_uid)`, with `(source, url)` as fallback
+
+`job_offer_provenance` becomes the identity carrier rather than a side record: a
+sighting is first resolved to an existing provenance row, then to its offer. The
+`fingerprint` column loses its uniqueness and stops being written as an identity; it
+is retained only until the code that reads it is removed.
+
+Alternatives: keep the fingerprint and add the uid as a tiebreaker. Rejected —
+two identity sources mean two answers when they disagree.
+
+### Every offer belongs to a company row, with one relaxed invariant
+
+An offer is created only when its company is known. Items without a company are
+stored as incomplete offers whose company is absent; the invariant becomes "an
+offer has at most one company, and needs one to be usable". This keeps provenance,
+snapshots and notes working for incomplete items.
+
+Alternatives: a separate staging table. Rejected — it duplicates half of
+`job_offers` and forces the UI to render two kinds of rows; a sentinel "Unresolved"
+company. Rejected — it reintroduces the pseudo-company this change removes.
+
+### Company identity is a set of keys plus per-source name claims
+
+```
+companies(id, name, website, ...)                 -- name is display, not unique
+company_keys(id, company_id, key)                 -- UNIQUE(key); one company may hold several
+company_aliases(id, company_id, name_normalized, source_id)
+                                                  -- UNIQUE(source_id, name_normalized)
+                                                  -- source_id NULL = confirmed for all sources
+```
+
+Resolution order: key, then alias for this source, then confirmed alias, then create.
+Adapters supply the key they already hold (board token, org, site, account, subdomain,
+tenant, company slug). A feed supplies only a name, so its resolution is scoped to that
+source.
+
+Alternatives: a single `companies.key` column. Rejected — a company can legitimately
+have a board on more than one provider. Global uniqueness of names. Rejected — two
+employers may share a name.
+
+### A merge writes the absorbed identities into the absorbing company
+
+The merge moves offers, notes and provenance as it does today, then records the
+absorbed company's keys and names on the winner and deletes the emptied row. Later
+sightings of those keys or names resolve to the winner, so the merge is learned once.
+
+Alternatives: keep the absorbed row as a redirect. Rejected — it keeps ghost rows
+addressable and re-creates the problem in a different shape.
+
+### Incomplete items are offers with a reason
+
+One nullable column records why an offer is incomplete (missing company, missing
+title, or both) and keeps the raw reported values. Repairs are written by the user;
+scans never update company or title on an existing offer, so a repair cannot be
+undone by a refresh.
+
+### `changed` is removed, `snapshots` is kept
+
+The state was a permanent latch computed from a text hash. Listing state becomes
+`active | disappeared`; description differences are recorded as snapshots and
+compared when the user asks to see them.
+
+## Risks / Trade-offs
+
+- [Provenance becomes a primary key table] -> migration must backfill identity rows
+  before `fingerprint` uniqueness is dropped, and the merge/split paths must be
+  re-pointed at provenance rather than fingerprint.
+- [Some sources have no uid] -> the URL fallback is weaker; the adapter spec requires
+  a stable uid wherever the source offers one, and tests fetch twice to prove it.
+- [Incomplete offers can accumulate] -> the count is surfaced per scan and in the
+  incomplete view, so a source that stops normalizing is visible immediately.
+- [Company resolution errors are now durable] -> a wrong merge propagates to later
+  scans. Mitigation: merges stay explicit and the split path already exists.
+- [Removing `changed`] -> existing rows need a data migration and the UI filter and
+  badge must be updated in the same batch.
+
+## Migration Plan
+
+1. Add `company_keys`, `company_aliases`, `incomplete` marker; backfill one alias per
+   company from its current `name_normalized`, and keys from each source's existing
+   config token where the source's offers map to a single company.
+2. Rewrite offer identity resolution to provenance and assert uniqueness on
+   `(source_id, external_uid)`; keep the fingerprint column in place, unused.
+3. Set `offer_state='active'` for rows in `changed`; drop the value from the enum.
+4. Rollback: the new tables and columns are additive; the only destructive step is the
+   `changed` update, which is reversible by re-running scans. A `jobwatch backup`
+   before migrating is the supported safety net.
+5. Existing data is corrected by an explicit `jobwatch reattribute` pass, not by the
+   migration: re-attribution needs the adapters' current output, so it re-fetches
+   each source and rewrites company and title on offers matched by `(source, uid)`.
+   It is idempotent and leaves offers it cannot match alone. Scanning alone cannot do
+   this, because scans never rewrite company or title on an existing offer.
+
+## Open Questions
+
+- Whether the fingerprint column is dropped in this change or left unused for a later
+  cleanup. Deferrable: it must stop being unique here either way.
+
+## Implementation notes
+
+- **Duplicate provenance rows.** The live database already held 80
+  `(source_id, external_uid)` pairs attached to two or three offers, left
+  by the old fingerprint identity. A plain unique index cannot be created
+  over them. The user chose to squash each group onto the surviving offer
+  (active, then changed, then most recently seen): the kept link inherits
+  the earliest `first_seen_at` and latest `last_seen_at`, the other links
+  are removed, and the duplicate offer rows are left in place without a
+  source link. No offer, event, note or snapshot is deleted. This is the
+  only place where links move between offers, and it is recorded in the
+  0012 header and in `docs/DATA-MODEL.md`.
+- **Migration runner.** Rebuilding `job_offers` (nullable `company_id`,
+  no fingerprint uniqueness) requires foreign keys to be off, otherwise
+  `DROP TABLE` cascades into events, notes and snapshots. The runner now
+  pins a connection, disables enforcement, runs the migration, checks
+  `PRAGMA foreign_key_check` before committing, and restores enforcement.
+- **Company name uniqueness is gone.** Migration 0013 rebuilds
+  `companies` without the UNIQUE constraint on `name_normalized` and adds
+  a non-unique lookup index. Resolution is key → source alias → confirmed
+  global alias → create; a bare name is never matched across sources.
+  Explicit creation and rename add a global alias when the name is free;
+  merge moves keys/aliases and records the absorbed name.
+- **Fingerprint identity is no longer read.** Group 2 resolves sightings
+  through provenance. Group 3 removes the company rename/merge fingerprint
+  rewrites and the offer-split collision check, so no path depends on
+  fingerprint uniqueness. New offers and splits still get a computed
+  fingerprint for the legacy column; two offers may share one. A later
+  cleanup can drop the column.
+- **Manual imports have URL identity.** A manual import has no source, so
+  its URL is matched against every provenance row. A known URL attaches to
+  the existing offer; a new URL creates a new offer even when company and
+  title match another one. A manual import does not rewrite the title or
+  location of an offer it attaches to. This replaces the old
+  company+title fingerprint match and is reflected in the API/CLI text.
+- **The source name is not a company fallback.** Group 3 removes
+  `src.Name` from the sighting fallback. Migration 0013 sets
+  `config.company` on enabled single-employer sources (typed ATS plus
+  RSS/HTML except We Work Remotely) to preserve the old attribution. An
+  item with neither adapter company evidence nor `config.company` is
+  stored as an incomplete offer by group 5 rather than skipped.
+- **Adapters carry the evidence.** Group 4 adds `CompanyKey` and
+  `IncompleteReason` to `RawOffer`; every typed adapter emits its
+  namespaced token. RSS/HTML gain a declarative `employer` rule
+  (`separator`, plus `field`/`selector`) that rewrites company and title.
+  Migration 0014 configures it for We Work Remotely, and a 169-employer
+  fixture proves the split and uid stability. Adapters return an item
+  with an incomplete reason instead of dropping it; group 5 stores it.
+- **Incomplete offers are stored, not shown.** Group 5 inserts a row
+  with a NULL company and/or empty title, the raw reported values in
+  `incomplete_raw`, and `incomplete_reason`. The scan pipeline recomputes
+  the reason from the fields (the adapter hint is advisory) and counts
+  the item in `Result.Incomplete`. An item without a URL is still
+  skipped: without provenance there is no identity to rescan or repair.
+  The list, dashboard, search and CLI hide incomplete rows by default;
+  `IncompleteOnly` backs the repair view.
+- **Repair is durable.** `POST /api/offers/:id/repair` assigns company,
+  title and optional location, clears `incomplete_reason` and re-runs the
+  classifier, but keeps `incomplete_raw`. Scans treat a non-NULL
+  `incomplete_raw` as "the user owns the title/location" and only refresh
+  the sighting, so neither an unnormalized nor a later complete sighting
+  can overwrite a repair.
+- **Existing We Work Remotely offers are re-attributed on demand.** A
+  scan never rewrites the company of an existing offer, so group 6 adds
+  `jobwatch reattribute`: it re-fetches a source and moves offers matched
+  by `(source, uid)` to the adapter's current employer and title,
+  preserving events, notes, snapshots, application state and listing
+  state. Resolution is the scan order, and the pass is idempotent. A
+  repaired offer is skipped so the user's values win; an offer with no
+  current sighting is left untouched. The live run moved 33 of the 289
+  We Work Remotely offers to 26 employers; the remaining 256 predate the
+  current 98-item feed and stay under the feed as history. This is a
+  data-remediation gap, not a resolution rule; the fixture proves the
+  adapter output and the command proves the move.

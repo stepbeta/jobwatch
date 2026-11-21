@@ -81,7 +81,7 @@ type companyCandidateJSON struct {
 
 type offerJSON struct {
 	ID                 int64           `json:"id"`
-	CompanyID          int64           `json:"company_id"`
+	CompanyID          *int64          `json:"company_id"`
 	CompanyName        string          `json:"company_name"`
 	Title              string          `json:"title"`
 	Location           *string         `json:"location"`
@@ -98,6 +98,8 @@ type offerJSON struct {
 	LastEventAt        *string         `json:"last_event_at"`
 	SavedAt            *string         `json:"saved_at"`
 	RawText            *string         `json:"raw_text,omitempty"`
+	IncompleteReason   string          `json:"incomplete_reason,omitempty"`
+	IncompleteRaw      json.RawMessage `json:"incomplete_raw,omitempty"`
 }
 
 func offerToJSON(o db.OfferListItem) offerJSON {
@@ -126,6 +128,8 @@ func offerModelToJSON(o model.JobOffer, companyName string) offerJSON {
 		LocationConfidence: o.LocationConfidence,
 		MatchReasons:       rawJSON(o.MatchReasonsJSON),
 		SavedAt:            timeStringPtr(o.SavedAt),
+		IncompleteReason:   string(o.IncompleteReason),
+		IncompleteRaw:      rawJSON(o.IncompleteRaw),
 	}
 }
 

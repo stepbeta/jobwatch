@@ -80,6 +80,7 @@ func TestSourceScan(t *testing.T) {
 	ts := newTestServer(t)
 	rec := ts.do(t, "POST", "/api/sources", map[string]any{
 		"name": "Acme", "url": "https://boards.greenhouse.io/acme",
+		"config": map[string]any{"company": "Acme"},
 	})
 	wantCode(t, rec, 201)
 	src := decodeBody[sourceResp](t, rec).Source

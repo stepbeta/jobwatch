@@ -54,6 +54,10 @@ func (wk *Workable) Fetch(ctx context.Context, src model.Source) ([]RawOffer, er
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := ParseConfig(src)
+	if err != nil {
+		return nil, err
+	}
 	base := wk.BaseURL
 	if base == "" {
 		base = workableBaseURL
@@ -73,12 +77,11 @@ func (wk *Workable) Fetch(ctx context.Context, src model.Source) ([]RawOffer, er
 	order := make([]string, 0, len(resp.Jobs))
 	groups := make(map[string]*grouped, len(resp.Jobs))
 	for _, j := range resp.Jobs {
-		title := strings.TrimSpace(j.Title)
 		key := strings.TrimSpace(j.Shortcode)
 		if key == "" {
 			key = strings.TrimSpace(j.URL)
 		}
-		if title == "" || key == "" {
+		if key == "" {
 			continue
 		}
 		g, ok := groups[key]
@@ -90,6 +93,7 @@ func (wk *Workable) Fetch(ctx context.Context, src model.Source) ([]RawOffer, er
 		g.locations = append(g.locations, workableLocations(j)...)
 	}
 
+	companyID := companyKey(model.SourceWorkable, account)
 	out := make([]RawOffer, 0, len(order))
 	for _, key := range order {
 		g := groups[key]
@@ -98,14 +102,15 @@ func (wk *Workable) Fetch(ctx context.Context, src model.Source) ([]RawOffer, er
 		if link == "" {
 			continue
 		}
-		out = append(out, RawOffer{
+		out = append(out, finalizeOffer(RawOffer{
 			ExternalUID: strings.TrimSpace(j.Shortcode),
 			Title:       strings.TrimSpace(j.Title),
 			Location:    joinLocations(g.locations, j.Telecommuting),
 			URL:         link,
 			Description: HTMLToText(j.Description),
 			Company:     strings.TrimSpace(resp.Name),
-		})
+			CompanyKey:  companyID,
+		}, cfg.Company))
 	}
 	return out, nil
 }

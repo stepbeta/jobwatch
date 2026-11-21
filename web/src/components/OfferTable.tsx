@@ -141,7 +141,11 @@ export function OfferTable({
               )}
               {visible.includes('company') && (
                 <td>
-                  <Link to={`/companies/${o.company_id}`}>{o.company_name}</Link>
+                  {o.company_id === null ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    <Link to={`/companies/${o.company_id}`}>{o.company_name}</Link>
+                  )}
                 </td>
               )}
               {visible.includes('title') && (

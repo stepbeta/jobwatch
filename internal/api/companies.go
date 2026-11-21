@@ -70,10 +70,6 @@ func (s *Server) createCompany(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	c, err := db.CreateCompany(r.Context(), s.DB, in.Name, website, s.now())
-	if errors.Is(err, db.ErrCompanyNameTaken) {
-		writeError(w, http.StatusConflict, "duplicate_company", "a company with this normalized name already exists")
-		return
-	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -134,11 +130,17 @@ func (s *Server) getCompany(w http.ResponseWriter, r *http.Request) {
 	out := companyToJSON(c)
 	out.OfferCount = offers.Total
 	out.NoteCount = len(notes)
+	keys, err := db.ListCompanyKeys(ctx, s.DB, c.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"company":             out,
 		"offers":              offerOut,
 		"notes":               noteOut,
 		"possible_duplicates": candOut,
+		"keys":                keys,
 	})
 }
 
@@ -183,16 +185,9 @@ func (s *Server) patchCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, err := db.UpdateCompany(r.Context(), s.DB, id, u, s.now())
-	var conflict *db.ConflictError
 	switch {
 	case errors.Is(err, db.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", fmt.Sprintf("company %d not found", id))
-		return
-	case errors.Is(err, db.ErrCompanyNameTaken):
-		writeError(w, http.StatusConflict, "duplicate_company", "a company with this normalized name already exists")
-		return
-	case errors.As(err, &conflict):
-		writeError(w, http.StatusConflict, "merge_conflict", conflict.Error())
 		return
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -245,16 +240,12 @@ func (s *Server) mergeCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := db.MergeCompanies(r.Context(), s.DB, id, in.IntoID, s.now())
-	var conflict *db.ConflictError
 	switch {
 	case errors.Is(err, db.ErrMergeSelf):
 		writeError(w, http.StatusBadRequest, "validation_failed", "a company cannot be merged into itself")
 		return
 	case errors.Is(err, db.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "one of the companies does not exist")
-		return
-	case errors.As(err, &conflict):
-		writeError(w, http.StatusConflict, "merge_conflict", conflict.Error())
 		return
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())

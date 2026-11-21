@@ -147,7 +147,7 @@ function reportBatch(
   onNotice: (kind: NoticeKind, text: string) => void,
 ): void {
   let added = 0
-  let changed = 0
+  let incomplete = 0
   let disappeared = 0
   let failed = 0
   for (const outcome of outcomes) {
@@ -158,12 +158,12 @@ function reportBatch(
       continue
     }
     added += outcome.response?.result.new ?? 0
-    changed += outcome.response?.result.changed ?? 0
+    incomplete += outcome.response?.result.incomplete ?? 0
     disappeared += outcome.response?.result.disappeared ?? 0
   }
   onNotice(
     failed > 0 ? 'error' : 'success',
-    `${label}: ${added} new, ${changed} changed, ${disappeared} disappeared` +
+    `${label}: ${added} new, ${incomplete} incomplete, ${disappeared} disappeared` +
       (failed > 0 ? `, ${failed} source(s) failed.` : '.'),
   )
 }
@@ -682,7 +682,7 @@ export function SourcesPage({
                             {result ? (
                               <span className={result.status === 'ok' ? 'muted' : 'warn-text'} title={result.error}>
                                 {result.status === 'ok'
-                                  ? `${result.new} new · ${result.changed} changed · ${result.disappeared} gone`
+                                  ? `${result.new} new · ${result.incomplete} incomplete · ${result.disappeared} gone`
                                   : result.error || result.status}
                               </span>
                             ) : (

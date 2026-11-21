@@ -39,6 +39,10 @@ func (a *Ashby) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error)
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := ParseConfig(src)
+	if err != nil {
+		return nil, err
+	}
 	base := a.BaseURL
 	if base == "" {
 		base = ashbyBaseURL
@@ -49,12 +53,13 @@ func (a *Ashby) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error)
 	if err := a.Client.GetJSON(ctx, src, u, &resp); err != nil {
 		return nil, fmt.Errorf("ashby %s: %w", org, err)
 	}
+	key := companyKey(model.SourceAshby, org)
 	out := make([]RawOffer, 0, len(resp.Jobs))
 	for _, j := range resp.Jobs {
 		if j.IsListed != nil && !*j.IsListed {
 			continue
 		}
-		if j.Title == "" || j.JobURL == "" {
+		if j.JobURL == "" {
 			continue
 		}
 		locs := []string{}
@@ -74,13 +79,14 @@ func (a *Ashby) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error)
 		if uid == "" {
 			uid = path.Base(strings.TrimSuffix(j.JobURL, "/"))
 		}
-		out = append(out, RawOffer{
+		out = append(out, finalizeOffer(RawOffer{
 			ExternalUID: uid,
 			Title:       j.Title,
 			Location:    strings.Join(locs, "; "),
 			URL:         j.JobURL,
 			Description: desc,
-		})
+			CompanyKey:  key,
+		}, cfg.Company))
 	}
 	return out, nil
 }

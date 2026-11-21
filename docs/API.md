@@ -38,7 +38,8 @@ the project overview is the [README](../README.md).
 |---|---|
 | `source_type` | `greenhouse` `lever` `ashby` `personio` `workable` `bamboohr` `wttj` `rss` `html` `manual` |
 | `last_scan_status` | `ok` `error` `blocked`; `null` = never scanned |
-| `offer_state` | `active` `changed` `disappeared` |
+| `offer_state` | `active` `disappeared` |
+| offer `incomplete_reason` | `missing_company` `missing_title` `missing_company_title`; `null` for a usable offer |
 | `application_state` | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
 | `remote_policy` | `remote` `hybrid` `onsite` `unknown` |
 | event `type` | `cv_sent` `message_received` `message_sent` `interview` `offer` `rejected` `ghosted` `other` |
@@ -133,15 +134,17 @@ type without an adapter is `skipped` and its status is left untouched.
   "result": {
     "source_id": 1, "source_name": "Acme", "status": "ok",
     "fetched": 12, "skipped": 0, "new": 2, "seen": 9,
-    "changed": 1, "reappeared": 0, "disappeared": 1,
+    "reappeared": 0, "disappeared": 1, "incomplete": 1,
     "error": ""
   },
   "source": { "id": 1, "last_scan_status": "ok", "...": "..." }
 }
 ```
 
-`status` is `ok`, `error`, `blocked` or `skipped`. `error` is omitted
-when empty. `404 not_found` for an unknown source.
+`status` is `ok`, `error`, `blocked` or `skipped`. `incomplete` counts
+items stored as incomplete offers (missing company and/or title) rather
+than skipped. `error` is omitted when empty. `404 not_found` for an
+unknown source.
 
 ## Offers
 
@@ -160,10 +163,15 @@ Query parameters (all optional):
 | `company_id` | restrict to one company |
 | `has_application` | `true`/`1`: only `application_state != todo` |
 | `saved` | `true`/`false`: only bookmarked (`saved_at` set) or only unbookmarked offers. Absent = no filter. Invalid values → `400 validation_failed` |
+| `incomplete` | `true`: only incomplete offers (missing company and/or title). Absent or `false` excludes them. Invalid values → `400 validation_failed` |
 | `sort` | `last_seen` (default), `first_seen`, `recent_event`, `title`, `company`, `location`, `title_confidence`, `location_confidence`, `saved` |
 | `order` | `asc` or `desc`; absent keeps the sort's historical default. Invalid values → `400 validation_failed` |
 | `limit` | default 50, maximum 200 |
 | `offset` | default 0 |
+
+Incomplete offers (missing company and/or title) are excluded by
+default. `incomplete=true` lists only them; the incomplete page uses
+this filter and its `total` for the item count.
 
 `recent_event` orders by the latest timeline event, falling back to
 `updated_at` when an offer has no events (used by the dashboard's
@@ -203,11 +211,19 @@ classifier existed keep `null` scores until `jobwatch reclassify` or the
 next sighting; `min_title_confidence` / `min_location_confidence` exclude
 NULL scores.
 
+An incomplete offer has `company_id: null` when the source reported no
+company, and adds `incomplete_reason` (`missing_company`,
+`missing_title`, `missing_company_title`) and `incomplete_raw` (the JSON
+values the source reported). Both fields are omitted for a complete
+offer.
+
 ### POST /api/offers/import
 
-Manually add an offer seen elsewhere. Runs the same dedup path as scans
-in one transaction; a matching fingerprint adds a provenance row to the
-existing offer instead of creating a duplicate.
+Manually add an offer seen elsewhere. Runs the same provenance identity
+path as scans in one transaction: a URL already linked to an offer adds
+the import to that offer instead of creating a duplicate, while a new URL
+creates a new offer even when the company and title match another one.
+Title and company are attributes, not identity.
 
 Two input modes:
 
@@ -296,9 +312,10 @@ version 1 is the oldest row; `text_length` counts Unicode characters.
 snapshot. `latest_snapshot` is `null` when no snapshot exists.
 `snapshot_diff` is `null` until two snapshots exist; `op` is `equal`,
 `added` or `removed`, and it always compares the two latest snapshots in
-chronological order. `404 not_found` for an unknown offer or a
-`snapshot_id` that does not belong to it; `400 validation_failed` for a
-malformed `snapshot_id`.
+chronological order. For an incomplete offer with no company,
+`offer.company_id` and `company` are `null`. `404 not_found` for an
+unknown offer or a `snapshot_id` that does not belong to it; `400
+validation_failed` for a malformed `snapshot_id`.
 
 ### GET /api/offers/:id/snapshot-diff
 
@@ -344,16 +361,14 @@ Body may contain any of:
   string stores no description (NULL `raw_text`/`text_hash`) and appends
   an empty snapshot. A description edit does not change `offer_state`.
 - The update bumps `updated_at`; that is the audit trail.
-- Setting `offer_state` to `active` is how a user acknowledges a
-  `changed` offer.
 - Fingerprints are not recomputed on a location correction.
 - `200 { "offer": {...} }` (including the current `raw_text` and
   `saved_at`); `400 validation_failed` when no field is given or a value
   is invalid;
   `404 not_found`.
 - A later scan is not special-cased: a sighting whose description hash
-  differs from the stored (including manual) hash marks the offer
-  `changed` and appends another snapshot; a sighting without a
+  differs from the stored (including manual) hash records another
+  snapshot and keeps the offer `active`; a sighting without a
   description leaves the stored text untouched.
 
 ### POST /api/offers/:id/merge
@@ -368,8 +383,9 @@ In one transaction: every provenance row, event, offer note and snapshot
 of `:id` moves to `into_id`; earliest `first_seen_at`/latest
 `last_seen_at` are kept; duplicate provenance URLs are collapsed; the
 target adopts the source application state only when it is still `todo`;
-`changed` wins if either offer was changed. The absorbed offer row is
-removed after its children have moved.
+an active offer stays active, and only two disappeared offers stay
+disappeared. The absorbed offer row is removed after its children have
+moved.
 
 ```json
 {
@@ -411,9 +427,36 @@ owned it.
 
 - `400 validation_failed` for no/foreign provenance rows, or when no row
   would remain on the original.
-- `409 offer_conflict` when the new company+title+location already
-  exists; change the title or location and retry.
 - `404 not_found` for an unknown offer.
+
+The new offer may share the company, title and location of another
+offer; identity is the provenance row, not the fingerprint.
+
+### POST /api/offers/:id/repair
+
+Assigns a company and title to an incomplete offer after user
+confirmation.
+
+```json
+{ "company_id": 2, "title": "Site Reliability Engineer",
+  "location": "Paris, France" }
+```
+
+`company_id` and `title` are required; `location` is optional (absent or
+empty keeps the stored location). In one transaction the offer gets the
+company, title and location, `incomplete_reason` is cleared, and the
+classifier re-runs. `incomplete_raw` is kept: it is the marker that makes
+later scans preserve the user's title and location.
+
+```json
+{ "offer": { "id": 7, "company_id": 2, "title": "Site Reliability Engineer",
+             "incomplete_reason": "", "incomplete_raw": { "...": "..." },
+             "...": "..." } }
+```
+
+- `400 validation_failed` when `company_id`/`title` is missing or the
+  offer is not incomplete.
+- `404 not_found` for an unknown offer or company.
 
 ## Events (offer timeline)
 
@@ -497,8 +540,9 @@ Parameters: `q` (matches the display or normalized name), `limit`
 { "name": "Acme", "website": "https://acme.example" }
 ```
 
-`201 { "company": {...} }`. `409 duplicate_company` when the normalized
-name already exists.
+`201 { "company": {...} }`. Names are not unique: a company with the
+same normalized name is allowed. The new company claims a confirmed
+global alias for its name only when no other company holds it.
 
 ### GET /api/companies/:id
 
@@ -513,23 +557,23 @@ that the UI may propose for merging:
   "notes": [ { "...": "..." } ],
   "possible_duplicates": [ { "id": 9, "name": "Acme France",
                              "name_normalized": "acme france",
-                             "score": 75, "reason": "one name extends the other" } ]
+                             "score": 75, "reason": "one name extends the other" } ],
+  "keys": [ "greenhouse:acme", "lever:acme" ]
 }
 ```
 
+`keys` lists the attested company identifiers (`greenhouse:<board_token>`,
+`lever:<site>`, …) and is `[]` when the company has none. The company
+page shows them so same-named companies can be told apart.
 Candidates are proposals only; nothing is merged automatically.
 
 ### PATCH /api/companies/:id
 
 `name` and/or `website` (`null` clears the website). Renaming changes
-the normalized name and therefore rewrites the fingerprints of the
-company's offers so future scans keep deduplicating correctly.
+the display and normalized name and records both the old and the new
+name as global aliases; offers keep their identity, company and
+fingerprint. Renaming to a name another company uses is allowed.
 `200 { "company": {...} }`.
-
-- `409 duplicate_company` when the new normalized name is taken.
-- `409 merge_conflict` when a rewritten fingerprint would collide with
-  an existing offer; the message lists the offer IDs and nothing is
-  written.
 
 ### DELETE /api/companies/:id
 
@@ -546,10 +590,11 @@ an explicit user confirmation.
 { "into_id": 2 }
 ```
 
-In one transaction: offers and company-level notes move to the target,
-offer fingerprints are rewritten with the target's normalized name
-(keeping their location bucket), the target inherits the source website
-when it has none, and the emptied company row is deleted.
+In one transaction: offers, company-level notes, keys and aliases move
+to the target; the absorbed display name becomes a confirmed global
+alias of the target; the target inherits the source website when it has
+none, and the emptied company row is deleted. A key or alias the target
+already holds is kept once. Offer fingerprints are not rewritten.
 
 ```json
 { "company": { "id": 2, "...": "..." },
@@ -558,9 +603,6 @@ when it has none, and the emptied company row is deleted.
 
 - `400 validation_failed` when merging a company into itself.
 - `404 not_found` when either company does not exist.
-- `409 merge_conflict` when a moved offer's new fingerprint already
-  exists in the target (same company + title + location bucket). The
-  merge is rolled back; the user must resolve the offers first.
 
 ## Interview prep
 
@@ -649,8 +691,5 @@ Any of `question`, `answer`, `category`, `display_order`.
 | 422 | `metadata_unavailable` | URL import could not fetch or parse the page; response includes `metadata` |
 | 404 | `not_found` | unknown endpoint, entity or child entity |
 | 409 | `duplicate_source` | another source uses the URL |
-| 409 | `duplicate_company` | normalized company name already exists |
 | 409 | `company_has_offers` | deleting a company that still owns offers |
-| 409 | `merge_conflict` | offer fingerprints would collide during rename/merge |
-| 409 | `offer_conflict` | splitting an offer would reuse an existing company+title+location fingerprint |
 | 500 | `internal` | unexpected storage error |

@@ -33,12 +33,12 @@ type Result struct {
 	Err    error
 
 	Fetched     int // offers returned by the adapter
-	Skipped     int // raw offers ignored (missing title or URL)
+	Skipped     int // raw offers ignored (no URL to carry identity)
 	New         int
-	Seen        int // existing offers seen again (includes Changed and Reappeared)
-	Changed     int
+	Seen        int // existing offers seen again (includes Reappeared)
 	Reappeared  int // disappeared -> active
 	Disappeared int
+	Incomplete  int // items stored as incomplete offers
 }
 
 func (s *Scanner) now() time.Time {
@@ -116,7 +116,8 @@ func (s *Scanner) apply(ctx context.Context, src model.Source, raws []sources.Ra
 	srcID := src.ID
 	for _, raw := range raws {
 		in := Sighting{
-			Company:     firstNonEmpty(raw.Company, cfg.Company, src.Name),
+			Company:     firstNonEmpty(raw.Company, cfg.Company),
+			CompanyKey:  raw.CompanyKey,
 			Title:       raw.Title,
 			Location:    raw.Location,
 			URL:         raw.URL,
@@ -124,11 +125,31 @@ func (s *Scanner) apply(ctx context.Context, src model.Source, raws []sources.Ra
 			ExternalUID: raw.ExternalUID,
 			SourceID:    &srcID,
 		}
-		if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.URL) == "" {
+		if strings.TrimSpace(in.URL) == "" {
+			// Without a URL there is no provenance identity to store.
 			res.Skipped++
 			continue
 		}
+		// The fields decide whether the item is usable; the adapter's
+		// IncompleteReason is a hint and the pipeline recomputes it.
+		if reason := sources.IncompleteReasonFor(in.Company, in.CompanyKey, in.Title); reason != "" {
+			if err := applyIncompleteSighting(ctx, tx, in, reason, now, res); err != nil {
+				return err
+			}
+			continue
+		}
 		_, outcome, err := applySighting(ctx, tx, in, now, touched)
+		if errors.Is(err, db.ErrCompanyUnknown) {
+			// The item has a title but no usable company evidence.
+			reason := model.IncompleteMissingCompany
+			if strings.TrimSpace(in.Title) == "" {
+				reason = model.IncompleteMissingCompanyTitle
+			}
+			if err := applyIncompleteSighting(ctx, tx, in, reason, now, res); err != nil {
+				return err
+			}
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -156,9 +177,6 @@ func (r *Result) count(o Outcome) {
 		r.New++
 	case OutcomeSeen:
 		r.Seen++
-	case OutcomeChanged:
-		r.Seen++
-		r.Changed++
 	case OutcomeReappeared:
 		r.Seen++
 		r.Reappeared++

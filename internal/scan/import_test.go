@@ -64,8 +64,9 @@ func TestImport(t *testing.T) {
 		{"missing fields", ImportInput{URL: "https://x/1"}, "missing company, title", false, -1, 0},
 		{"bad url", ImportInput{Company: "A", Title: "T", URL: "nope"}, "invalid url", false, -1, 0},
 		{"new offer", ImportInput{Company: "Qonto SAS", Title: "SRE (H/F)", Location: "Paris", URL: "https://www.linkedin.com/jobs/view/1", Description: "desc"}, "", true, -1, 1},
-		{"same offer elsewhere adds provenance", ImportInput{Company: "Qonto", Title: "SRE", URL: "https://www.welcometothejungle.com/qonto/sre"}, "", false, 2, 2},
-		{"same offer same url is idempotent", ImportInput{Company: "qonto", Title: "sre", URL: "https://www.linkedin.com/jobs/view/1"}, "", false, 2, 2},
+		{"same url with different fields attaches", ImportInput{Company: "Qonto Careers", Title: "Senior SRE", URL: "https://www.linkedin.com/jobs/view/1"}, "", false, 2, 1},
+		{"same url is idempotent", ImportInput{Company: "qonto", Title: "sre", URL: "https://www.linkedin.com/jobs/view/1"}, "", false, 2, 1},
+		{"same company and title at a new url is a separate offer", ImportInput{Company: "Qonto", Title: "SRE", URL: "https://www.welcometothejungle.com/qonto/sre"}, "", true, -1, 1},
 		{"offer without url", ImportInput{Company: "Other", Title: "Platform Engineer"}, "", true, -1, 0},
 	}
 	ids := make([]int64, len(tests))

@@ -45,14 +45,32 @@ type OfferState string
 
 const (
 	OfferActive      OfferState = "active"
-	OfferChanged     OfferState = "changed"
 	OfferDisappeared OfferState = "disappeared"
 )
 
 // Valid reports whether s is a known offer state.
 func (s OfferState) Valid() bool {
 	switch s {
-	case OfferActive, OfferChanged, OfferDisappeared:
+	case OfferActive, OfferDisappeared:
+		return true
+	}
+	return false
+}
+
+// IncompleteReason explains why an item a source reported could not be
+// normalized into a usable offer.
+type IncompleteReason string
+
+const (
+	IncompleteMissingCompany      IncompleteReason = "missing_company"
+	IncompleteMissingTitle        IncompleteReason = "missing_title"
+	IncompleteMissingCompanyTitle IncompleteReason = "missing_company_title"
+)
+
+// Valid reports whether r is a known incomplete reason.
+func (r IncompleteReason) Valid() bool {
+	switch r {
+	case IncompleteMissingCompany, IncompleteMissingTitle, IncompleteMissingCompanyTitle:
 		return true
 	}
 	return false
@@ -201,7 +219,7 @@ type Source struct {
 
 type JobOffer struct {
 	ID                 int64
-	CompanyID          int64
+	CompanyID          *int64
 	Title              string
 	TitleNormalized    string
 	Location           *string
@@ -218,9 +236,14 @@ type JobOffer struct {
 	LocationConfidence *int
 	MatchReasonsJSON   *string
 	SavedAt            *time.Time
+	IncompleteReason   IncompleteReason
+	IncompleteRaw      *string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }
+
+// HasCompany reports whether the offer has been attributed to a company.
+func (o JobOffer) HasCompany() bool { return o.CompanyID != nil }
 
 // OfferScores is the deterministic classifier output persisted on an
 // offer. It is kept separate from JobOffer so the scan pipeline and the
