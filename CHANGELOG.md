@@ -171,6 +171,28 @@
   of a skipped item, and the dedup test keeps a URL-less item skipped
   while a title-less item is stored incomplete.
 
+### Offer identity from source uid (OpenSpec change, task group 6)
+
+#### Added
+- `jobwatch reattribute [--all | --source <id>]` re-fetches a source and
+  moves the offers linked by `(source, uid)` to the company and title the
+  adapter now reports. Events, notes, snapshots, application state and
+  listing state are preserved, and the classifier is re-run for the new
+  title. The target company uses the scan resolution order (key, source
+  alias, confirmed global alias, create).
+- Per-source output reports fetched, re-attributed, unchanged, skipped
+  offers and the companies the pass emptied. An emptied company stays in
+  the database for the user to delete.
+- The pass is idempotent and skips offers without a current `(source,
+  uid)` sighting, offers with no uid link, and user-repaired offers.
+
+#### Changed
+- Live remediation of We Work Remotely moved 33 of its 289 offers from
+  the feed company to 26 extracted employers; the total offer count was
+  unchanged and a second run moved nothing. The other 256 offers predate
+  the current 98-item feed and have no uid match, so they remain under
+  the feed as history (task 6.6).
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.

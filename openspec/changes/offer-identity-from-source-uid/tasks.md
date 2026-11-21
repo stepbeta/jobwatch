@@ -41,13 +41,13 @@
 
 ## 6. Existing data remediation
 
-- [ ] 6.1 Add a one-shot command (`jobwatch reattribute [--all] [--source id]`) that re-fetches a source and writes the adapter's canonical company and title onto offers matched by `(source, uid)`, preserving events, notes, snapshots and application state
-- [ ] 6.2 Resolve the target company with the same resolution order as a scan (key, source alias, confirmed alias, create) so a re-attributed offer lands on its real employer
-- [ ] 6.3 Keep it idempotent: a second run changes nothing, and offers without a `(source, uid)` match are left untouched
-- [ ] 6.4 Report per source: re-attributed offers, companies left without offers, skipped offers
-- [ ] 6.5 Run it on the live database against We Work Remotely and assert the offer count moves from the feed to its employers
-- [ ] 6.6 Leave the offers that have no provenance untouched and document them as history; the emptied feed company stays visible for the user to delete
-- [ ] 6.7 Tests: fixture offer attributed to a feed company is moved by remediation with history intact, and a second run is a no-op
+- [x] 6.1 Add a one-shot command (`jobwatch reattribute [--all] [--source id]`) that re-fetches a source and writes the adapter's canonical company and title onto offers matched by `(source, uid)`, preserving events, notes, snapshots and application state
+- [x] 6.2 Resolve the target company with the same resolution order as a scan (key, source alias, confirmed alias, create) so a re-attributed offer lands on its real employer
+- [x] 6.3 Keep it idempotent: a second run changes nothing, and offers without a `(source, uid)` match are left untouched
+- [x] 6.4 Report per source: re-attributed offers, companies left without offers, skipped offers
+- [x] 6.5 Run it on the live database against We Work Remotely and assert the offer count moves from the feed to its employers
+- [x] 6.6 Leave the offers that have no provenance untouched and document them as history; the emptied feed company stays visible for the user to delete
+- [x] 6.7 Tests: fixture offer attributed to a feed company is moved by remediation with history intact, and a second run is a no-op
 
 ## 7. API and UI
 

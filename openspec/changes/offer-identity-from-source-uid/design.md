@@ -192,9 +192,15 @@ compared when the user asks to see them.
   `incomplete_raw` as "the user owns the title/location" and only refresh
   the sighting, so neither an unnormalized nor a later complete sighting
   can overwrite a repair.
-- **Existing We Work Remotely offers are not reattributed.** The 291
-  offers recorded before the employer rule keep the feed as their company:
-  a later sighting resolves by uid to the existing offer, and a sighting
-  never rewrites the company. New offers and an explicit future
-  reattribution use the extracted employer. This is a data-migration gap,
-  not a resolution rule; the fixture proves the adapter output.
+- **Existing We Work Remotely offers are re-attributed on demand.** A
+  scan never rewrites the company of an existing offer, so group 6 adds
+  `jobwatch reattribute`: it re-fetches a source and moves offers matched
+  by `(source, uid)` to the adapter's current employer and title,
+  preserving events, notes, snapshots, application state and listing
+  state. Resolution is the scan order, and the pass is idempotent. A
+  repaired offer is skipped so the user's values win; an offer with no
+  current sighting is left untouched. The live run moved 33 of the 289
+  We Work Remotely offers to 26 employers; the remaining 256 predate the
+  current 98-item feed and stay under the feed as history. This is a
+  data-remediation gap, not a resolution rule; the fixture proves the
+  adapter output and the command proves the move.
