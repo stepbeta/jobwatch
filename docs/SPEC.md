@@ -455,10 +455,13 @@ plain React + a lightweight table component is fine.
   progress): task group 1 lands migration 0012 — company keys and
   aliases, provenance `(source_id, external_uid)` uniqueness, nullable
   `job_offers.company_id`, the incomplete marker, and the removal of the
-  `changed` state. The offer-lifecycle, company-resolution,
-  source-normalization and incomplete-listings capability specs under
+  `changed` state. Task group 2 resolves each sighting through provenance
+  `(source, uid)` then `(source, url)`, updates title/location in place,
+  and removes the `changed` scan vocabulary. The offer-lifecycle,
+  company-resolution, source-normalization and incomplete-listings
+  capability specs under
   `openspec/changes/offer-identity-from-source-uid/specs/` are the target
-  for the remaining task groups; the sections above are revised, and the
-  affected behaviors become pointers to `openspec/specs/`, when the change
-  is archived. Until then, the fingerprint-based identity text above
-  describes the transitional scan code, not the target model.
+  for the remaining task groups; the sections above still describe the
+  pre-change fingerprint/`changed` model and are revised, and the affected
+  behaviors become pointers to `openspec/specs/`, when the change is
+  archived.

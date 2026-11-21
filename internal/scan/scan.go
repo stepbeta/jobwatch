@@ -35,8 +35,7 @@ type Result struct {
 	Fetched     int // offers returned by the adapter
 	Skipped     int // raw offers ignored (missing title or URL)
 	New         int
-	Seen        int // existing offers seen again (includes Changed and Reappeared)
-	Changed     int
+	Seen        int // existing offers seen again (includes Reappeared)
 	Reappeared  int // disappeared -> active
 	Disappeared int
 }
@@ -156,9 +155,6 @@ func (r *Result) count(o Outcome) {
 		r.New++
 	case OutcomeSeen:
 		r.Seen++
-	case OutcomeChanged:
-		r.Seen++
-		r.Changed++
 	case OutcomeReappeared:
 		r.Seen++
 		r.Reappeared++

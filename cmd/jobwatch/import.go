@@ -27,8 +27,9 @@ func newImportCmd(opts *rootOptions) *cobra.Command {
   - a JSON object or array: {"company","title","location","url","description"}
   - a path to a .json file, or "-" to read JSON from stdin
 
-If the company+title already match an offer, the URL is added to that
-offer's provenance instead of creating a new offer.`,
+If the URL already belongs to an offer, the import is attached to that
+offer's provenance instead of creating a new offer. A new URL creates a
+new offer even when the company and title match another one.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()

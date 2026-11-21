@@ -111,14 +111,18 @@ never stops on a failing one:
 1. `now` = scan start (UTC, seconds); fetch outside any transaction.
 2. Fetch error → `last_scan_status = blocked|error`, `last_scan_at = now`, stop.
 3. One transaction:
-   - for each `RawOffer` (skipped if no title or URL): company =
-     `RawOffer.Company` → `config.company` → source name;
-     `ResolveCompany` (exact normalized match or insert); `resolveOffer`
-     by fingerprint with location-bucket fallback; insert (+ snapshot with
-     `origin = scan`) or update per the offer_state machine
-     (DATA-MODEL.md); classify the title/location/description, persist the
-     scores and remote policy; upsert provenance `(offer_id, url)` with
-     `source_id`, `external_uid`, `last_seen_at = now`.
+   - for each `RawOffer` (skipped if no title or URL): resolve the offer
+     through provenance, `(source, external_uid)` first and
+     `(source, url)` second. On a miss only, company =
+     `RawOffer.Company` → `config.company` → source name,
+     `ResolveCompany` (exact normalized match or insert) and insert the
+     offer (+ snapshot with `origin = scan`). On a hit, update the title
+     and a reported location, apply the offer_state machine
+     (DATA-MODEL.md), keep a changed description as a new snapshot, and
+     never rewrite the company or canonical URL from the sighting.
+     Classify the title/location/description, persist the scores and
+     remote policy, and upsert provenance by `(source, external_uid)`
+     first, then `(offer_id, url)`, with `last_seen_at = now`.
    - `MarkDisappeared(source, now)`.
    - `last_scan_status = ok`, `last_scan_at = now`; commit.
 4. A failure inside the transaction rolls back and marks the source `error`.
@@ -160,8 +164,11 @@ and reads JSON-LD `JobPosting`, Open Graph/meta tags and the page title.
 Explicit fields win; the canonical JSON-LD URL is used only when the
 input has no URL. A complete result runs the same sighting logic
 (including classification) in one transaction with `source_id = NULL`;
-a matching fingerprint adds a provenance row to the existing offer. If
-metadata is incomplete the API returns `422` with the extracted fields
+a URL already linked to an offer attaches the import to that offer, while
+a new URL creates a new offer even when the company and title match
+another one (title and company are attributes, not identity). A manual
+import does not rewrite the title or location of an offer it attaches to.
+If metadata is incomplete the API returns `422` with the extracted fields
 for the UI's manual fallback; the CLI asks for `--company`/`--title` or
 `--no-fetch`. Import never scans a source.
 

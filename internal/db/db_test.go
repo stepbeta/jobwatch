@@ -1376,7 +1376,7 @@ func TestFTSTriggers(t *testing.T) {
 	}
 
 	newRaw := "Nomad and Consul"
-	if err := UpdateOfferSighting(ctx, sqlDB, o.ID, model.OfferActive, &newRaw, nil, now); err != nil {
+	if err := UpdateOfferSighting(ctx, sqlDB, o.ID, o.Title, o.TitleNormalized, o.Location, model.OfferActive, &newRaw, nil, now); err != nil {
 		t.Fatal(err)
 	}
 	if got := match("job_offers_fts", "kubernetes"); got != 0 {

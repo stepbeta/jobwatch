@@ -23,7 +23,7 @@ type ImportInput struct {
 // ImportResult reports the offer an import landed on.
 type ImportResult struct {
 	OfferID int64
-	Created bool // false when an existing offer matched by fingerprint
+	Created bool // false when the URL already belongs to an existing offer
 }
 
 // ParseImport decodes arg as a JSON object, a JSON array of objects, or
@@ -109,9 +109,10 @@ func ValidateImportURL(raw string) error {
 	return nil
 }
 
-// Import stores a manual offer through the same dedup path as scans, in
-// one transaction. If the fingerprint matches an existing offer, the URL
-// is added as a provenance row of that offer instead.
+// Import stores a manual offer through the same provenance identity path
+// as scans, in one transaction. A URL already linked to an offer attaches
+// the import to that offer instead of creating a duplicate; a new URL
+// creates a new offer even when the company and title match another one.
 func Import(ctx context.Context, sqlDB *sql.DB, in ImportInput, now time.Time) (ImportResult, error) {
 	if err := in.Validate(); err != nil {
 		return ImportResult{}, err

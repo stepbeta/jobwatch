@@ -228,7 +228,7 @@ describe('SourcesPage table controls', () => {
     const beta = makeSource({ id: 2, name: 'Beta board' })
     vi.mocked(api.scanSource).mockResolvedValue({
       source: beta,
-      result: { status: 'ok', new: 1, changed: 0, disappeared: 0 } as ScanResponse['result'],
+      result: { status: 'ok', new: 1, disappeared: 0 } as ScanResponse['result'],
     })
     const { onScanBatch, onNotice } = renderPage([makeSource({ id: 1, name: 'Acme board' }), beta])
     vi.mocked(onScanBatch).mockResolvedValue([
@@ -236,7 +236,7 @@ describe('SourcesPage table controls', () => {
         source: beta,
         response: {
           source: beta,
-          result: { status: 'ok', new: 1, changed: 0, disappeared: 0 } as ScanResponse['result'],
+          result: { status: 'ok', new: 1, disappeared: 0 } as ScanResponse['result'],
         },
       },
     ])
@@ -246,6 +246,6 @@ describe('SourcesPage table controls', () => {
     await user.click(screen.getByRole('button', { name: 'Refresh selected' }))
 
     await waitFor(() => expect(onScanBatch).toHaveBeenCalledWith([beta]))
-    expect(onNotice).toHaveBeenCalledWith('success', 'Refresh selected: 1 new, 0 changed, 0 disappeared.')
+    expect(onNotice).toHaveBeenCalledWith('success', 'Refresh selected: 1 new, 0 disappeared.')
   })
 })

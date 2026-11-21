@@ -257,7 +257,6 @@ type scanResultJSON struct {
 	Skipped     int    `json:"skipped"`
 	New         int    `json:"new"`
 	Seen        int    `json:"seen"`
-	Changed     int    `json:"changed"`
 	Reappeared  int    `json:"reappeared"`
 	Disappeared int    `json:"disappeared"`
 	Error       string `json:"error,omitempty"`
@@ -289,7 +288,6 @@ func (s *Server) scanSource(w http.ResponseWriter, r *http.Request) {
 		Skipped:     res.Skipped,
 		New:         res.New,
 		Seen:        res.Seen,
-		Changed:     res.Changed,
 		Reappeared:  res.Reappeared,
 		Disappeared: res.Disappeared,
 	}

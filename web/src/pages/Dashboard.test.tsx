@@ -155,7 +155,7 @@ describe('Dashboard', () => {
     expect(targets.map((s) => s.id)).toEqual([1])
     expect(onNotice).toHaveBeenCalledWith(
       'success',
-      '1 source scanned: 0 new, 0 changed, 0 disappeared; 1 manual link(s) skipped (no fetchable source).',
+      '1 source scanned: 0 new, 0 disappeared; 1 manual link(s) skipped (no fetchable source).',
     )
   })
 })

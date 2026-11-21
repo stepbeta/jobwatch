@@ -205,7 +205,6 @@ export interface ScanResult {
   skipped: number
   new: number
   seen: number
-  changed: number
   reappeared: number
   disappeared: number
   error?: string

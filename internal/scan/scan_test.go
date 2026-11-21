@@ -136,7 +136,7 @@ func TestScanLifecycle(t *testing.T) {
 			name:       "description edit and missing offer",
 			offers:     []sources.RawOffer{rawSREChanged},
 			wantStatus: model.ScanOK,
-			want:       Result{Fetched: 1, Seen: 1, Changed: 1, Disappeared: 1},
+			want:       Result{Fetched: 1, Seen: 1, Disappeared: 1},
 			offers2: []wantOffer{
 				{"Site Reliability Engineer", model.OfferActive, 2},
 				{"Platform Engineer (H/F)", model.OfferDisappeared, 1},
@@ -241,6 +241,242 @@ func TestScanLifecycle(t *testing.T) {
 	}
 }
 
+func offerByProvenance(t *testing.T, sqlDB *sql.DB, sourceID int64, uid string) model.JobOffer {
+	t.Helper()
+	var id int64
+	if err := sqlDB.QueryRow(
+		`SELECT offer_id FROM job_offer_provenance WHERE source_id = ? AND external_uid = ?`,
+		sourceID, uid).Scan(&id); err != nil {
+		t.Fatalf("offer for uid %q: %v", uid, err)
+	}
+	o, err := db.GetOffer(context.Background(), sqlDB, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o
+}
+
+func offerByURL(t *testing.T, sqlDB *sql.DB, sourceID int64, url string) model.JobOffer {
+	t.Helper()
+	var id int64
+	if err := sqlDB.QueryRow(
+		`SELECT offer_id FROM job_offer_provenance WHERE source_id = ? AND url = ?`,
+		sourceID, url).Scan(&id); err != nil {
+		t.Fatalf("offer for url %q: %v", url, err)
+	}
+	o, err := db.GetOffer(context.Background(), sqlDB, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o
+}
+
+// TestScanIdentity covers the provenance identity contract: the same
+// (source, uid) keeps one offer through title, location, company-name and
+// description changes; different uids or a missing uid fall back to the
+// source URL; and a disappeared offer reopens under the same identity.
+func TestScanIdentity(t *testing.T) {
+	type want struct{ New, Seen, Reappeared, Disappeared int }
+	type step struct {
+		offers []sources.RawOffer
+		want   want
+	}
+	raw := func(uid, title, location, url, desc string) sources.RawOffer {
+		return sources.RawOffer{ExternalUID: uid, Title: title, Location: location, URL: url, Description: desc}
+	}
+	tests := []struct {
+		name  string
+		steps []step
+		check func(t *testing.T, sqlDB *sql.DB, src model.Source)
+	}{
+		{
+			name: "title edit under the same uid updates the offer",
+			steps: []step{
+				{[]sources.RawOffer{raw("1", "SRE", "Paris", "https://x/1", "run it")}, want{New: 1}},
+				{[]sources.RawOffer{raw("1", "Senior SRE", "Paris", "https://x/1", "run it")}, want{Seen: 1}},
+			},
+			check: func(t *testing.T, sqlDB *sql.DB, src model.Source) {
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 1 {
+					t.Errorf("offers = %d, want 1", n)
+				}
+				o := offerByProvenance(t, sqlDB, src.ID, "1")
+				if o.Title != "Senior SRE" || o.OfferState != model.OfferActive {
+					t.Errorf("offer = %+v, want Senior SRE/active", o)
+				}
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM snapshots WHERE offer_id = ?`, o.ID); n != 1 {
+					t.Errorf("snapshots = %d, want 1", n)
+				}
+			},
+		},
+		{
+			name: "same-title siblings with different uids are two offers",
+			steps: []step{
+				{[]sources.RawOffer{
+					raw("1", "SRE", "Paris", "https://x/1", "one"),
+					raw("2", "SRE", "Paris", "https://x/2", "two"),
+				}, want{New: 2}},
+			},
+			check: func(t *testing.T, sqlDB *sql.DB, src model.Source) {
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 2 {
+					t.Errorf("offers = %d, want 2", n)
+				}
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offer_provenance WHERE source_id = ?`, src.ID); n != 2 {
+					t.Errorf("provenance = %d, want 2", n)
+				}
+			},
+		},
+		{
+			name: "closed then reopened keeps the same offer",
+			steps: []step{
+				{[]sources.RawOffer{raw("1", "SRE", "Paris", "https://x/1", "d")}, want{New: 1}},
+				{nil, want{Disappeared: 1}},
+				{[]sources.RawOffer{raw("1", "SRE", "Paris", "https://x/1", "d")}, want{Seen: 1, Reappeared: 1}},
+			},
+			check: func(t *testing.T, sqlDB *sql.DB, src model.Source) {
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 1 {
+					t.Errorf("offers = %d, want 1", n)
+				}
+				o := offerByProvenance(t, sqlDB, src.ID, "1")
+				if o.OfferState != model.OfferActive {
+					t.Errorf("state = %q, want active", o.OfferState)
+				}
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM snapshots WHERE offer_id = ?`, o.ID); n != 1 {
+					t.Errorf("snapshots = %d, want 1", n)
+				}
+			},
+		},
+		{
+			name: "a different company name under the same uid does not move or duplicate the offer",
+			steps: []step{
+				{[]sources.RawOffer{{ExternalUID: "1", Company: "Acme", Title: "SRE", Location: "Paris", URL: "https://x/1"}}, want{New: 1}},
+				{[]sources.RawOffer{{ExternalUID: "1", Company: "Acme Careers", Title: "SRE", Location: "Paris", URL: "https://x/1"}}, want{Seen: 1}},
+			},
+			check: func(t *testing.T, sqlDB *sql.DB, src model.Source) {
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 1 {
+					t.Errorf("offers = %d, want 1", n)
+				}
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM companies`); n != 1 {
+					t.Errorf("companies = %d, want 1 (the renamed company was not invented)", n)
+				}
+				var company string
+				if err := sqlDB.QueryRow(`SELECT c.name FROM job_offers o JOIN companies c ON c.id = o.company_id`).Scan(&company); err != nil {
+					t.Fatal(err)
+				}
+				if company != "Acme" {
+					t.Errorf("company = %q, want Acme", company)
+				}
+			},
+		},
+		{
+			name: "no uid falls back to the source url",
+			steps: []step{
+				{[]sources.RawOffer{raw("", "SRE", "Paris", "https://x/1", "d")}, want{New: 1}},
+				{[]sources.RawOffer{raw("", "Senior SRE", "Paris", "https://x/1", "d")}, want{Seen: 1}},
+				{[]sources.RawOffer{raw("", "SRE", "Paris", "https://x/2", "d")}, want{New: 1, Disappeared: 1}},
+			},
+			check: func(t *testing.T, sqlDB *sql.DB, src model.Source) {
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 2 {
+					t.Errorf("offers = %d, want 2", n)
+				}
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offer_provenance WHERE source_id = ?`, src.ID); n != 2 {
+					t.Errorf("provenance = %d, want 2", n)
+				}
+				if o := offerByURL(t, sqlDB, src.ID, "https://x/1"); o.Title != "Senior SRE" {
+					t.Errorf("title at /1 = %q, want Senior SRE", o.Title)
+				}
+			},
+		},
+		{
+			name: "description edit keeps the offer active and adds a snapshot",
+			steps: []step{
+				{[]sources.RawOffer{raw("1", "SRE", "Paris", "https://x/1", "one")}, want{New: 1}},
+				{[]sources.RawOffer{raw("1", "SRE", "Paris", "https://x/1", "two")}, want{Seen: 1}},
+			},
+			check: func(t *testing.T, sqlDB *sql.DB, src model.Source) {
+				o := offerByProvenance(t, sqlDB, src.ID, "1")
+				if o.OfferState != model.OfferActive {
+					t.Errorf("state = %q, want active", o.OfferState)
+				}
+				if o.RawText == nil || *o.RawText != "two" {
+					t.Errorf("raw_text = %v, want two", o.RawText)
+				}
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM snapshots WHERE offer_id = ?`, o.ID); n != 2 {
+					t.Errorf("snapshots = %d, want 2", n)
+				}
+			},
+		},
+		{
+			name: "a new url under the same uid keeps one provenance row",
+			steps: []step{
+				{[]sources.RawOffer{raw("1", "SRE", "Paris", "https://x/1", "d")}, want{New: 1}},
+				{[]sources.RawOffer{raw("1", "SRE", "Paris", "https://x/2", "d")}, want{Seen: 1}},
+			},
+			check: func(t *testing.T, sqlDB *sql.DB, src model.Source) {
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 1 {
+					t.Errorf("offers = %d, want 1", n)
+				}
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offer_provenance WHERE source_id = ?`, src.ID); n != 1 {
+					t.Errorf("provenance = %d, want 1", n)
+				}
+				var url string
+				if err := sqlDB.QueryRow(`SELECT url FROM job_offer_provenance WHERE source_id = ? AND external_uid = '1'`, src.ID).Scan(&url); err != nil {
+					t.Fatal(err)
+				}
+				if url != "https://x/1" {
+					t.Errorf("provenance url = %q, want the first-seen https://x/1", url)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sqlDB, sc, ff, clk := setup(t)
+			src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
+			ctx := context.Background()
+			for i, st := range tt.steps {
+				clk.advance()
+				ff.offers[src.ID] = st.offers
+				got := sc.ScanSource(ctx, src)
+				if got.Status != model.ScanOK {
+					t.Fatalf("step %d: status = %q (err %v)", i, got.Status, got.Err)
+				}
+				if got.New != st.want.New || got.Seen != st.want.Seen ||
+					got.Reappeared != st.want.Reappeared || got.Disappeared != st.want.Disappeared {
+					t.Fatalf("step %d: result = %+v, want %+v", i, got, st.want)
+				}
+			}
+			tt.check(t, sqlDB, src)
+		})
+	}
+}
+
+// TestScanIdentityIncludesSource proves that the source is part of the
+// identity: the same uid on two sources is two offers until an explicit
+// merge links them.
+func TestScanIdentityIncludesSource(t *testing.T) {
+	sqlDB, sc, ff, clk := setup(t)
+	ctx := context.Background()
+	s1 := addSource(t, sqlDB, "One", `{"company":"Acme"}`)
+	s2 := addSource(t, sqlDB, "Two", `{"company":"Acme"}`)
+
+	clk.advance()
+	ff.offers[s1.ID] = []sources.RawOffer{rawSRE}
+	if r := sc.ScanSource(ctx, s1); r.New != 1 {
+		t.Fatalf("first source = %+v, want 1 new", r)
+	}
+	clk.advance()
+	ff.offers[s2.ID] = []sources.RawOffer{rawSRE}
+	if r := sc.ScanSource(ctx, s2); r.New != 1 {
+		t.Fatalf("second source = %+v, want 1 new", r)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 2 {
+		t.Errorf("offers = %d, want 2", n)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offer_provenance`); n != 2 {
+		t.Errorf("provenance = %d, want 2", n)
+	}
+}
+
 func TestScanAgainstManualDescription(t *testing.T) {
 	sqlDB, sc, ff, clk := setup(t)
 	src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
@@ -274,8 +510,8 @@ func TestScanAgainstManualDescription(t *testing.T) {
 	noDesc := rawSRE
 	noDesc.Description = ""
 	ff.offers[src.ID] = []sources.RawOffer{noDesc}
-	if got := sc.ScanSource(ctx, src); got.Seen != 1 || got.Changed != 0 {
-		t.Fatalf("empty-description scan = %+v, want 1 seen/0 changed", got)
+	if got := sc.ScanSource(ctx, src); got.Seen != 1 {
+		t.Fatalf("empty-description scan = %+v, want 1 seen", got)
 	}
 	o = offerByTitle(t, sqlDB, rawSRE.Title)
 	if o.RawText == nil || *o.RawText != manual {
@@ -289,8 +525,8 @@ func TestScanAgainstManualDescription(t *testing.T) {
 	// special-cased: it records a snapshot and keeps the offer active.
 	clk.advance()
 	ff.offers[src.ID] = []sources.RawOffer{rawSREChanged}
-	if got := sc.ScanSource(ctx, src); got.Changed != 1 {
-		t.Fatalf("differing-description scan = %+v, want 1 changed", got)
+	if got := sc.ScanSource(ctx, src); got.Seen != 1 {
+		t.Fatalf("differing-description scan = %+v, want 1 seen", got)
 	}
 	o = offerByTitle(t, sqlDB, rawSRE.Title)
 	if o.OfferState != model.OfferActive {
@@ -323,22 +559,22 @@ func TestScanDedup(t *testing.T) {
 			wantFirstLocs: []string{"New York, NY", "London", "Toronto"},
 		},
 		{
-			name: "same title same bucket merges with two provenance rows",
+			name: "same title different uids are separate offers",
 			offers: []sources.RawOffer{
 				{ExternalUID: "a", Title: "SRE", Location: "Paris", URL: "https://x/a", Description: "one"},
 				{ExternalUID: "b", Title: "SRE (F/H)", Location: "Paris, France", URL: "https://x/b", Description: "two"},
 			},
-			wantOffers: 1, wantProv: 2,
-			wantFirstLocs: []string{"Paris"},
+			wantOffers: 2, wantProv: 2,
+			wantFirstLocs: []string{"Paris", "Paris, France"},
 		},
 		{
-			name: "unknown location matches base offer",
+			name: "unknown location with a different uid is a separate offer",
 			offers: []sources.RawOffer{
 				{ExternalUID: "a", Title: "SRE", Location: "Paris", URL: "https://x/a"},
 				{ExternalUID: "b", Title: "SRE", Location: "", URL: "https://x/b"},
 			},
-			wantOffers: 1, wantProv: 2,
-			wantFirstLocs: []string{"Paris"},
+			wantOffers: 2, wantProv: 2,
+			wantFirstLocs: []string{"Paris", ""},
 		},
 		{
 			name: "same url twice is one provenance row",
@@ -390,7 +626,7 @@ func TestScanDedup(t *testing.T) {
 
 			// A second identical scan must be stable: no new offers, no changes.
 			res2 := sc.ScanSource(context.Background(), src)
-			if res2.New != 0 || res2.Changed != 0 || res2.Disappeared != 0 {
+			if res2.New != 0 || res2.Disappeared != 0 {
 				t.Errorf("rescan not stable: %+v", res2)
 			}
 		})
@@ -403,20 +639,32 @@ func TestScanCrossSourceDisappearance(t *testing.T) {
 	s1 := addSource(t, sqlDB, "Acme careers", `{"company":"Acme"}`)
 	s2 := addSource(t, sqlDB, "Aggregator", "")
 
-	onAggregator := rawSRE
-	onAggregator.URL = "https://aggregator.example/acme-sre"
-	onAggregator.Company = "ACME Inc."
-
+	// The company site creates the offer.
 	ff.offers[s1.ID] = []sources.RawOffer{rawSRE}
+	clk.advance()
+	if r := sc.ScanSource(ctx, s1); r.Status != model.ScanOK {
+		t.Fatal(r.Err)
+	}
+	offer := offerByTitle(t, sqlDB, rawSRE.Title)
+
+	// A cross-source link is explicit (the merge path creates it): the
+	// aggregator's own uid points at the same offer.
+	onAggregator := sources.RawOffer{ExternalUID: "agg-1", Title: "Site Reliability Engineer",
+		Location: "Paris, France", URL: "https://aggregator.example/acme-sre", Company: "ACME Inc."}
+	ts := model.FormatTime(clk.now())
+	if _, err := sqlDB.ExecContext(ctx, `INSERT INTO job_offer_provenance(
+		offer_id, source_id, external_uid, url, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		offer.ID, s2.ID, onAggregator.ExternalUID, onAggregator.URL, ts, ts); err != nil {
+		t.Fatal(err)
+	}
+
 	ff.offers[s2.ID] = []sources.RawOffer{onAggregator}
-	for _, s := range []model.Source{s1, s2} {
-		clk.advance()
-		if r := sc.ScanSource(ctx, s); r.Status != model.ScanOK {
-			t.Fatal(r.Err)
-		}
+	clk.advance()
+	if r := sc.ScanSource(ctx, s2); r.Status != model.ScanOK {
+		t.Fatal(r.Err)
 	}
 	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 1 {
-		t.Fatalf("offers = %d, want 1 (same company+title across sources)", n)
+		t.Fatalf("offers = %d, want 1 (the aggregator uid resolved to the same offer)", n)
 	}
 	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offer_provenance`); n != 2 {
 		t.Fatalf("provenance = %d, want 2", n)
@@ -518,8 +766,8 @@ func TestScanWithLeverFixture(t *testing.T) {
 	if r.Status != model.ScanOK || r.New != 3 {
 		t.Fatalf("result = %+v", r)
 	}
-	if n := count(t, sqlDB, `SELECT COUNT(DISTINCT fingerprint) FROM job_offers`); n != 3 {
-		t.Errorf("distinct fingerprints = %d, want 3", n)
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 3 {
+		t.Errorf("offers = %d, want 3", n)
 	}
 	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offer_provenance WHERE external_uid IS NOT NULL`); n != 3 {
 		t.Errorf("provenance with uid = %d, want 3", n)

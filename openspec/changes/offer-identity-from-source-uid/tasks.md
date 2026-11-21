@@ -11,11 +11,11 @@
 
 ## 2. Offer identity
 
-- [ ] 2.1 Resolve a sighting through provenance `(source, uid)` first, `(source, url)` second; create an offer only on a miss
-- [ ] 2.2 Update an existing offer's title and location when the source reports new values, without creating a row
-- [ ] 2.3 Keep `MarkDisappeared` semantics: an offer disappears only when no successfully scanned source still lists it
-- [ ] 2.4 Replace `OutcomeChanged`/`Result.Changed` with snapshot-only recording; keep `snapshots` writes unchanged
-- [ ] 2.5 Tests: title edit, same-title siblings, closed-then-reopened, company rename, description edit
+- [x] 2.1 Resolve a sighting through provenance `(source, uid)` first, `(source, url)` second; create an offer only on a miss
+- [x] 2.2 Update an existing offer's title and location when the source reports new values, without creating a row
+- [x] 2.3 Keep `MarkDisappeared` semantics: an offer disappears only when no successfully scanned source still lists it
+- [x] 2.4 Replace `OutcomeChanged`/`Result.Changed` with snapshot-only recording; keep `snapshots` writes unchanged
+- [x] 2.5 Tests: title edit, same-title siblings, closed-then-reopened, company rename, description edit
 
 ## 3. Company resolution
 

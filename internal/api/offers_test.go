@@ -381,7 +381,7 @@ func TestImportOffer(t *testing.T) {
 	}
 
 	rec = ts.do(t, "POST", "/api/offers/import", map[string]any{
-		"company": "Qonto SAS", "title": "SRE", "url": "https://example.com/job/2",
+		"company": "Qonto SAS", "title": "SRE", "url": "https://example.com/job/1",
 	})
 	wantCode(t, rec, 200)
 	second := decodeBody[struct {
@@ -392,11 +392,25 @@ func TestImportOffer(t *testing.T) {
 		t.Errorf("second import = %+v, want existing offer %d", second, first.OfferID)
 	}
 
-	rec = ts.do(t, "GET", "/api/offers/1", nil)
+	// A different URL is a different offer even when company and title
+	// match: title and company are attributes, not identity.
+	rec = ts.do(t, "POST", "/api/offers/import", map[string]any{
+		"company": "Qonto", "title": "SRE", "url": "https://example.com/job/2",
+	})
+	wantCode(t, rec, 201)
+	third := decodeBody[struct {
+		OfferID int64 `json:"offer_id"`
+		Created bool  `json:"created"`
+	}](t, rec)
+	if !third.Created || third.OfferID == first.OfferID {
+		t.Errorf("third import = %+v, want a new offer", third)
+	}
+
+	rec = ts.do(t, "GET", "/api/offers/"+strconv.FormatInt(first.OfferID, 10), nil)
 	wantCode(t, rec, 200)
 	detail := decodeBody[offerDetailResp](t, rec)
-	if len(detail.Provenance) != 2 {
-		t.Errorf("provenance = %d, want 2", len(detail.Provenance))
+	if len(detail.Provenance) != 1 {
+		t.Errorf("provenance = %d, want 1", len(detail.Provenance))
 	}
 
 	wantErrorCode(t, ts.do(t, "POST", "/api/offers/import", map[string]any{"company": "Qonto"}),

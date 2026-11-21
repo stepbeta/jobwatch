@@ -133,7 +133,7 @@ type without an adapter is `skipped` and its status is left untouched.
   "result": {
     "source_id": 1, "source_name": "Acme", "status": "ok",
     "fetched": 12, "skipped": 0, "new": 2, "seen": 9,
-    "changed": 1, "reappeared": 0, "disappeared": 1,
+    "reappeared": 0, "disappeared": 1,
     "error": ""
   },
   "source": { "id": 1, "last_scan_status": "ok", "...": "..." }
@@ -205,9 +205,11 @@ NULL scores.
 
 ### POST /api/offers/import
 
-Manually add an offer seen elsewhere. Runs the same dedup path as scans
-in one transaction; a matching fingerprint adds a provenance row to the
-existing offer instead of creating a duplicate.
+Manually add an offer seen elsewhere. Runs the same provenance identity
+path as scans in one transaction: a URL already linked to an offer adds
+the import to that offer instead of creating a duplicate, while a new URL
+creates a new offer even when the company and title match another one.
+Title and company are attributes, not identity.
 
 Two input modes:
 

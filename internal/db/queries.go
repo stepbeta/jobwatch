@@ -319,14 +319,61 @@ func scanOffer(row interface{ Scan(...any) error }) (model.JobOffer, error) {
 	return o, nil
 }
 
-// GetOfferByFingerprint returns the offer with the given fingerprint.
+// GetOfferByFingerprint returns the offer with the given fingerprint. The
+// fingerprint is no longer unique; the first row in ID order wins. Scans
+// no longer resolve offers through it.
 func GetOfferByFingerprint(ctx context.Context, q Querier, fp string) (model.JobOffer, error) {
-	o, err := scanOffer(q.QueryRowContext(ctx, `SELECT `+offerColumns("")+` FROM job_offers WHERE fingerprint = ?`, fp))
+	o, err := scanOffer(q.QueryRowContext(ctx,
+		`SELECT `+offerColumns("")+` FROM job_offers WHERE fingerprint = ? ORDER BY id LIMIT 1`, fp))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.JobOffer{}, ErrNotFound
 	}
 	if err != nil {
 		return model.JobOffer{}, fmt.Errorf("get offer by fingerprint: %w", err)
+	}
+	return o, nil
+}
+
+// FindOfferByProvenance returns the offer a sighting belongs to. A
+// non-empty uid is looked up for that source first; url is the fallback
+// for the same source. A nil sourceID is a manual import, which has no
+// source of its own: its url is matched against every provenance row, so
+// a manually imported link attaches to the offer a scan already tracks.
+func FindOfferByProvenance(ctx context.Context, q Querier, sourceID *int64, externalUID, url string) (model.JobOffer, error) {
+	uid := strings.TrimSpace(externalUID)
+	url = strings.TrimSpace(url)
+
+	var query string
+	var args []any
+	switch {
+	case sourceID != nil && uid != "":
+		query = `SELECT ` + offerColumns("o.") + ` FROM job_offers o
+			JOIN job_offer_provenance p ON p.offer_id = o.id
+			WHERE p.source_id = ? AND p.external_uid = ?
+			ORDER BY p.last_seen_at DESC, p.id DESC LIMIT 1`
+		args = []any{*sourceID, uid}
+	case sourceID != nil && url != "":
+		query = `SELECT ` + offerColumns("o.") + ` FROM job_offers o
+			JOIN job_offer_provenance p ON p.offer_id = o.id
+			WHERE p.source_id = ? AND p.url = ?
+			ORDER BY p.last_seen_at DESC, p.id DESC LIMIT 1`
+		args = []any{*sourceID, url}
+	case sourceID == nil && url != "":
+		query = `SELECT ` + offerColumns("o.") + ` FROM job_offers o
+			JOIN job_offer_provenance p ON p.offer_id = o.id
+			WHERE p.url = ?
+			ORDER BY p.last_seen_at DESC, p.id DESC LIMIT 1`
+		args = []any{url}
+	default:
+		return model.JobOffer{}, ErrNotFound
+	}
+
+	o, err := scanOffer(q.QueryRowContext(ctx, query, args...))
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.JobOffer{}, ErrNotFound
+	}
+	if err != nil {
+		return model.JobOffer{}, fmt.Errorf("find offer by provenance: %w", err)
 	}
 	return o, nil
 }
@@ -391,13 +438,17 @@ func InsertOffer(ctx context.Context, q Querier, o model.JobOffer, now time.Time
 }
 
 // UpdateOfferSighting records that an existing offer was seen again:
-// sets last_seen_at, offer_state, raw_text and text_hash.
-func UpdateOfferSighting(ctx context.Context, q Querier, id int64, state model.OfferState, rawText, textHash *string, now time.Time) error {
+// sets title, title_normalized, location, last_seen_at, offer_state,
+// raw_text and text_hash.
+func UpdateOfferSighting(ctx context.Context, q Querier, id int64, title, titleNormalized string,
+	location *string, state model.OfferState, rawText, textHash *string, now time.Time) error {
 	ts := model.FormatTime(now)
 	if _, err := q.ExecContext(ctx, `UPDATE job_offers
-		SET last_seen_at = ?, offer_state = ?, raw_text = ?, text_hash = ?, updated_at = ?
+		SET title = ?, title_normalized = ?, location = ?, last_seen_at = ?, offer_state = ?,
+		    raw_text = ?, text_hash = ?, updated_at = ?
 		WHERE id = ?`,
-		ts, string(state), nullStr(rawText), nullStr(textHash), ts, id); err != nil {
+		title, titleNormalized, nullStr(location), ts, string(state),
+		nullStr(rawText), nullStr(textHash), ts, id); err != nil {
 		return fmt.Errorf("update offer %d sighting: %w", id, err)
 	}
 	return nil
@@ -582,11 +633,29 @@ func (p prefixScanner) Scan(dest ...any) error {
 
 // ---------- provenance ----------
 
-// UpsertProvenance records a sighting of offerID at url. An existing
-// (offer_id, url) row has its last_seen_at, source and external UID
-// refreshed; otherwise a new row is inserted. created reports insertion.
+// UpsertProvenance records a sighting of offerID at url. The row is
+// found by (source_id, external_uid) when a uid is given, then by
+// (offer_id, url). An existing row keeps its first_seen_at and gets the
+// latest last_seen_at; the URL is not rewritten when the same uid appears
+// at a new link, so the provenance keeps the first-seen link like the
+// offer's canonical url. created reports insertion.
 func UpsertProvenance(ctx context.Context, q Querier, offerID int64, sourceID *int64, externalUID *string, url string, now time.Time) (created bool, err error) {
 	ts := model.FormatTime(now)
+	uid := strings.TrimSpace(derefString(externalUID))
+
+	if sourceID != nil && uid != "" {
+		res, err := q.ExecContext(ctx, `UPDATE job_offer_provenance
+			SET offer_id = ?, last_seen_at = ?
+			WHERE source_id = ? AND external_uid = ?`,
+			offerID, ts, *sourceID, uid)
+		if err != nil {
+			return false, fmt.Errorf("update provenance for offer %d: %w", offerID, err)
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			return false, nil
+		}
+	}
+
 	res, err := q.ExecContext(ctx, `UPDATE job_offer_provenance
 		SET last_seen_at = ?, source_id = COALESCE(?, source_id), external_uid = COALESCE(?, external_uid)
 		WHERE offer_id = ? AND url = ?`,
@@ -597,6 +666,7 @@ func UpsertProvenance(ctx context.Context, q Querier, offerID int64, sourceID *i
 	if n, _ := res.RowsAffected(); n > 0 {
 		return false, nil
 	}
+
 	if _, err := q.ExecContext(ctx, `INSERT INTO job_offer_provenance(
 		offer_id, source_id, external_uid, url, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		offerID, nullInt(sourceID), nullStr(externalUID), url, ts, ts); err != nil {

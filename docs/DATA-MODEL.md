@@ -174,7 +174,7 @@ them or keeping a user-edited source is safe.
 | location | TEXT | free text as first seen |
 | remote_policy | TEXT NOT NULL DEFAULT 'unknown' | `remote` `hybrid` `onsite` `unknown`; derived by the deterministic classifier from location and description on every sighting (and by `jobwatch reclassify`) |
 | url | TEXT | canonical (first-seen) link |
-| fingerprint | TEXT NOT NULL DEFAULT '' | no longer UNIQUE since 0012; see Fingerprints. The current scan code still writes it; it is not the identity carrier |
+| fingerprint | TEXT NOT NULL DEFAULT '' | no longer UNIQUE since 0012; see Fingerprints. Written on creation for compatibility with the merge/rename code; never used for resolution |
 | first_seen_at, last_seen_at | TEXT NOT NULL | |
 | offer_state | TEXT NOT NULL DEFAULT 'active' | `active` `disappeared` |
 | application_state | TEXT NOT NULL DEFAULT 'todo' | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
@@ -258,6 +258,11 @@ name. Migration 0012 squashes those rows onto the surviving offer; the
 duplicate offers remain (never deleted) but may have no provenance row.
 New sightings resolve by provenance, so they cannot recreate the
 duplicate.
+
+A manual import has no source of its own (`source_id` NULL). Its URL is
+matched against every provenance row, so importing a link a scan already
+tracks attaches to that offer; a new URL creates a new offer. Title and
+company are attributes, not identity.
 
 ### events
 | Column | Type | Notes |
@@ -361,12 +366,12 @@ sync by AFTER INSERT / DELETE / UPDATE OF triggers
 
 `fingerprint = sha256_hex(company_normalized + 0x1F + title_normalized [+ 0x1F + location_bucket])`
 
-Migration 0012 removes the UNIQUE constraint: offer identity moves to
-`job_offer_provenance(source_id, external_uid)` with `(source_id, url)` as
-the fallback. The current scan code still computes and resolves by
-fingerprint until the offer-identity task group of the same change lands;
-the column is kept for compatibility and is not an identity carrier. Do
-not add new dependencies on its uniqueness.
+Migration 0012 removes the UNIQUE constraint and the scan pipeline
+resolves sightings through `job_offer_provenance(source_id, external_uid)`
+first, then `(source_id, url)`. The fingerprint is still computed for new
+offers because the company merge/rename code uses it, but it is never an
+identity carrier and two offers may share one. Do not add new dependencies
+on its uniqueness.
 
 - The base fingerprint has no bucket.
 - `model.LocationBucket`: first location segment (split on `, ; | / ( )`

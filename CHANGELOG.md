@@ -40,6 +40,35 @@
   offers remain, but without a source link. The live database went from
   2465 to 2384 provenance rows.
 
+### Offer identity from source uid (OpenSpec change, task group 2)
+
+#### Added
+- Scans resolve a sighting through provenance: `(source, external_uid)`
+  first, then `(source, url)`. A company is resolved and an offer created
+  only on a miss, so the same posting keeps one offer through title,
+  location, company-name and description changes.
+- Title and a reported location follow the source on later sightings; the
+  offer's company and canonical URL are not rewritten by a sighting.
+- Manual imports use the URL as identity: a URL already linked to an offer
+  attaches to it, while a new URL creates a new offer even when the
+  company and title match another one.
+
+#### Changed
+- The scan summary no longer reports `changed`: a description edit keeps
+  the offer `active` and only records a snapshot. `Result.Changed`,
+  `OutcomeChanged`, the API `changed` field and the CLI/UI scan summaries
+  are gone.
+- Same-title siblings with different uids are separate offers; they are no
+  longer collapsed by the fingerprint. A source reporting a new company
+  name for the same uid no longer duplicates or moves the offer.
+- `UpsertProvenance` updates the row by `(source, uid)` before
+  `(offer, url)`, so a new URL under a known uid cannot create a second
+  provenance row. The link keeps the first-seen URL.
+
+#### Fixed
+- The `TestScanDedup` and Lever fixture expectations now assert distinct
+  uids and offers instead of distinct fingerprints.
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.

@@ -295,8 +295,9 @@ cat offers.json | ./jobwatch import -
 ```
 
 JSON fields are `company` and `title` (required for raw JSON), `location`,
-`url` and `description`. If the company and title match an existing
-offer, the URL is added to that offer instead of creating a duplicate.
+`url` and `description`. If the URL already belongs to an offer, the
+import attaches to that offer instead of creating a duplicate; a new URL
+creates a new offer even when the company and title match another one.
 When a page cannot be read, the API returns the extracted fields to the
 UI's manual fallback; the CLI asks for `--company`/`--title` (or
 `--no-fetch`).
