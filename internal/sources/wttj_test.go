@@ -1043,6 +1043,78 @@ func TestWTTJFetchUsesConfigURL(t *testing.T) {
 	}
 }
 
+// TestWTTJDiscoverFallbacks covers the two discovery fallbacks that the
+// fixtures do not drive: the careers path supplies the page language when
+// the bootstrap omits it, and the path slug when the bootstrap names no
+// organization.
+func TestWTTJDiscoverFallbacks(t *testing.T) {
+	tests := []struct {
+		name      string
+		bootstrap string
+		hit       string
+		sourceURL string
+		wantURL   string
+		wantKey   string
+	}{
+		{
+			name: "language falls back to the careers path",
+			bootstrap: `{"page":{"path":[{"items_count":1}],"sections":[{"containers":[{"blocks":[
+				{"kind":"jobs-search","properties":{
+					"algolia_app_id":"APP","algolia_api_key":"KEY","algolia_index_name":"IDX",
+					"filters":{"organization.slug":["acme"]},
+					"website_organization":{"slug":"acme"}}}]}]}]}}`,
+			hit:       `{"reference":"A","name":"SRE","slug":"sre","organization":{"name":"Acme","slug":"acme"}}`,
+			sourceURL: "https://www.welcometothejungle.com/fr/companies/acme/jobs",
+			wantURL:   "https://www.welcometothejungle.com/fr/companies/acme/jobs/sre",
+			wantKey:   companyKey(model.SourceWTTJ, "acme"),
+		},
+		{
+			name: "organization slug falls back to the careers path",
+			bootstrap: `{"page":{"path":[{"items_count":1}],"sections":[{"containers":[{"blocks":[
+				{"kind":"jobs-search","properties":{
+					"algolia_app_id":"APP","algolia_api_key":"KEY","algolia_index_name":"IDX",
+					"filters":{"website.reference":"wttj_fr"}}}]}]}]}}`,
+			hit:       `{"reference":"A","name":"SRE","slug":"sre","organization":{"name":"Acme"}}`,
+			sourceURL: "https://www.welcometothejungle.com/fr/companies/acme/jobs",
+			wantURL:   "https://www.welcometothejungle.com/fr/companies/acme/jobs/sre",
+			wantKey:   companyKey(model.SourceWTTJ, "acme"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/robots.txt":
+					w.Write([]byte("User-agent: *\nAllow: /\n"))
+				case r.URL.Path == "/api/v1/pages":
+					w.Write([]byte(tt.bootstrap))
+				case r.URL.Path == "/1/indexes/*/queries":
+					w.Write([]byte(`{"results":[{"hits":[` + tt.hit + `],"nbHits":1,"nbPages":1}]}`))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			c, _ := testClient()
+			wttj := &WTTJ{Client: c, PagesURL: srv.URL + "/api/v1/pages", AlgoliaBaseURL: srv.URL}
+			offers, err := wttj.Fetch(context.Background(), model.Source{
+				ID: 1, Type: model.SourceWTTJ, URL: tt.sourceURL,
+			})
+			if err != nil {
+				t.Fatalf("Fetch: %v", err)
+			}
+			if len(offers) != 1 {
+				t.Fatalf("offers = %d, want 1: %+v", len(offers), offers)
+			}
+			got := offers[0]
+			if got.URL != tt.wantURL || got.CompanyKey != tt.wantKey {
+				t.Errorf("offer = %+v, want URL %q and key %q", got, tt.wantURL, tt.wantKey)
+			}
+		})
+	}
+}
+
 func TestWTTJHelpers(t *testing.T) {
 	tests := []struct {
 		path, wantSlug, wantLang string
