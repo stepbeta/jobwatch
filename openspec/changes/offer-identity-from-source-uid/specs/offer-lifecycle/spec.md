@@ -66,3 +66,28 @@ Renaming a company, or the source reporting a different company name, MUST NOT c
 
 - **WHEN** a source starts reporting a different company name for postings it already listed
 - **THEN** the existing offers keep their identity and listing state
+
+### Requirement: Existing offers are re-attributed
+
+When a source's adapter starts reporting an employer for offers already stored under another company, the system SHALL be able to move those offers to the employer without creating new offers, preserving their events, notes, snapshots and application state. The operation MUST be repeatable without further effect.
+
+#### Scenario: Feed offers move to their employers
+
+- **WHEN** re-attribution runs on a source whose offers were stored under the source's own name
+- **THEN** each offer moves to the company the adapter now reports and keeps its history
+
+#### Scenario: Re-attribution runs twice
+
+- **WHEN** re-attribution runs a second time with the same source output
+- **THEN** no offer changes
+
+#### Scenario: Offer has no matching sighting
+
+- **WHEN** a stored offer has no `(source, uid)` match in the new source output
+- **THEN** it is left untouched
+
+#### Scenario: Moving an offer empties a company
+
+- **WHEN** re-attribution moves every offer away from a company
+- **THEN** that company remains visible with no offers and is deleted only by the user
+

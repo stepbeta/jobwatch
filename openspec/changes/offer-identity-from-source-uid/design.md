@@ -119,6 +119,11 @@ compared when the user asks to see them.
 4. Rollback: the new tables and columns are additive; the only destructive step is the
    `changed` update, which is reversible by re-running scans. A `jobwatch backup`
    before migrating is the supported safety net.
+5. Existing data is corrected by an explicit `jobwatch reattribute` pass, not by the
+   migration: re-attribution needs the adapters' current output, so it re-fetches
+   each source and rewrites company and title on offers matched by `(source, uid)`.
+   It is idempotent and leaves offers it cannot match alone. Scanning alone cannot do
+   this, because scans never rewrite company or title on an existing offer.
 
 ## Open Questions
 

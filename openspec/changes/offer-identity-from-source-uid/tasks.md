@@ -39,16 +39,27 @@
 - [x] 5.3 Add repair: assign company and title, clear the incomplete marker, never overwritten by later scans
 - [x] 5.4 Report the incomplete count per source in the scan result
 
-## 6. API and UI
+## 6. Existing data remediation
 
-- [ ] 6.1 `GET /api/offers` excludes incomplete by default; add a filter to list them
-- [ ] 6.2 Add the incomplete view with count and repair form; reuse the manual import form
-- [ ] 6.3 Remove `changed` from the offer state type, filter and badge; show a version count instead
-- [ ] 6.4 Show the company key(s) on the company page so same-named companies are distinguishable
+- [ ] 6.1 Add a one-shot command (`jobwatch reattribute [--all] [--source id]`) that re-fetches a source and writes the adapter's canonical company and title onto offers matched by `(source, uid)`, preserving events, notes, snapshots and application state
+- [ ] 6.2 Resolve the target company with the same resolution order as a scan (key, source alias, confirmed alias, create) so a re-attributed offer lands on its real employer
+- [ ] 6.3 Keep it idempotent: a second run changes nothing, and offers without a `(source, uid)` match are left untouched
+- [ ] 6.4 Report per source: re-attributed offers, companies left without offers, skipped offers
+- [ ] 6.5 Run it on the live database against We Work Remotely and assert the offer count moves from the feed to its employers
+- [ ] 6.6 Leave the offers that have no provenance untouched and document them as history; the emptied feed company stays visible for the user to delete
+- [ ] 6.7 Tests: fixture offer attributed to a feed company is moved by remediation with history intact, and a second run is a no-op
 
-## 7. Documentation
+## 7. API and UI
 
-- [ ] 7.1 `docs/DATA-MODEL.md`: company keys and aliases, offer identity, incomplete marker, state machine without `changed`
-- [ ] 7.2 `docs/ARCHITECTURE.md`: adapter contract, resolution order, incomplete path
-- [ ] 7.3 `docs/API.md`: incomplete filter and repair endpoint, offer state enum
-- [ ] 7.4 `docs/SPEC.md` revision entry; `CHANGELOG.md`; `docs/MILESTONES.md` known-gaps rows that this change closes
+- [ ] 7.1 `GET /api/offers` excludes incomplete by default; add a filter to list them
+- [ ] 7.2 Add the incomplete view with count and repair form; reuse the manual import form
+- [ ] 7.3 Remove `changed` from the offer state type, filter and badge; show a version count instead
+- [ ] 7.4 Show the company key(s) on the company page so same-named companies are distinguishable
+
+## 8. Documentation
+
+- [ ] 8.1 `docs/DATA-MODEL.md`: company keys and aliases, offer identity, incomplete marker, state machine without `changed`
+- [ ] 8.2 `docs/ARCHITECTURE.md`: adapter contract, resolution order, incomplete path, remediation command
+- [ ] 8.3 `docs/API.md`: incomplete filter and repair endpoint, offer state enum
+- [ ] 8.4 `docs/SPEC.md` revision entry; `CHANGELOG.md`; `docs/MILESTONES.md` known-gaps rows that this change closes
+- [ ] 8.5 `README.md` command reference: `reattribute`
