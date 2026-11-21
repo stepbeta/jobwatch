@@ -82,7 +82,9 @@ choose another file.
    Applications Refresh on the dashboard, or `jobwatch scan`. Each source
    is fetched politely, parsed by its adapter, and written in one
    transaction. A failing source is marked `error` or `blocked` without
-   stopping the others.
+   stopping the others. An item missing a company or title is kept as an
+   incomplete offer (reported in the scan summary) and hidden from the
+   lists until it is repaired.
 3. **Classify and review.** Every sighting gets a title score, a location
    score and a derived remote policy. Offers are identified by their
    source link (external uid, then URL); a description edit keeps a new

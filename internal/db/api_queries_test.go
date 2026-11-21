@@ -25,7 +25,7 @@ func mustOffer(t *testing.T, sqlDB *sql.DB, c model.Company, title, location str
 	t.Helper()
 	titleNorm := model.NormalizeTitle(title)
 	o := model.JobOffer{
-		CompanyID:       c.ID,
+		CompanyID:       &c.ID,
 		Title:           title,
 		TitleNormalized: titleNorm,
 		Fingerprint:     model.Fingerprint(c.NameNormalized, titleNorm, ""),
@@ -91,14 +91,14 @@ func TestCompanyMerge(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if o.CompanyID != acmeSAS.ID {
-			t.Errorf("offer %d company = %d, want %d", id, o.CompanyID, acmeSAS.ID)
+		if o.CompanyID == nil || *o.CompanyID != acmeSAS.ID {
+			t.Errorf("offer %d company = %v, want %d", id, o.CompanyID, acmeSAS.ID)
 		}
 		if o.Fingerprint != fp {
 			t.Errorf("offer %d fingerprint = %q, want unchanged %q", id, o.Fingerprint, fp)
 		}
 	}
-	if o, err := GetOffer(ctx, sqlDB, kept.ID); err != nil || o.CompanyID != acmeSAS.ID {
+	if o, err := GetOffer(ctx, sqlDB, kept.ID); err != nil || o.CompanyID == nil || *o.CompanyID != acmeSAS.ID {
 		t.Errorf("target offer untouched: %+v, %v", o, err)
 	}
 
@@ -197,6 +197,101 @@ func TestCompanyRenameKeepsOffersAndAliases(t *testing.T) {
 	}
 	if got, err := GetCompany(ctx, sqlDB, other.ID); err != nil || got.Name != "Other" {
 		t.Errorf("other company = %+v, %v", got, err)
+	}
+}
+
+func TestIncompleteOfferLifecycle(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTest(t)
+	c := mustCompany(t, sqlDB, "Acme")
+
+	// Missing company: stored with a NULL company_id.
+	o1, err := InsertIncompleteOffer(ctx, sqlDB, model.JobOffer{
+		Title: "Mystery Role", TitleNormalized: model.NormalizeTitle("Mystery Role"),
+		URL: strPtrOf("https://x/1"),
+	}, model.IncompleteMissingCompany, `{"title":"Mystery Role","url":"https://x/1"}`, testNow)
+	if err != nil {
+		t.Fatalf("insert missing-company offer: %v", err)
+	}
+	if o1.CompanyID != nil || o1.IncompleteReason != model.IncompleteMissingCompany || o1.IncompleteRaw == nil {
+		t.Errorf("missing-company offer = %+v", o1)
+	}
+
+	// Missing title: the company is known and kept.
+	o2, err := InsertIncompleteOffer(ctx, sqlDB, model.JobOffer{
+		CompanyID: &c.ID, URL: strPtrOf("https://x/2"),
+	}, model.IncompleteMissingTitle, `{"company":"Acme","url":"https://x/2"}`, testNow)
+	if err != nil {
+		t.Fatalf("insert missing-title offer: %v", err)
+	}
+	if o2.CompanyID == nil || *o2.CompanyID != c.ID || o2.IncompleteReason != model.IncompleteMissingTitle {
+		t.Errorf("missing-title offer = %+v", o2)
+	}
+
+	// The normal list excludes both; the incomplete view lists both and the
+	// NULL company comes back as an empty company name.
+	list, err := QueryOffers(ctx, sqlDB, OfferQuery{Sort: SortLastSeen})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.Total != 0 {
+		t.Errorf("default offers total = %d, want 0", list.Total)
+	}
+	incomplete, err := QueryOffers(ctx, sqlDB, OfferQuery{IncompleteOnly: true, Sort: SortLastSeen})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incomplete.Total != 2 {
+		t.Errorf("incomplete offers total = %d, want 2", incomplete.Total)
+	}
+	for _, item := range incomplete.Offers {
+		if item.ID == o1.ID && item.CompanyName != "" {
+			t.Errorf("missing-company offer company name = %q, want empty", item.CompanyName)
+		}
+	}
+	cli, err := ListOffers(ctx, sqlDB, OfferFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cli) != 0 {
+		t.Errorf("CLI list includes %d incomplete offers", len(cli))
+	}
+
+	// Repair the missing-company item.
+	loc := "Paris"
+	repaired, err := RepairOffer(ctx, sqlDB, o1.ID, c.ID, "Site Reliability Engineer", &loc, testNow)
+	if err != nil {
+		t.Fatalf("RepairOffer: %v", err)
+	}
+	if repaired.CompanyID == nil || *repaired.CompanyID != c.ID ||
+		repaired.Title != "Site Reliability Engineer" || repaired.IncompleteReason != "" ||
+		repaired.IncompleteRaw == nil || repaired.Location == nil || *repaired.Location != loc {
+		t.Errorf("repaired offer = %+v", repaired)
+	}
+	list, err = QueryOffers(ctx, sqlDB, OfferQuery{Sort: SortLastSeen})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.Total != 1 || list.Offers[0].ID != o1.ID {
+		t.Errorf("default offers after repair = %+v", list)
+	}
+	incomplete, err = QueryOffers(ctx, sqlDB, OfferQuery{IncompleteOnly: true, Sort: SortLastSeen})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incomplete.Total != 1 || incomplete.Offers[0].ID != o2.ID {
+		t.Errorf("incomplete offers after repair = %+v", incomplete)
+	}
+
+	// A complete offer cannot be repaired again.
+	if _, err := RepairOffer(ctx, sqlDB, o1.ID, c.ID, "Again", nil, testNow); !errors.Is(err, ErrOfferNotIncomplete) {
+		t.Errorf("second repair error = %v, want ErrOfferNotIncomplete", err)
+	}
+	// An invalid reason is rejected before any row is written.
+	if _, err := InsertIncompleteOffer(ctx, sqlDB, model.JobOffer{
+		Title: "x", URL: strPtrOf("https://x/3"),
+	}, model.IncompleteReason("nope"), "{}", testNow); err == nil {
+		t.Error("invalid incomplete reason accepted")
 	}
 }
 

@@ -19,7 +19,7 @@ func TestReclassify(t *testing.T) {
 	}
 	location := "Remote - France"
 	o, err := db.InsertOffer(ctx, sqlDB, model.JobOffer{
-		CompanyID:       company.ID,
+		CompanyID:       &company.ID,
 		Title:           "Platform Engineer",
 		TitleNormalized: model.NormalizeTitle("Platform Engineer"),
 		Location:        &location,

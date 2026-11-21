@@ -230,6 +230,7 @@ function reportBatch(
   onNotice: (kind: 'info' | 'success' | 'error', text: string) => void,
 ) {
   let added = 0
+  let incomplete = 0
   let disappeared = 0
   let failed = 0
   for (const outcome of outcomes) {
@@ -240,11 +241,12 @@ function reportBatch(
       continue
     }
     added += outcome.response?.result.new ?? 0
+    incomplete += outcome.response?.result.incomplete ?? 0
     disappeared += outcome.response?.result.disappeared ?? 0
   }
   let text =
     `${targets.length} source${targets.length === 1 ? '' : 's'} scanned: ` +
-    `${added} new, ${disappeared} disappeared`
+    `${added} new, ${incomplete} incomplete, ${disappeared} disappeared`
   if (failed > 0) text += `; ${failed} failed`
   if (manualLinks > 0) text += `; ${manualLinks} manual link(s) skipped (no fetchable source)`
   onNotice(failed > 0 ? 'error' : 'success', `${text}.`)

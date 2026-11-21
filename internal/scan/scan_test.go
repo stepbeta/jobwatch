@@ -479,7 +479,7 @@ func TestScanIdentityIncludesSource(t *testing.T) {
 
 // TestScanDoesNotInventCompanyFromSourceName covers task 3.2: the source
 // name is no longer a company fallback. An item with no company evidence
-// and no config.company is skipped; a declared company is used.
+// and no config.company is stored incomplete; a declared company is used.
 func TestScanDoesNotInventCompanyFromSourceName(t *testing.T) {
 	sqlDB, sc, ff, clk := setup(t)
 	ctx := context.Background()
@@ -488,25 +488,128 @@ func TestScanDoesNotInventCompanyFromSourceName(t *testing.T) {
 	ff.offers[src.ID] = []sources.RawOffer{{ExternalUID: "1", Title: "SRE", URL: "https://x/1"}}
 	clk.advance()
 	r := sc.ScanSource(ctx, src)
-	if r.Status != model.ScanOK || r.Skipped != 1 || r.New != 0 {
-		t.Fatalf("scan without company = %+v, want 1 skipped", r)
+	if r.Status != model.ScanOK || r.Skipped != 0 || r.New != 0 || r.Incomplete != 1 {
+		t.Fatalf("scan without company = %+v, want 1 incomplete", r)
 	}
 	if n := count(t, sqlDB, `SELECT COUNT(*) FROM companies`); n != 0 {
 		t.Errorf("companies = %d, want 0 (the source name was not used)", n)
 	}
-	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 0 {
-		t.Errorf("offers = %d, want 0", n)
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 1 {
+		t.Errorf("offers = %d, want 1 incomplete offer", n)
+	}
+	var companyID sql.NullInt64
+	var reason, raw string
+	if err := sqlDB.QueryRow(`SELECT company_id, incomplete_reason, incomplete_raw FROM job_offers`).
+		Scan(&companyID, &reason, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if companyID.Valid || reason != string(model.IncompleteMissingCompany) {
+		t.Errorf("incomplete offer company/reason = %v/%q, want NULL/missing_company", companyID, reason)
+	}
+	if !strings.Contains(raw, "https://x/1") || !strings.Contains(raw, "SRE") {
+		t.Errorf("incomplete_raw = %s, want the reported title and url", raw)
 	}
 
 	declared := addSource(t, sqlDB, "Beta", `{"company":"Beta SAS"}`)
 	ff.offers[declared.ID] = []sources.RawOffer{{ExternalUID: "1", Title: "SRE", URL: "https://x/2"}}
 	clk.advance()
 	r = sc.ScanSource(ctx, declared)
-	if r.Status != model.ScanOK || r.New != 1 || r.Skipped != 0 {
+	if r.Status != model.ScanOK || r.New != 1 || r.Skipped != 0 || r.Incomplete != 0 {
 		t.Fatalf("scan with config.company = %+v, want 1 new", r)
 	}
 	if n := count(t, sqlDB, `SELECT COUNT(*) FROM companies WHERE name_normalized = 'beta'`); n != 1 {
 		t.Errorf("declared company rows = %d, want 1", n)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 2 {
+		t.Errorf("offers = %d, want 2 (one incomplete, one normal)", n)
+	}
+}
+
+// TestScanIncompleteItems covers task 5: an item missing a title is stored
+// with its known company and raw values, a rescan does not duplicate it, and
+// a user repair survives later scans (including a later complete sighting).
+func TestScanIncompleteItems(t *testing.T) {
+	sqlDB, sc, ff, clk := setup(t)
+	ctx := context.Background()
+	src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
+
+	raw := sources.RawOffer{
+		ExternalUID: "1", Title: "", Location: "Paris", URL: "https://x/1", Description: "desc",
+	}
+	ff.offers[src.ID] = []sources.RawOffer{raw}
+	clk.advance()
+	r := sc.ScanSource(ctx, src)
+	if r.Status != model.ScanOK || r.Incomplete != 1 || r.New != 0 || r.Skipped != 0 {
+		t.Fatalf("first scan = %+v, want 1 incomplete", r)
+	}
+	var id int64
+	var companyID sql.NullInt64
+	var reason, rawJSON, title string
+	if err := sqlDB.QueryRow(
+		`SELECT id, company_id, title, incomplete_reason, incomplete_raw FROM job_offers`).
+		Scan(&id, &companyID, &title, &reason, &rawJSON); err != nil {
+		t.Fatal(err)
+	}
+	if !companyID.Valid || title != "" || reason != string(model.IncompleteMissingTitle) {
+		t.Errorf("incomplete offer company/title/reason = %v/%q/%q", companyID, title, reason)
+	}
+	if !strings.Contains(rawJSON, "https://x/1") || !strings.Contains(rawJSON, `"company":"Acme"`) {
+		t.Errorf("incomplete_raw = %s, want the reported values", rawJSON)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offer_provenance WHERE offer_id = ?`, id); n != 1 {
+		t.Errorf("provenance = %d, want 1", n)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM snapshots WHERE offer_id = ?`, id); n != 1 {
+		t.Errorf("snapshots = %d, want 1", n)
+	}
+
+	// A rescan of the same incomplete item only refreshes the sighting.
+	clk.advance()
+	r = sc.ScanSource(ctx, src)
+	if r.Incomplete != 0 || r.Seen != 1 || r.New != 0 {
+		t.Fatalf("rescan = %+v, want 1 seen", r)
+	}
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 1 {
+		t.Errorf("offers after rescan = %d, want 1", n)
+	}
+
+	// Repair assigns the company and title, clears the reason and keeps the
+	// raw values as the durable marker.
+	loc := "Paris, France"
+	repaired, err := db.RepairOffer(ctx, sqlDB, id, companyID.Int64, "Site Reliability Engineer", &loc, clk.now())
+	if err != nil {
+		t.Fatalf("RepairOffer: %v", err)
+	}
+	if repaired.Title != "Site Reliability Engineer" || repaired.IncompleteReason != "" ||
+		repaired.IncompleteRaw == nil || repaired.CompanyID == nil {
+		t.Errorf("repaired offer = %+v", repaired)
+	}
+
+	// A later scan of the same (still unnormalized) item must not overwrite
+	// the repair.
+	clk.advance()
+	ff.offers[src.ID] = []sources.RawOffer{raw}
+	r = sc.ScanSource(ctx, src)
+	if r.Seen != 1 || r.Incomplete != 0 {
+		t.Fatalf("scan after repair = %+v, want 1 seen", r)
+	}
+	got := offerByProvenance(t, sqlDB, src.ID, "1")
+	if got.Title != "Site Reliability Engineer" || got.IncompleteReason != "" {
+		t.Errorf("repaired offer after rescan = %+v", got)
+	}
+
+	// Even a complete sighting must not replace the user's title.
+	clk.advance()
+	ff.offers[src.ID] = []sources.RawOffer{{
+		ExternalUID: "1", Title: "Source Title", Location: "Lyon", URL: "https://x/1",
+	}}
+	r = sc.ScanSource(ctx, src)
+	if r.Seen != 1 || r.Incomplete != 0 {
+		t.Fatalf("complete sighting after repair = %+v, want 1 seen", r)
+	}
+	got = offerByProvenance(t, sqlDB, src.ID, "1")
+	if got.Title != "Site Reliability Engineer" || got.Location == nil || *got.Location != loc {
+		t.Errorf("repaired title/location overwritten: %+v", got)
 	}
 }
 
@@ -619,12 +722,13 @@ func TestScanDedup(t *testing.T) {
 			wantFirstLocs: []string{""},
 		},
 		{
-			name: "offers without title or url are skipped",
+			name: "missing title is stored incomplete, missing url is skipped",
 			offers: []sources.RawOffer{
 				{ExternalUID: "a", Title: "", URL: "https://x/a"},
 				{ExternalUID: "b", Title: "SRE", URL: ""},
 			},
-			wantOffers: 0, wantProv: 0,
+			wantOffers: 1, wantProv: 1,
+			wantFirstLocs: []string{""},
 		},
 	}
 	for _, tt := range tests {

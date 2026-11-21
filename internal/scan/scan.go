@@ -38,6 +38,7 @@ type Result struct {
 	Seen        int // existing offers seen again (includes Reappeared)
 	Reappeared  int // disappeared -> active
 	Disappeared int
+	Incomplete  int // items stored as incomplete offers
 }
 
 func (s *Scanner) now() time.Time {
@@ -114,12 +115,6 @@ func (s *Scanner) apply(ctx context.Context, src model.Source, raws []sources.Ra
 	touched := map[int64]bool{}
 	srcID := src.ID
 	for _, raw := range raws {
-		if raw.IncompleteReason != "" {
-			// The adapter reported why the item cannot be used. The
-			// incomplete-listing group stores it instead of skipping it.
-			res.Skipped++
-			continue
-		}
 		in := Sighting{
 			Company:     firstNonEmpty(raw.Company, cfg.Company),
 			CompanyKey:  raw.CompanyKey,
@@ -130,16 +125,29 @@ func (s *Scanner) apply(ctx context.Context, src model.Source, raws []sources.Ra
 			ExternalUID: raw.ExternalUID,
 			SourceID:    &srcID,
 		}
-		if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.URL) == "" {
+		if strings.TrimSpace(in.URL) == "" {
+			// Without a URL there is no provenance identity to store.
 			res.Skipped++
+			continue
+		}
+		// The fields decide whether the item is usable; the adapter's
+		// IncompleteReason is a hint and the pipeline recomputes it.
+		if reason := sources.IncompleteReasonFor(in.Company, in.CompanyKey, in.Title); reason != "" {
+			if err := applyIncompleteSighting(ctx, tx, in, reason, now, res); err != nil {
+				return err
+			}
 			continue
 		}
 		_, outcome, err := applySighting(ctx, tx, in, now, touched)
 		if errors.Is(err, db.ErrCompanyUnknown) {
-			// The adapter supplied no company and the source declares none.
-			// The item is skipped until the incomplete-listing group stores
-			// it with its raw values.
-			res.Skipped++
+			// The item has a title but no usable company evidence.
+			reason := model.IncompleteMissingCompany
+			if strings.TrimSpace(in.Title) == "" {
+				reason = model.IncompleteMissingCompanyTitle
+			}
+			if err := applyIncompleteSighting(ctx, tx, in, reason, now, res); err != nil {
+				return err
+			}
 			continue
 		}
 		if err != nil {

@@ -62,9 +62,9 @@ func companyKey(typ model.SourceType, token string) string {
 	return string(typ) + ":" + token
 }
 
-// incompleteReason reports the reason an item cannot be used. A company
-// key is evidence even when the display name is missing.
-func incompleteReason(company, key, title string) model.IncompleteReason {
+// IncompleteReasonFor reports why an item cannot be used. A company key
+// is evidence even when the display name is missing.
+func IncompleteReasonFor(company, key, title string) model.IncompleteReason {
 	missingCompany := strings.TrimSpace(company) == "" && strings.TrimSpace(key) == ""
 	missingTitle := strings.TrimSpace(title) == ""
 	switch {
@@ -82,6 +82,6 @@ func incompleteReason(company, key, title string) model.IncompleteReason {
 // the item incomplete when it has no usable company or title.
 func finalizeOffer(o RawOffer, fallbackCompany string) RawOffer {
 	o.Company = firstNonEmpty(o.Company, fallbackCompany)
-	o.IncompleteReason = incompleteReason(o.Company, o.CompanyKey, o.Title)
+	o.IncompleteReason = IncompleteReasonFor(o.Company, o.CompanyKey, o.Title)
 	return o
 }

@@ -486,7 +486,7 @@ func TestMigrationRenamesReplyReceived(t *testing.T) {
 	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
 	c := insertLegacyCompany(t, sqlDB, "Acme", "acme", now)
 	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
-		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0006",
+		CompanyID: &c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0006",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -589,7 +589,7 @@ func TestMigrationAddsSnapshotOrigin(t *testing.T) {
 	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
 	c := insertLegacyCompany(t, sqlDB, "Acme", "acme", now)
 	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
-		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0007",
+		CompanyID: &c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0007",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -703,7 +703,7 @@ func TestMigrationAddsOfferSavedAt(t *testing.T) {
 	now := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
 	c := insertLegacyCompany(t, sqlDB, "Acme", "acme", now)
 	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
-		CompanyID: c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0008",
+		CompanyID: &c.ID, Title: "SRE", TitleNormalized: "sre", Fingerprint: "pre-0008",
 	}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -1343,7 +1343,7 @@ func TestFTSTriggers(t *testing.T) {
 	}
 	raw := "Kubernetes clusters and Terraform"
 	o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
-		CompanyID: c.ID, Title: "Ingénieur Plateforme", TitleNormalized: "ingenieur plateforme",
+		CompanyID: &c.ID, Title: "Ingénieur Plateforme", TitleNormalized: "ingenieur plateforme",
 		Fingerprint: "fp1", RawText: &raw,
 	}, now)
 	if err != nil {

@@ -207,6 +207,7 @@ export interface ScanResult {
   seen: number
   reappeared: number
   disappeared: number
+  incomplete: number
   error?: string
 }
 

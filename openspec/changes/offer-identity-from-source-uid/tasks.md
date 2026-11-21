@@ -34,10 +34,10 @@
 
 ## 5. Incomplete items
 
-- [ ] 5.1 Store items with missing company or title as incomplete offers with the raw reported values
-- [ ] 5.2 Exclude incomplete offers from list, dashboard and search queries
-- [ ] 5.3 Add repair: assign company and title, clear the incomplete marker, never overwritten by later scans
-- [ ] 5.4 Report the incomplete count per source in the scan result
+- [x] 5.1 Store items with missing company or title as incomplete offers with the raw reported values
+- [x] 5.2 Exclude incomplete offers from list, dashboard and search queries
+- [x] 5.3 Add repair: assign company and title, clear the incomplete marker, never overwritten by later scans
+- [x] 5.4 Report the incomplete count per source in the scan result
 
 ## 6. API and UI
 

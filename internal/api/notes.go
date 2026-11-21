@@ -52,7 +52,7 @@ func (s *Server) validatePinnedEvent(r *http.Request, typ model.EntityType, enti
 	if err != nil {
 		return err
 	}
-	if o.CompanyID != entityID {
+	if o.CompanyID == nil || *o.CompanyID != entityID {
 		return fmt.Errorf("event %d does not belong to an offer of company %d", eventID, entityID)
 	}
 	return nil

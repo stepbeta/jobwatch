@@ -233,7 +233,8 @@ func DeleteSource(ctx context.Context, sqlDB *sql.DB, id int64) error {
 func offerColumns(prefix string) string {
 	cols := []string{"id", "company_id", "title", "title_normalized", "location", "remote_policy", "url", "fingerprint",
 		"first_seen_at", "last_seen_at", "offer_state", "application_state", "raw_text", "text_hash",
-		"title_confidence", "location_confidence", "match_reasons_json", "saved_at", "created_at", "updated_at"}
+		"title_confidence", "location_confidence", "match_reasons_json", "saved_at", "created_at", "updated_at",
+		"incomplete_reason", "incomplete_raw"}
 	for i, c := range cols {
 		cols[i] = prefix + c
 	}
@@ -242,14 +243,18 @@ func offerColumns(prefix string) string {
 
 func scanOffer(row interface{ Scan(...any) error }) (model.JobOffer, error) {
 	var o model.JobOffer
+	var companyID sql.NullInt64
 	var location, url, rawText, textHash, reasons, savedAt, created, updated sql.NullString
+	var incompleteReason, incompleteRaw sql.NullString
 	var remote, firstSeen, lastSeen, offerState, appState string
 	var titleConf, locConf sql.NullInt64
-	if err := row.Scan(&o.ID, &o.CompanyID, &o.Title, &o.TitleNormalized, &location, &remote, &url, &o.Fingerprint,
+	if err := row.Scan(&o.ID, &companyID, &o.Title, &o.TitleNormalized, &location, &remote, &url, &o.Fingerprint,
 		&firstSeen, &lastSeen, &offerState, &appState, &rawText, &textHash,
-		&titleConf, &locConf, &reasons, &savedAt, &created, &updated); err != nil {
+		&titleConf, &locConf, &reasons, &savedAt, &created, &updated,
+		&incompleteReason, &incompleteRaw); err != nil {
 		return model.JobOffer{}, err
 	}
+	o.CompanyID = int64Ptr(companyID)
 	o.Location = strPtr(location)
 	o.RemotePolicy = model.RemotePolicy(remote)
 	o.URL = strPtr(url)
@@ -266,6 +271,10 @@ func scanOffer(row interface{ Scan(...any) error }) (model.JobOffer, error) {
 		t := parseTime(savedAt.String)
 		o.SavedAt = &t
 	}
+	if incompleteReason.Valid {
+		o.IncompleteReason = model.IncompleteReason(incompleteReason.String)
+	}
+	o.IncompleteRaw = strPtr(incompleteRaw)
 	o.CreatedAt = parseNullTime(created)
 	o.UpdatedAt = parseNullTime(updated)
 	return o, nil
@@ -353,7 +362,7 @@ func InsertOffer(ctx context.Context, q Querier, o model.JobOffer, now time.Time
 		title_confidence, location_confidence, match_reasons_json,
 		created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		o.CompanyID, o.Title, o.TitleNormalized, nullStr(o.Location), string(o.RemotePolicy), nullStr(o.URL), o.Fingerprint,
+		nullInt(o.CompanyID), o.Title, o.TitleNormalized, nullStr(o.Location), string(o.RemotePolicy), nullStr(o.URL), o.Fingerprint,
 		firstSeen, lastSeen, string(o.OfferState), string(o.ApplicationState), nullStr(o.RawText), nullStr(o.TextHash),
 		nullIntFromInt(o.TitleConfidence), nullIntFromInt(o.LocationConfidence), nullStr(o.MatchReasonsJSON),
 		ts, ts)
@@ -525,7 +534,7 @@ type OfferFilter struct {
 // ListOffers returns offers ordered by most recently seen first.
 func ListOffers(ctx context.Context, q Querier, f OfferFilter) ([]OfferListItem, error) {
 	var b strings.Builder
-	b.WriteString(`SELECT c.name, ` + offerColumns("o.") + ` FROM job_offers o JOIN companies c ON c.id = o.company_id WHERE 1=1`)
+	b.WriteString(`SELECT c.name, ` + offerColumns("o.") + ` FROM job_offers o JOIN companies c ON c.id = o.company_id WHERE o.incomplete_reason IS NULL`)
 	var args []any
 	if f.OfferState != "" {
 		b.WriteString(` AND o.offer_state = ?`)

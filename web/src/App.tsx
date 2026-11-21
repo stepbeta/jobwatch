@@ -66,7 +66,7 @@ export default function App() {
       r.result.error ? 'error' : 'success',
       r.result.error
         ? `${r.source.name}: ${r.result.error}`
-        : `${r.source.name}: ${r.result.new} new, ${r.result.disappeared} disappeared`,
+        : `${r.source.name}: ${r.result.new} new, ${r.result.incomplete} incomplete, ${r.result.disappeared} disappeared`,
     )
     return r
   }, [notify])

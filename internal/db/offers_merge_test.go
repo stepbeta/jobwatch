@@ -13,7 +13,7 @@ func seedMergeOffer(t *testing.T, q Querier, company model.Company, title, locat
 	t.Helper()
 	ctx := context.Background()
 	o := model.JobOffer{
-		CompanyID:       company.ID,
+		CompanyID:       &company.ID,
 		Title:           title,
 		TitleNormalized: model.NormalizeTitle(title),
 		Fingerprint:     model.Fingerprint(company.NameNormalized, model.NormalizeTitle(title), ""),

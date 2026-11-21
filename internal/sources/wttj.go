@@ -418,7 +418,7 @@ func mapWTTJHit(h wttjHit, search wttjSearch) (RawOffer, bool) {
 		Description:      desc,
 		Company:          company,
 		CompanyKey:       key,
-		IncompleteReason: incompleteReason(company, key, title),
+		IncompleteReason: IncompleteReasonFor(company, key, title),
 	}, true
 }
 

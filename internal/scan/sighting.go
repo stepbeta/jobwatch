@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -72,7 +73,7 @@ func applySighting(ctx context.Context, q db.Querier, in Sighting, now time.Time
 		titleConf, locConf := scores.TitleConfidence, scores.LocationConfidence
 		reasons := scores.MatchReasonsJSON
 		o := model.JobOffer{
-			CompanyID:          company.ID,
+			CompanyID:          &company.ID,
 			Title:              title,
 			TitleNormalized:    titleNorm,
 			Location:           optStr(location),
@@ -131,7 +132,10 @@ func applySighting(ctx context.Context, q db.Querier, in Sighting, now time.Time
 			effectiveLocation = *found.Location
 		}
 		updateTitle, updateTitleNorm := title, titleNorm
-		if in.SourceID == nil {
+		if in.SourceID == nil || found.IncompleteRaw != nil {
+			// A manual import only adds a link. A repaired offer keeps the
+			// title and location the user supplied; its incomplete_raw
+			// marker survives so a refresh cannot undo the repair.
 			updateTitle, updateTitleNorm = found.Title, found.TitleNormalized
 			effectiveLocation = strValue(found.Location)
 		}
@@ -157,6 +161,103 @@ func applySighting(ctx context.Context, q db.Querier, in Sighting, now time.Time
 		}
 	}
 	return offerID, outcome, nil
+}
+
+// incompleteRaw is the JSON stored in job_offers.incomplete_raw: the
+// values the source reported, kept so the user can repair the item.
+type incompleteRaw struct {
+	Company     string `json:"company,omitempty"`
+	CompanyKey  string `json:"company_key,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Location    string `json:"location,omitempty"`
+	URL         string `json:"url,omitempty"`
+	ExternalUID string `json:"external_uid,omitempty"`
+}
+
+// applyIncompleteSighting stores an item the source could not normalize.
+// If the identity already resolves to an offer, it only refreshes the
+// sighting: a scan never rewrites a company/title and never clears a
+// repair. A new incomplete item is stored with its raw values and a
+// provenance row, and res.Incomplete is incremented.
+func applyIncompleteSighting(ctx context.Context, q db.Querier, in Sighting,
+	reason model.IncompleteReason, now time.Time, res *Result) error {
+	link := strings.TrimSpace(in.URL)
+	uid := strings.TrimSpace(in.ExternalUID)
+
+	existing, err := db.FindOfferByProvenance(ctx, q, in.SourceID, uid, link)
+	if err == nil {
+		if err := db.TouchOfferLastSeen(ctx, q, existing.ID, now); err != nil {
+			return err
+		}
+		if link != "" {
+			if _, err := db.UpsertProvenance(ctx, q, existing.ID, in.SourceID, optStr(uid), link, now); err != nil {
+				return err
+			}
+		}
+		res.Seen++
+		return nil
+	}
+	if !errors.Is(err, db.ErrNotFound) {
+		return err
+	}
+
+	var companyID *int64
+	if strings.TrimSpace(in.Company) != "" || strings.TrimSpace(in.CompanyKey) != "" {
+		c, _, err := db.ResolveCompany(ctx, q, db.CompanyInput{
+			Key: in.CompanyKey, Name: in.Company, SourceID: in.SourceID,
+		}, now)
+		if err == nil {
+			companyID = &c.ID
+		} else if !errors.Is(err, db.ErrCompanyUnknown) {
+			return err
+		}
+	}
+
+	title := strings.TrimSpace(in.Title)
+	titleNorm := model.NormalizeTitle(title)
+	location := strings.TrimSpace(in.Location)
+	desc := strings.TrimSpace(in.Description)
+	raw, err := json.Marshal(incompleteRaw{
+		Company:     in.Company,
+		CompanyKey:  in.CompanyKey,
+		Title:       in.Title,
+		Location:    in.Location,
+		URL:         in.URL,
+		ExternalUID: in.ExternalUID,
+	})
+	if err != nil {
+		return err
+	}
+	o := model.JobOffer{
+		CompanyID:        companyID,
+		Title:            title,
+		TitleNormalized:  titleNorm,
+		Location:         optStr(location),
+		RemotePolicy:     model.RemoteUnknown,
+		URL:              optStr(link),
+		RawText:          optStr(desc),
+		IncompleteReason: reason,
+	}
+	if desc != "" {
+		h := model.TextHash(desc)
+		o.TextHash = &h
+	}
+	o, err = db.InsertIncompleteOffer(ctx, q, o, reason, string(raw), now)
+	if err != nil {
+		return err
+	}
+	if desc != "" {
+		if err := db.InsertSnapshotOrigin(ctx, q, o.ID, desc, model.SnapshotOriginScan, now); err != nil {
+			return err
+		}
+	}
+	if link != "" {
+		if _, err := db.UpsertProvenance(ctx, q, o.ID, in.SourceID, optStr(uid), link, now); err != nil {
+			return err
+		}
+	}
+	res.Incomplete++
+	return nil
 }
 
 func optStr(s string) *string {

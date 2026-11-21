@@ -165,16 +165,28 @@ compared when the user asks to see them.
   `config.company` on enabled single-employer sources (typed ATS plus
   RSS/HTML except We Work Remotely) to preserve the old attribution. An
   item with neither adapter company evidence nor `config.company` is
-  counted as skipped; the incomplete-listings group replaces that skip
-  with a stored incomplete offer.
+  stored as an incomplete offer by group 5 rather than skipped.
 - **Adapters carry the evidence.** Group 4 adds `CompanyKey` and
   `IncompleteReason` to `RawOffer`; every typed adapter emits its
   namespaced token. RSS/HTML gain a declarative `employer` rule
   (`separator`, plus `field`/`selector`) that rewrites company and title.
   Migration 0014 configures it for We Work Remotely, and a 169-employer
-  fixture proves the split and uid stability. Adapters now return an item
-  with an incomplete reason instead of dropping it; the pipeline still
-  skips those items until group 5.
+  fixture proves the split and uid stability. Adapters return an item
+  with an incomplete reason instead of dropping it; group 5 stores it.
+- **Incomplete offers are stored, not shown.** Group 5 inserts a row
+  with a NULL company and/or empty title, the raw reported values in
+  `incomplete_raw`, and `incomplete_reason`. The scan pipeline recomputes
+  the reason from the fields (the adapter hint is advisory) and counts
+  the item in `Result.Incomplete`. An item without a URL is still
+  skipped: without provenance there is no identity to rescan or repair.
+  The list, dashboard, search and CLI hide incomplete rows by default;
+  `IncompleteOnly` backs the repair view.
+- **Repair is durable.** `POST /api/offers/:id/repair` assigns company,
+  title and optional location, clears `incomplete_reason` and re-runs the
+  classifier, but keeps `incomplete_raw`. Scans treat a non-NULL
+  `incomplete_raw` as "the user owns the title/location" and only refresh
+  the sighting, so neither an unnormalized nor a later complete sighting
+  can overwrite a repair.
 - **Existing We Work Remotely offers are not reattributed.** The 291
   offers recorded before the employer rule keep the feed as their company:
   a later sighting resolves by uid to the existing offer, and a sighting

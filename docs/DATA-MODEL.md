@@ -199,8 +199,8 @@ them or keeping a user-edited source is safe.
 |---|---|---|
 | id | INTEGER PK | |
 | company_id | INTEGER → companies | nullable since 0012: an incomplete item may have no company yet |
-| title | TEXT NOT NULL | as first seen |
-| title_normalized | TEXT NOT NULL | `model.NormalizeTitle`: lowercase, accents folded, gender markers (`H/F`, `m/w/d`…) removed, punctuation → space |
+| title | TEXT NOT NULL | as first seen; empty only for an incomplete item whose source reported no title |
+| title_normalized | TEXT NOT NULL | `model.NormalizeTitle`: lowercase, accents folded, gender markers (`H/F`, `m/w/d`…) removed, punctuation → space; empty when the title is missing |
 | location | TEXT | free text as first seen |
 | remote_policy | TEXT NOT NULL DEFAULT 'unknown' | `remote` `hybrid` `onsite` `unknown`; derived by the deterministic classifier from location and description on every sighting (and by `jobwatch reclassify`) |
 | url | TEXT | canonical (first-seen) link |
@@ -215,14 +215,20 @@ them or keeping a user-edited source is safe.
 | match_reasons_json | TEXT | `{"title":["..."],"location":["..."]}`: human-readable matched terms and weights per score (see Classification below) |
 | saved_at | TEXT | NULL = not bookmarked; otherwise the UTC RFC3339 time the user bookmarked the offer (`PATCH /api/offers/:id` with `saved: true`). Independent of `offer_state` and `application_state` |
 | incomplete_reason | TEXT | NULL for a usable offer; otherwise `missing_company`, `missing_title` or `missing_company_title` (validated in Go) |
-| incomplete_raw | TEXT | JSON object with the values the source reported for an incomplete item |
+| incomplete_raw | TEXT | JSON object with the values the source reported for an incomplete item. Kept after a repair as the durable marker that protects the user's title and location from later scans |
 | created_at, updated_at | TEXT | |
 
 Indexes: company_id, offer_state, application_state, last_seen_at.
 
 An incomplete offer keeps its provenance, snapshots and notes; it is
 excluded from the offers list, dashboard and search until the user
-assigns a company and title. Later scans never overwrite those values.
+repairs it. A repair (`POST /api/offers/:id/repair`) assigns a company
+and title, clears `incomplete_reason` and re-runs the classifier, but
+leaves `incomplete_raw` in place. A later scan resolves the same identity
+to the offer, refreshes `last_seen_at`/provenance and never overwrites the
+user's company, title or location. An incomplete offer with a known
+company keeps that company; only a missing company leaves `company_id`
+NULL.
 
 `saved_at` is a personal-interest bookmark, not a state. Saving never
 changes either state machine, and an offer that becomes an application

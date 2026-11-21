@@ -117,7 +117,7 @@ func (ts *testServer) seedOffer(t *testing.T, c model.Company, title, location s
 	ctx := context.Background()
 	titleNorm := model.NormalizeTitle(title)
 	o := model.JobOffer{
-		CompanyID:       c.ID,
+		CompanyID:       &c.ID,
 		Title:           title,
 		TitleNormalized: titleNorm,
 		Fingerprint:     model.Fingerprint(c.NameNormalized, titleNorm, ""),

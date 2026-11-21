@@ -365,6 +365,63 @@ func TestPatchOfferDescription(t *testing.T) {
 		404, "not_found")
 }
 
+func TestRepairIncompleteOffer(t *testing.T) {
+	ts := newTestServer(t)
+	acme := ts.seedCompany(t, "Acme")
+	url := "https://x/1"
+	o, err := db.InsertIncompleteOffer(context.Background(), ts.db, model.JobOffer{
+		Title: "Mystery Role", TitleNormalized: model.NormalizeTitle("Mystery Role"), URL: &url,
+	}, model.IncompleteMissingCompany, `{"title":"Mystery Role","url":"https://x/1"}`, ts.clock.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/offers/" + strconv.FormatInt(o.ID, 10)
+
+	// The detail endpoint returns the incomplete offer with no company.
+	rec := ts.do(t, "GET", path, nil)
+	wantCode(t, rec, 200)
+	detail := decodeBody[offerDetailResp](t, rec)
+	if detail.Offer.CompanyID != nil || detail.Company.ID != 0 {
+		t.Errorf("incomplete detail company = %v / %+v", detail.Offer.CompanyID, detail.Company)
+	}
+	if detail.Offer.IncompleteReason != string(model.IncompleteMissingCompany) {
+		t.Errorf("incomplete reason = %q", detail.Offer.IncompleteReason)
+	}
+
+	wantErrorCode(t, ts.do(t, "POST", path+"/repair", map[string]any{}),
+		400, "validation_failed")
+	wantErrorCode(t, ts.do(t, "POST", path+"/repair", map[string]any{
+		"company_id": 99, "title": "SRE",
+	}), 404, "not_found")
+
+	rec = ts.do(t, "POST", path+"/repair", map[string]any{
+		"company_id": acme.ID, "title": "Site Reliability Engineer", "location": "Paris",
+	})
+	wantCode(t, rec, 200)
+	repaired := decodeBody[struct {
+		Offer offerJSON `json:"offer"`
+	}](t, rec).Offer
+	if repaired.CompanyID == nil || *repaired.CompanyID != acme.ID ||
+		repaired.Title != "Site Reliability Engineer" || repaired.IncompleteReason != "" ||
+		repaired.Location == nil || *repaired.Location != "Paris" {
+		t.Errorf("repaired offer = %+v", repaired)
+	}
+	if len(repaired.IncompleteRaw) == 0 {
+		t.Error("incomplete_raw was cleared on repair")
+	}
+
+	// The offer is no longer repairable and is visible as a normal offer.
+	wantErrorCode(t, ts.do(t, "POST", path+"/repair", map[string]any{
+		"company_id": acme.ID, "title": "Again",
+	}), 400, "validation_failed")
+	rec = ts.do(t, "GET", path, nil)
+	wantCode(t, rec, 200)
+	detail = decodeBody[offerDetailResp](t, rec)
+	if detail.Company.ID != acme.ID || detail.Offer.CompanyID == nil || *detail.Offer.CompanyID != acme.ID {
+		t.Errorf("detail after repair = %+v / %+v", detail.Company, detail.Offer)
+	}
+}
+
 func TestImportOffer(t *testing.T) {
 	ts := newTestServer(t)
 

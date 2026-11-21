@@ -133,15 +133,17 @@ type without an adapter is `skipped` and its status is left untouched.
   "result": {
     "source_id": 1, "source_name": "Acme", "status": "ok",
     "fetched": 12, "skipped": 0, "new": 2, "seen": 9,
-    "reappeared": 0, "disappeared": 1,
+    "reappeared": 0, "disappeared": 1, "incomplete": 1,
     "error": ""
   },
   "source": { "id": 1, "last_scan_status": "ok", "...": "..." }
 }
 ```
 
-`status` is `ok`, `error`, `blocked` or `skipped`. `error` is omitted
-when empty. `404 not_found` for an unknown source.
+`status` is `ok`, `error`, `blocked` or `skipped`. `incomplete` counts
+items stored as incomplete offers (missing company and/or title) rather
+than skipped. `error` is omitted when empty. `404 not_found` for an
+unknown source.
 
 ## Offers
 
@@ -164,6 +166,9 @@ Query parameters (all optional):
 | `order` | `asc` or `desc`; absent keeps the sort's historical default. Invalid values → `400 validation_failed` |
 | `limit` | default 50, maximum 200 |
 | `offset` | default 0 |
+
+Incomplete offers (missing company and/or title) are excluded unless
+requested; there is no filter parameter for them yet.
 
 `recent_event` orders by the latest timeline event, falling back to
 `updated_at` when an offer has no events (used by the dashboard's
@@ -202,6 +207,12 @@ until classification runs). Scores are 0–100. Offers inserted before the
 classifier existed keep `null` scores until `jobwatch reclassify` or the
 next sighting; `min_title_confidence` / `min_location_confidence` exclude
 NULL scores.
+
+An incomplete offer has `company_id: null` when the source reported no
+company, and adds `incomplete_reason` (`missing_company`,
+`missing_title`, `missing_company_title`) and `incomplete_raw` (the JSON
+values the source reported). Both fields are omitted for a complete
+offer.
 
 ### POST /api/offers/import
 
@@ -298,9 +309,10 @@ version 1 is the oldest row; `text_length` counts Unicode characters.
 snapshot. `latest_snapshot` is `null` when no snapshot exists.
 `snapshot_diff` is `null` until two snapshots exist; `op` is `equal`,
 `added` or `removed`, and it always compares the two latest snapshots in
-chronological order. `404 not_found` for an unknown offer or a
-`snapshot_id` that does not belong to it; `400 validation_failed` for a
-malformed `snapshot_id`.
+chronological order. For an incomplete offer with no company,
+`offer.company_id` and `company` are `null`. `404 not_found` for an
+unknown offer or a `snapshot_id` that does not belong to it; `400
+validation_failed` for a malformed `snapshot_id`.
 
 ### GET /api/offers/:id/snapshot-diff
 
@@ -416,6 +428,32 @@ owned it.
 
 The new offer may share the company, title and location of another
 offer; identity is the provenance row, not the fingerprint.
+
+### POST /api/offers/:id/repair
+
+Assigns a company and title to an incomplete offer after user
+confirmation.
+
+```json
+{ "company_id": 2, "title": "Site Reliability Engineer",
+  "location": "Paris, France" }
+```
+
+`company_id` and `title` are required; `location` is optional (absent or
+empty keeps the stored location). In one transaction the offer gets the
+company, title and location, `incomplete_reason` is cleared, and the
+classifier re-runs. `incomplete_raw` is kept: it is the marker that makes
+later scans preserve the user's title and location.
+
+```json
+{ "offer": { "id": 7, "company_id": 2, "title": "Site Reliability Engineer",
+             "incomplete_reason": "", "incomplete_raw": { "...": "..." },
+             "...": "..." } }
+```
+
+- `400 validation_failed` when `company_id`/`title` is missing or the
+  offer is not incomplete.
+- `404 not_found` for an unknown offer or company.
 
 ## Events (offer timeline)
 

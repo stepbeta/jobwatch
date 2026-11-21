@@ -122,25 +122,42 @@ never stops on a failing one:
 1. `now` = scan start (UTC, seconds); fetch outside any transaction.
 2. Fetch error → `last_scan_status = blocked|error`, `last_scan_at = now`, stop.
 3. One transaction:
-   - for each `RawOffer` (skipped if no title or URL): resolve the offer
-     through provenance, `(source, external_uid)` first and
-     `(source, url)` second. On a miss only, company evidence is
-     `RawOffer.CompanyKey` (adapter token) and/or `RawOffer.Company` →
-     `config.company`; `ResolveCompany` tries the key, then the source
-     alias, then the confirmed global alias, and creates a company only
-     when none matches. The source name is not a company fallback: an
-     item with no company evidence and no `config.company` is skipped
-     until the incomplete-listing task stores it. Insert the offer
-     (+ snapshot with `origin = scan`). On a hit, update the title and a
-     reported location, apply the offer_state machine (DATA-MODEL.md),
-     keep a changed description as a new snapshot, and never rewrite the
-     company or canonical URL from the sighting. Classify the
-     title/location/description, persist the scores and remote policy,
-     and upsert provenance by `(source, external_uid)` first, then
-     `(offer_id, url)`, with `last_seen_at = now`.
+   - for each `RawOffer`: resolve the offer through provenance,
+     `(source, external_uid)` first and `(source, url)` second. An item
+     without a URL has no provenance identity and is skipped. The
+     pipeline recomputes usability from the fields rather than trusting
+     the adapter hint: a missing company or title (or both) stores an
+     **incomplete offer** instead of skipping the item. The incomplete
+     row keeps the known company, its URL/provenance and any snapshot,
+     and stores the values the source reported as JSON in
+     `incomplete_raw`; `incomplete_reason` records what is missing and
+     `Result.Incomplete` is incremented. A rescan of the same identity
+     only refreshes `last_seen_at`/provenance.
+   - for a usable item, company evidence is `RawOffer.CompanyKey`
+     (adapter token) and/or `RawOffer.Company` → `config.company`;
+     `ResolveCompany` tries the key, then the source alias, then the
+     confirmed global alias, and creates a company only when none
+     matches. The source name is not a company fallback. Insert the
+     offer (+ snapshot with `origin = scan`). On a hit, update the title
+     and a reported location, apply the offer_state machine
+     (DATA-MODEL.md), keep a changed description as a new snapshot, and
+     never rewrite the company or canonical URL from the sighting.
+     Classify the title/location/description, persist the scores and
+     remote policy, and upsert provenance by `(source, external_uid)`
+     first, then `(offer_id, url)`, with `last_seen_at = now`. A
+     repaired offer is identified by `incomplete_raw` still being set
+     after `incomplete_reason` was cleared: scans then keep the user's
+     company, title and location instead of the sighting's values.
    - `MarkDisappeared(source, now)`.
    - `last_scan_status = ok`, `last_scan_at = now`; commit.
 4. A failure inside the transaction rolls back and marks the source `error`.
+
+Incomplete offers are stored, not displayed: the offers list, dashboard
+and search exclude `incomplete_reason IS NOT NULL` by default
+(`OfferQuery.IncompleteOnly` lists them for the repair view), and the CLI
+`list` hides them. `POST /api/offers/:id/repair` assigns a company and
+title, re-runs the classifier, and clears `incomplete_reason` while
+keeping `incomplete_raw` as the repair marker.
 
 ## Classification (`internal/classify`)
 

@@ -464,7 +464,11 @@ plain React + a lightweight table component is fine.
   extends `RawOffer` with `CompanyKey` and `IncompleteReason`, makes every
   typed adapter emit its token, adds the declarative RSS/HTML `employer`
   rule and configures it for We Work Remotely, and adds fixture tests for
-  stable uids. The
+  stable uids. Task group 5 stores items with a missing company and/or
+  title as incomplete offers (raw values in `incomplete_raw`), excludes
+  them from list/dashboard/search, adds
+  `POST /api/offers/:id/repair`, keeps the user's repair safe from later
+  scans, and reports an `incomplete` count in the scan result. The
   offer-lifecycle, company-resolution, source-normalization and
   incomplete-listings capability specs under
   `openspec/changes/offer-identity-from-source-uid/specs/` are the target

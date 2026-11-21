@@ -27,6 +27,7 @@ type OfferQuery struct {
 	CompanyID             *int64
 	HasApplication        bool  // application_state != 'todo'
 	Saved                 *bool // nil = no filter; true/false = saved_at set/NULL
+	IncompleteOnly        bool  // list only incomplete items; default excludes them
 	Sort                  string
 	// Order is "asc" or "desc". Empty keeps each sort's historical
 	// direction, so callers that do not send it see unchanged ordering.
@@ -84,12 +85,12 @@ func QueryOffers(ctx context.Context, q Querier, f OfferQuery) (OfferList, error
 	}
 	var total int
 	if err := q.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM job_offers o JOIN companies c ON c.id = o.company_id`+where, args...).Scan(&total); err != nil {
+		`SELECT COUNT(*) FROM job_offers o LEFT JOIN companies c ON c.id = o.company_id`+where, args...).Scan(&total); err != nil {
 		return OfferList{}, fmt.Errorf("count offers: %w", err)
 	}
 
-	query := `SELECT c.name, (SELECT MAX(e.occurred_at) FROM events e WHERE e.offer_id = o.id), ` +
-		offerColumns("o.") + ` FROM job_offers o JOIN companies c ON c.id = o.company_id` + where +
+	query := `SELECT COALESCE(c.name, ''), (SELECT MAX(e.occurred_at) FROM events e WHERE e.offer_id = o.id), ` +
+		offerColumns("o.") + ` FROM job_offers o LEFT JOIN companies c ON c.id = o.company_id` + where +
 		` ORDER BY ` + offerOrder(f.Sort, f.Order)
 	qargs := append([]any{}, args...)
 	if f.Limit > 0 {
@@ -136,6 +137,11 @@ func offerWhere(ctx context.Context, q Querier, f OfferQuery) (string, []any, er
 	var b strings.Builder
 	b.WriteString(" WHERE 1=1")
 	var args []any
+	if f.IncompleteOnly {
+		b.WriteString(` AND o.incomplete_reason IS NOT NULL`)
+	} else {
+		b.WriteString(` AND o.incomplete_reason IS NULL`)
+	}
 
 	if s := strings.TrimSpace(f.Search); s != "" {
 		// Validate the FTS5 expression up front so a syntax error is a
@@ -202,7 +208,7 @@ func offerOrder(sortBy, order string) string {
 	case SortTitle:
 		return `o.title COLLATE NOCASE ` + dir + `, o.id ` + dir
 	case SortCompany:
-		return `c.name COLLATE NOCASE ` + dir + `, o.title COLLATE NOCASE ` + dir + `, o.id ` + dir
+		return `COALESCE(c.name, '') COLLATE NOCASE ` + dir + `, o.title COLLATE NOCASE ` + dir + `, o.id ` + dir
 	case SortLocation:
 		return `COALESCE(o.location, '') COLLATE NOCASE ` + dir + `, o.id ` + dir
 	case SortTitleConfidence:

@@ -256,7 +256,10 @@ func SplitOffer(ctx context.Context, sqlDB *sql.DB, offerID int64, in OfferSplit
 	if err != nil {
 		return OfferSplitResult{}, err
 	}
-	company, err := GetCompany(ctx, tx, original.CompanyID)
+	if original.CompanyID == nil {
+		return OfferSplitResult{}, fmt.Errorf("split offer: the offer has no company")
+	}
+	company, err := GetCompany(ctx, tx, *original.CompanyID)
 	if err != nil {
 		return OfferSplitResult{}, err
 	}
@@ -346,7 +349,7 @@ func SplitOffer(ctx context.Context, sqlDB *sql.DB, offerID int64, in OfferSplit
 	titleConf, locConf := scores.TitleConfidence, scores.LocationConfidence
 	reasons := scores.MatchReasonsJSON
 	newOffer := model.JobOffer{
-		CompanyID:          company.ID,
+		CompanyID:          &company.ID,
 		Title:              title,
 		TitleNormalized:    titleNorm,
 		Location:           location,

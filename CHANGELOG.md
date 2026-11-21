@@ -138,6 +138,39 @@
   and an empty company. Offers recorded before the rule keep their old
   company until explicitly reattributed.
 
+### Offer identity from source uid (OpenSpec change, task group 5)
+
+#### Added
+- Items a source cannot normalize are stored as incomplete offers
+  instead of dropped. A missing company leaves `company_id` NULL; a
+  missing title leaves `title` empty. The values the source reported are
+  kept as JSON in `incomplete_raw`, and `incomplete_reason` records
+  `missing_company`, `missing_title` or `missing_company_title`. The
+  offer keeps its provenance, snapshots and notes, and a rescan of the
+  same identity only refreshes `last_seen_at`.
+- `POST /api/offers/:id/repair` assigns a company and title to an
+  incomplete offer, optionally sets the location, clears
+  `incomplete_reason` and re-runs the classifier.
+- The scan result and the CLI/UI summaries report an `incomplete` count
+  per source.
+
+#### Changed
+- The offers list, dashboard, search and CLI `list` exclude incomplete
+  offers by default; `OfferQuery.IncompleteOnly` (used by the repair
+  view) lists them. Incomplete offers with no company come back with an
+  empty company name and `company_id: null`.
+- A repaired offer keeps `incomplete_raw` after `incomplete_reason` is
+  cleared. Later scans use that marker to preserve the user's company,
+  title and location, even when the source later reports a usable item.
+- The scan pipeline recomputes incompleteness from the item fields; the
+  adapter's `IncompleteReason` is only a hint. An item without a URL is
+  still skipped because it has no provenance identity.
+
+#### Fixed
+- The company-name fallback test now asserts an incomplete offer instead
+  of a skipped item, and the dedup test keeps a URL-less item skipped
+  while a title-less item is stored incomplete.
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.

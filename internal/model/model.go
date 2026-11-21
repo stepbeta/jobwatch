@@ -219,7 +219,7 @@ type Source struct {
 
 type JobOffer struct {
 	ID                 int64
-	CompanyID          int64
+	CompanyID          *int64
 	Title              string
 	TitleNormalized    string
 	Location           *string
@@ -236,9 +236,14 @@ type JobOffer struct {
 	LocationConfidence *int
 	MatchReasonsJSON   *string
 	SavedAt            *time.Time
+	IncompleteReason   IncompleteReason
+	IncompleteRaw      *string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }
+
+// HasCompany reports whether the offer has been attributed to a company.
+func (o JobOffer) HasCompany() bool { return o.CompanyID != nil }
 
 // OfferScores is the deterministic classifier output persisted on an
 // offer. It is kept separate from JobOffer so the scan pipeline and the

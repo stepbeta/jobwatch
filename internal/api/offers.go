@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,10 +130,21 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	company, err := db.GetCompany(ctx, s.DB, o.CompanyID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
-		return
+	var companyOut any
+	companyName := ""
+	if o.CompanyID != nil {
+		company, err := db.GetCompany(ctx, s.DB, *o.CompanyID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		companyName = company.Name
+		out := companyToJSON(company)
+		if out.OfferCount, out.NoteCount, err = db.CompanyCounts(ctx, s.DB, company.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		companyOut = out
 	}
 	prov, err := db.ListProvenanceDetailed(ctx, s.DB, id)
 	if err != nil {
@@ -206,16 +218,10 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 	for _, n := range notes {
 		notesOut = append(notesOut, noteToJSON(n))
 	}
-	offerOut := offerModelToJSON(o, company.Name)
+	offerOut := offerModelToJSON(o, companyName)
 	offerOut.RawText = o.RawText
 	if len(events) > 0 {
 		offerOut.LastEventAt = timeString(events[len(events)-1].OccurredAt)
-	}
-
-	companyOut := companyToJSON(company)
-	if companyOut.OfferCount, companyOut.NoteCount, err = db.CompanyCounts(ctx, s.DB, company.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
-		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -229,6 +235,19 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 		"snapshot_diff":   snapshotDiff,
 		"snapshot_count":  snapCount,
 	})
+}
+
+// offerCompanyName returns the display name of the offer's company, or an
+// empty string for an incomplete offer with no company yet.
+func (s *Server) offerCompanyName(ctx context.Context, o model.JobOffer) (string, error) {
+	if o.CompanyID == nil {
+		return "", nil
+	}
+	c, err := db.GetCompany(ctx, s.DB, *o.CompanyID)
+	if err != nil {
+		return "", err
+	}
+	return c.Name, nil
 }
 
 type offerPatch struct {
@@ -314,14 +333,65 @@ func (s *Server) patchOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	company, err := db.GetCompany(ctx, s.DB, o.CompanyID)
+	companyName, err := s.offerCompanyName(ctx, o)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	offerOut := offerModelToJSON(o, company.Name)
+	offerOut := offerModelToJSON(o, companyName)
 	offerOut.RawText = o.RawText
 	writeJSON(w, http.StatusOK, map[string]any{"offer": offerOut})
+}
+
+type offerRepair struct {
+	CompanyID int64   `json:"company_id"`
+	Title     string  `json:"title"`
+	Location  *string `json:"location"`
+}
+
+// repairOffer assigns a company and title to an incomplete offer. The raw
+// reported values stay in incomplete_raw, which later scans use to avoid
+// overwriting the user's title and location.
+func (s *Server) repairOffer(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_id", "offer id must be a positive integer")
+		return
+	}
+	var in offerRepair
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	in.Title = strings.TrimSpace(in.Title)
+	if in.CompanyID <= 0 || in.Title == "" {
+		writeError(w, http.StatusBadRequest, "validation_failed", "company_id and title are required")
+		return
+	}
+	var location *string
+	if in.Location != nil {
+		if v := strings.TrimSpace(*in.Location); v != "" {
+			location = &v
+		}
+	}
+	ctx := r.Context()
+	o, err := db.RepairOffer(ctx, s.DB, id, in.CompanyID, in.Title, location, s.now())
+	switch {
+	case errors.Is(err, db.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "offer or company not found")
+		return
+	case errors.Is(err, db.ErrOfferNotIncomplete):
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
+		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	companyName, err := s.offerCompanyName(ctx, o)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"offer": offerModelToJSON(o, companyName)})
 }
 
 func diffToJSON(from, to model.Snapshot) snapshotDiffJSON {
@@ -427,13 +497,13 @@ func (s *Server) mergeOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	company, err := db.GetCompany(ctx, s.DB, res.Offer.CompanyID)
+	companyName, err := s.offerCompanyName(ctx, res.Offer)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"offer":            offerModelToJSON(res.Offer, company.Name),
+		"offer":            offerModelToJSON(res.Offer, companyName),
 		"merged_offer_id":  res.MergedOfferID,
 		"moved_provenance": res.MovedProvenance,
 		"moved_events":     res.MovedEvents,
@@ -499,13 +569,13 @@ func (s *Server) splitOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	company, err := db.GetCompany(ctx, s.DB, res.Offer.CompanyID)
+	companyName, err := s.offerCompanyName(ctx, res.Offer)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"offer":            offerModelToJSON(res.Offer, company.Name),
+		"offer":            offerModelToJSON(res.Offer, companyName),
 		"moved_provenance": res.MovedProvenance,
 	})
 }
