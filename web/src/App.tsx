@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, errorMessage } from './api'
 import { CompanyPage } from './pages/CompanyPage'
 import { Dashboard } from './pages/Dashboard'
+import { IncompletePage } from './pages/IncompletePage'
 import { InterviewPrepPage } from './pages/InterviewPrepPage'
 import { OfferPage } from './pages/OfferPage'
 import { OffersPage } from './pages/OffersPage'
@@ -33,6 +34,7 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const [scanning, setScanning] = useState({ active: false, done: 0, total: 0 })
   const [refreshToken, setRefreshToken] = useState(0)
+  const [incompleteCount, setIncompleteCount] = useState(0)
 
   const loadSources = useCallback(async () => {
     try {
@@ -47,6 +49,21 @@ export default function App() {
   useEffect(() => {
     void loadSources()
   }, [loadSources])
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .listOffers({ incomplete: true, limit: 1 })
+      .then((r) => {
+        if (!cancelled) setIncompleteCount(r.total)
+      })
+      .catch(() => {
+        // The dedicated page reports the error; the nav count is optional.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [refreshToken])
 
   const refreshData = useCallback(() => setRefreshToken((t) => t + 1), [])
 
@@ -108,6 +125,9 @@ export default function App() {
           >
             Offers
           </a>
+          <a href="#/incomplete" className={route.name === 'incomplete' ? 'active' : ''}>
+            Incomplete{incompleteCount > 0 ? ` (${incompleteCount})` : ''}
+          </a>
           <a href="#/sources" className={route.name === 'sources' ? 'active' : ''}>
             Sources
           </a>
@@ -150,6 +170,13 @@ export default function App() {
             onScanBatch={scanBatch}
             onNotice={notify}
             scanning={scanning.active}
+          />
+        )}
+        {route.name === 'incomplete' && (
+          <IncompletePage
+            refreshToken={refreshToken}
+            onDataChanged={refreshData}
+            onNotice={notify}
           />
         )}
         {route.name === 'offer' && <OfferPage id={route.id} onNotice={notify} />}

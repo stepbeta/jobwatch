@@ -130,11 +130,17 @@ func (s *Server) getCompany(w http.ResponseWriter, r *http.Request) {
 	out := companyToJSON(c)
 	out.OfferCount = offers.Total
 	out.NoteCount = len(notes)
+	keys, err := db.ListCompanyKeys(ctx, s.DB, c.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"company":             out,
 		"offers":              offerOut,
 		"notes":               noteOut,
 		"possible_duplicates": candOut,
+		"keys":                keys,
 	})
 }
 

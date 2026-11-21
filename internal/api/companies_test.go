@@ -23,6 +23,7 @@ type companyDetailResp struct {
 	Offers             []offerJSON            `json:"offers"`
 	Notes              []noteJSON             `json:"notes"`
 	PossibleDuplicates []companyCandidateJSON `json:"possible_duplicates"`
+	Keys               []string               `json:"keys"`
 }
 
 type mergeResp struct {
@@ -61,12 +62,20 @@ func TestCompaniesCRUD(t *testing.T) {
 		"entity_type": "company", "entity_id": qonto.ID, "body": "HQ in Paris",
 	})
 	wantCode(t, rec, 201)
+	if _, err := ts.db.ExecContext(context.Background(),
+		`INSERT INTO company_keys(company_id, key, created_at) VALUES (?, ?, ?)`,
+		qonto.ID, "greenhouse:qonto", model.FormatTime(ts.clock.now())); err != nil {
+		t.Fatal(err)
+	}
 
 	rec = ts.do(t, "GET", "/api/companies/1", nil)
 	wantCode(t, rec, 200)
 	detail := decodeBody[companyDetailResp](t, rec)
 	if len(detail.Notes) != 1 || detail.Company.NoteCount != 1 {
 		t.Errorf("company notes = %+v", detail.Notes)
+	}
+	if len(detail.Keys) != 1 || detail.Keys[0] != "greenhouse:qonto" {
+		t.Errorf("company keys = %v, want [greenhouse:qonto]", detail.Keys)
 	}
 	var frCandidate *companyCandidateJSON
 	for i := range detail.PossibleDuplicates {

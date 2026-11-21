@@ -388,6 +388,20 @@ func TestRepairIncompleteOffer(t *testing.T) {
 		t.Errorf("incomplete reason = %q", detail.Offer.IncompleteReason)
 	}
 
+	// The default list excludes the item; incomplete=true lists only it.
+	rec = ts.do(t, "GET", "/api/offers", nil)
+	wantCode(t, rec, 200)
+	if list := decodeBody[offerListResp](t, rec); list.Total != 0 {
+		t.Errorf("default offer list total = %d, want 0", list.Total)
+	}
+	rec = ts.do(t, "GET", "/api/offers?incomplete=true", nil)
+	wantCode(t, rec, 200)
+	if list := decodeBody[offerListResp](t, rec); list.Total != 1 || len(list.Offers) != 1 ||
+		list.Offers[0].ID != o.ID || list.Offers[0].IncompleteReason != string(model.IncompleteMissingCompany) {
+		t.Errorf("incomplete offer list = %+v", list)
+	}
+	wantErrorCode(t, ts.do(t, "GET", "/api/offers?incomplete=maybe", nil), 400, "validation_failed")
+
 	wantErrorCode(t, ts.do(t, "POST", path+"/repair", map[string]any{}),
 		400, "validation_failed")
 	wantErrorCode(t, ts.do(t, "POST", path+"/repair", map[string]any{

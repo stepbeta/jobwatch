@@ -46,6 +46,27 @@ func scanCompanyRow(row interface{ Scan(...any) error }) (model.Company, error) 
 	return c, nil
 }
 
+// ListCompanyKeys returns the attested identifiers linked to a company,
+// sorted by key. The company page shows them so same-named companies can
+// be told apart.
+func ListCompanyKeys(ctx context.Context, q Querier, companyID int64) ([]string, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT key FROM company_keys WHERE company_id = ? ORDER BY key`, companyID)
+	if err != nil {
+		return nil, fmt.Errorf("list keys of company %d: %w", companyID, err)
+	}
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("list keys of company %d: %w", companyID, err)
+		}
+		out = append(out, key)
+	}
+	return out, rows.Err()
+}
+
 // GetCompany returns the company with the given ID.
 func GetCompany(ctx context.Context, q Querier, id int64) (model.Company, error) {
 	c, err := scanCompanyRow(q.QueryRowContext(ctx,

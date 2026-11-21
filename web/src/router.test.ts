@@ -8,6 +8,8 @@ describe('parseRoute', () => {
     expect(parseRoute('#/offers?saved=true')).toEqual({ name: 'offers', saved: true })
     expect(parseRoute('#/offers?saved=false')).toEqual({ name: 'offers', saved: false })
     expect(parseRoute('#/offers/7')).toEqual({ name: 'offer', id: 7 })
+    expect(parseRoute('#/incomplete')).toEqual({ name: 'incomplete' })
+    expect(parseRoute('#/incomplete/7')).toEqual({ name: 'notfound' })
     expect(parseRoute('#/interview-prep')).toEqual({ name: 'interviewPrep' })
     expect(parseRoute('#/interview-prep/7')).toEqual({ name: 'notfound' })
   })

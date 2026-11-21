@@ -369,11 +369,6 @@ td.scores {
   color: var(--green);
 }
 
-.pill-offer-changed {
-  background: var(--amber-bg);
-  color: var(--amber);
-}
-
 .pill-offer-disappeared {
   background: var(--panel-alt);
   color: var(--muted);
@@ -871,6 +866,22 @@ details.panel > summary {
   min-width: 0;
 }
 
+.company-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.company-key {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-alt);
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
 .company-notes-panel {
   display: flex;
   flex-direction: column;
@@ -1247,16 +1258,7 @@ details.panel > summary {
   color: var(--amber);
 }
 
-/* changed-offer banner and description diff */
-.changed-banner {
-  border: 1px solid color-mix(in srgb, var(--amber) 55%, var(--border));
-  border-left-width: 4px;
-  background: color-mix(in srgb, var(--amber) 12%, var(--panel));
-  border-radius: var(--radius);
-  padding: 9px 12px;
-  margin-bottom: 12px;
-}
-
+/* description diff */
 .diff-wrap {
   margin-bottom: 12px;
 }

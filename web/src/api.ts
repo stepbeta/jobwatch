@@ -97,6 +97,7 @@ export interface OfferQuery {
   company_id?: number
   has_application?: boolean
   saved?: boolean
+  incomplete?: boolean
   sort?: string
   order?: string
   limit?: number
@@ -172,6 +173,10 @@ export const api = {
     url?: string
     description?: string
   }) => request<{ offer_id: number; created: boolean }>('/offers/import', body('POST', input)),
+  repairOffer: (
+    id: number,
+    input: { company_id: number; title: string; location?: string | null },
+  ) => request<{ offer: OfferDetail['offer'] }>(`/offers/${id}/repair`, body('POST', input)),
 
   // events
   listEvents: (offerId: number) => request<{ events: Event[] }>(`/offers/${offerId}/events`),

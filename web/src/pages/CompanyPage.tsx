@@ -336,6 +336,20 @@ export function CompanyPage({
                 )}{' '}
                 · {detail.company.offer_count} offer(s) · created {fmtDateTime(detail.company.created_at)}
               </div>
+              <div className="muted small company-keys">
+                {detail.keys.length === 0 ? (
+                  'No company keys'
+                ) : (
+                  <>
+                    Keys:{' '}
+                    {detail.keys.map((key) => (
+                      <code key={key} className="company-key">
+                        {key}
+                      </code>
+                    ))}
+                  </>
+                )}
+              </div>
               <div className="actions">
                 <button type="button" onClick={() => setEditing(true)}>
                   Edit

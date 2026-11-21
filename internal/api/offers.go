@@ -56,6 +56,13 @@ func parseOfferQuery(r *http.Request) (db.OfferQuery, error) {
 		}
 		f.Saved = &v
 	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("incomplete")); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return f, fmt.Errorf("incomplete must be true or false")
+		}
+		f.IncompleteOnly = v
+	}
 
 	f.Sort = strings.TrimSpace(r.URL.Query().Get("sort"))
 	if f.Sort == "" {

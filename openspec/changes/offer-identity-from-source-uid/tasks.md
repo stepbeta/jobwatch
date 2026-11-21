@@ -51,10 +51,10 @@
 
 ## 7. API and UI
 
-- [ ] 7.1 `GET /api/offers` excludes incomplete by default; add a filter to list them
-- [ ] 7.2 Add the incomplete view with count and repair form; reuse the manual import form
-- [ ] 7.3 Remove `changed` from the offer state type, filter and badge; show a version count instead
-- [ ] 7.4 Show the company key(s) on the company page so same-named companies are distinguishable
+- [x] 7.1 `GET /api/offers` excludes incomplete by default; add a filter to list them
+- [x] 7.2 Add the incomplete view with count and repair form; reuse the manual import form
+- [x] 7.3 Remove `changed` from the offer state type, filter and badge; show a version count instead
+- [x] 7.4 Show the company key(s) on the company page so same-named companies are distinguishable
 
 ## 8. Documentation
 

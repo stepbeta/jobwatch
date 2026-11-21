@@ -193,6 +193,29 @@
   the current 98-item feed and have no uid match, so they remain under
   the feed as history (task 6.6).
 
+### Offer identity from source uid (OpenSpec change, task group 7)
+
+#### Added
+- `GET /api/offers?incomplete=true` lists incomplete offers; the
+  default list still excludes them. The `incomplete` value is validated
+  like `saved`.
+- An **Incomplete** page (`#/incomplete`) with the item count, the
+  values each source reported, the reason, and a repair form. The form
+  reuses the manual import layout and company combobox; saving calls
+  `POST /api/offers/:id/repair` and the item leaves the view.
+- The app navigation shows the incomplete count, refreshed after scans
+  and repairs.
+- `GET /api/companies/:id` returns the company's attested keys, and the
+  company page shows them so same-named companies are distinguishable.
+
+#### Changed
+- `changed` is gone from the offer-state type, filter and badge. The
+  offer page shows the description version count in the header and in
+  the snapshot summary, and no longer opens a changed-description
+  banner.
+- Offer rows with no company render a dash instead of a broken company
+  link; the offer detail page handles a null company.
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.

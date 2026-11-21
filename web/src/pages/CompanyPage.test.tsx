@@ -40,6 +40,7 @@ const detail: CompanyDetail = {
   possible_duplicates: [
     { id: 9, name: 'Acme Corp', name_normalized: 'acme corp', score: 88, reason: 'name contains' },
   ],
+  keys: ['greenhouse:acme'],
 }
 
 beforeEach(() => {
@@ -88,6 +89,7 @@ describe('CompanyPage header layout', () => {
     // Left column: identity, actions, possible-duplicate banner.
     expect(within(identity).getByRole('heading', { name: 'Acme' })).toBeTruthy()
     expect(within(identity).getByRole('link', { name: 'https://acme.example' })).toBeTruthy()
+    expect(within(identity).getByText('greenhouse:acme')).toBeTruthy()
     expect(within(identity).getByRole('button', { name: 'Edit' })).toBeTruthy()
     expect(within(identity).getByRole('button', { name: 'Delete company' })).toBeTruthy()
     expect(within(identity).getByRole('status')).toBeTruthy()
