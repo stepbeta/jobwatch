@@ -48,11 +48,12 @@ job count.
   the untouched key are kept as verified in 10a.
 - **Job URL construction** uses the hit's `organization.slug`; the discovered
   page slug remains a fallback only for hits that omit it.
-- **Stale organization filters** are resolved when the first Algolia page is
-  empty but the page reports jobs: the adapter reads the canonical
-  `organization.slug` from `/api/v1/organizations/{website slug}` and retries
-  the first page once with it. This fixes renamed organizations such as Swile
-  (`swile` → `lunchr`).
+- **Stale organization filters** are resolved when the first page's `nbHits`
+  differs from the page's `items_count`: the adapter reads the canonical slug
+  of every `organization.slug` value from
+  `/api/v1/organizations/{slug}`, deduplicates them and retries the first page
+  once. This fixes renamed organizations such as Swile (`swile` → `lunchr`)
+  and renamed brands on multi-organization pages.
 - **Tests** (httptest only): nested-block discovery, multi-org facetFilters with
   URL-encoded params, org-slug-based hit mapping. New trimmed fixtures: the
   Partoo bootstrap (nested block shape) and one Partoo hit (without

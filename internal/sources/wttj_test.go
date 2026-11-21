@@ -841,6 +841,87 @@ func TestWTTJResolveStaleOrgSlug(t *testing.T) {
 	}
 }
 
+// TestWTTJRetryMultiOrgAlias covers a multi-organization page where one
+// brand was renamed: the first page returns fewer hits than items_count,
+// every filter slug is canonicalized, and page 0 is retried with the
+// renamed value.
+func TestWTTJRetryMultiOrgAlias(t *testing.T) {
+	page := []byte(`{"page":{"path":[{"items_count":30}],"sections":[{"containers":[{"blocks":[
+		{"kind":"jobs-search","properties":{
+			"algolia_app_id":"APP","algolia_api_key":"KEY","algolia_index_name":"IDX",
+			"language":"en","website_organization":{"slug":"groupe-exemple"},
+			"filters":{"organization.slug":["groupe-exemple","exemple-fr","exemple-br"]}}}]}]}]}}`)
+	canonical := map[string]string{
+		"groupe-exemple": "groupe-exemple",
+		"exemple-fr":     "exemple-fr",
+		"exemple-br":     "exemple-bresil",
+	}
+	var queries, orgReqs int
+	var retryParams string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/robots.txt":
+			w.Write([]byte("User-agent: *\nAllow: /\n"))
+		case r.URL.Path == "/api/v1/pages":
+			w.Write(page)
+		case strings.HasPrefix(r.URL.Path, "/api/v1/organizations/"):
+			orgReqs++
+			slug := strings.TrimPrefix(r.URL.Path, "/api/v1/organizations/")
+			w.Write([]byte(`{"organization":{"slug":"` + canonical[slug] + `"}}`))
+		case r.URL.Path == "/1/indexes/*/queries":
+			queries++
+			body, _ := io.ReadAll(r.Body)
+			var req wttjQueryRequest
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("decode query: %v", err)
+			}
+			if strings.Contains(req.Requests[0].Params, "exemple-bresil") {
+				retryParams = req.Requests[0].Params
+				w.Write([]byte(`{"results":[{"hits":[{"reference":"A","name":"SRE","slug":"sre","organization":{"name":"Groupe Exemple","slug":"exemple-bresil"}}],"nbHits":30,"nbPages":1}]}`))
+				return
+			}
+			w.Write([]byte(`{"results":[{"hits":[{"reference":"A","name":"SRE","slug":"sre","organization":{"name":"Groupe Exemple","slug":"groupe-exemple"}}],"nbHits":25,"nbPages":1}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, _ := testClient()
+	wttj := &WTTJ{
+		Client:           c,
+		PagesURL:         srv.URL + "/api/v1/pages",
+		OrganizationsURL: srv.URL + "/api/v1/organizations",
+		AlgoliaBaseURL:   srv.URL,
+	}
+	offers, err := wttj.Fetch(context.Background(), model.Source{
+		ID: 1, Type: model.SourceWTTJ,
+		URL: "https://www.welcometothejungle.com/en/companies/groupe-exemple/jobs",
+	})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(offers) != 1 || offers[0].CompanyKey != companyKey(model.SourceWTTJ, "exemple-bresil") {
+		t.Fatalf("offers = %+v, want the retried brand", offers)
+	}
+	if queries != 2 {
+		t.Errorf("algolia queries = %d, want 2", queries)
+	}
+	if orgReqs != 3 {
+		t.Errorf("organization requests = %d, want 3", orgReqs)
+	}
+	decoded, err := url.QueryUnescape(retryParams)
+	if err != nil {
+		t.Fatalf("decode retry params: %v", err)
+	}
+	if !strings.Contains(decoded, "organization.slug:exemple-bresil") {
+		t.Errorf("retry params = %s, want the canonical slug", decoded)
+	}
+	if strings.Contains(decoded, `organization.slug:exemple-br"`) {
+		t.Errorf("retry params = %s, still contains the stale slug", decoded)
+	}
+}
+
 func TestWTTJErrors(t *testing.T) {
 	src := model.Source{
 		ID:   1,
@@ -1005,7 +1086,7 @@ func TestWTTJPageLimit(t *testing.T) {
 			w.Write(pagesBody)
 		case "/1/indexes/*/queries":
 			requests++
-			w.Write([]byte(`{"results":[{"hits":[` + hit + `],"nbPages":` + strconv.Itoa(wttjMaxPages+1) + `}]}`))
+			w.Write([]byte(`{"results":[{"hits":[` + hit + `],"nbHits":7,"nbPages":` + strconv.Itoa(wttjMaxPages+1) + `}]}`))
 		default:
 			http.NotFound(w, r)
 		}

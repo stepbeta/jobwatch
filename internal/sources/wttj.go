@@ -152,7 +152,7 @@ func (w *WTTJ) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 		if err != nil {
 			return nil, err
 		}
-		if page == 0 && len(res.Hits) == 0 {
+		if page == 0 {
 			search, res, err = w.retryStaleOrgSlug(ctx, src, search, res)
 			if err != nil {
 				return nil, err
@@ -178,39 +178,52 @@ func (w *WTTJ) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 }
 
 // retryStaleOrgSlug handles a renamed organization whose CMS filters lag
-// behind the index: when the first page is empty, the page claims jobs
-// and exactly one organization.slug filter is present, it reads the
-// canonical slug from the organization endpoint and re-queries page 0
-// once. Without this, the scan reports zero offers for a page whose
-// index still uses the organization's previous slug (Swile/lunchr).
+// behind the index. When the first page's total does not match the job
+// count the page claims, it resolves the canonical slug of every
+// organization.slug filter value, deduplicates them and retries page 0
+// once if any value changed. This covers both a renamed single company
+// (Swile/lunchr) and a renamed brand on a multi-organization page.
 func (w *WTTJ) retryStaleOrgSlug(ctx context.Context, src model.Source, search wttjSearch, first wttjResult) (wttjSearch, wttjResult, error) {
-	if search.ExpectedItems <= 0 || len(first.Hits) != 0 {
+	if search.ExpectedItems <= 0 || first.NbHits == search.ExpectedItems {
 		return search, first, nil
 	}
 	idx := -1
-	current := ""
+	var values []string
 	for i, g := range search.Filters {
-		if g.Attribute != "organization.slug" {
+		if g.Attribute != "organization.slug" || len(g.Values) == 0 {
 			continue
 		}
-		if len(g.Values) != 1 {
-			return search, first, nil
-		}
-		idx, current = i, g.Values[0]
+		idx, values = i, g.Values
+		break
 	}
-	if idx < 0 || search.OrgSlug == "" {
+	if idx < 0 {
 		return search, first, nil
 	}
-	canonical, err := w.resolveOrgSlug(ctx, src, search.OrgSlug)
-	if err != nil {
-		return search, first, err
+	canonical := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	changed := false
+	for _, v := range values {
+		c, err := w.resolveOrgSlug(ctx, src, v)
+		if err != nil {
+			return search, first, err
+		}
+		if c == "" {
+			c = v
+		}
+		if c != v {
+			changed = true
+		}
+		if !seen[c] {
+			seen[c] = true
+			canonical = append(canonical, c)
+		}
 	}
-	if canonical == "" || canonical == current {
+	if !changed {
 		return search, first, nil
 	}
 	filters := make([]wttjFilterGroup, len(search.Filters))
 	copy(filters, search.Filters)
-	filters[idx] = wttjFilterGroup{Attribute: "organization.slug", Values: []string{canonical}}
+	filters[idx] = wttjFilterGroup{Attribute: "organization.slug", Values: canonical}
 	search.Filters = filters
 	res, err := w.query(ctx, src, search, 0)
 	if err != nil {

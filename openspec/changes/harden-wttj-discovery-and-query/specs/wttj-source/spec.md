@@ -60,27 +60,37 @@ The adapter SHALL read the discovered `filters` and `language` verbatim, preserv
 
 ### Requirement: Stale organization filters are resolved from the organization record
 
-When the first result page is empty but the page reports jobs (`items_count` > 0) and exactly one `organization.slug` filter is present, the adapter SHALL read the canonical slug from `GET https://api.welcometothejungle.com/api/v1/organizations/{website slug}` and retry the first page once with that value. A page that reports no jobs MUST NOT trigger the lookup.
+When the first page's `nbHits` differs from the page's `items_count` (which is above zero), the adapter SHALL resolve the canonical slug of every `organization.slug` filter value through `GET https://api.welcometothejungle.com/api/v1/organizations/{slug}`, deduplicate the results and retry page 0 once if any value changed. A page with `items_count` 0 MUST NOT trigger the lookup.
 
 #### Scenario: Renamed organization lags in the index
 
-- **WHEN** the filters say `organization.slug: swile`, the organization record says the canonical slug is `lunchr`, and the first query returns no hits
-- **THEN** the adapter queries again with `organization.slug: lunchr` and returns those hits
+- **WHEN** the filter says `organization.slug: swile`, the organization record says `lunchr`, and the page reports 15 jobs while the first query returns 0 hits
+- **THEN** the adapter retries with `organization.slug: lunchr` and returns those 15 hits
 
-#### Scenario: Canonical slug already matches
+#### Scenario: One brand on a multi-organization page was renamed
 
-- **WHEN** the first query returns no hits and the organization record reports the same slug as the filter
-- **THEN** the adapter does not retry and reports zero offers
+- **WHEN** a page filters on three slugs and reports 30 jobs, the first page returns 25 hits, and one slug resolves to a different canonical value
+- **THEN** the adapter resolves all three slugs and retries with the canonical values
+
+#### Scenario: Counts already match
+
+- **WHEN** the first page's `nbHits` equals `items_count`
+- **THEN** the adapter neither calls the organization endpoint nor retries
 
 #### Scenario: Page reports no jobs
 
-- **WHEN** the page's `items_count` is 0 and the first query returns no hits
+- **WHEN** the page's `items_count` is 0
 - **THEN** the adapter neither calls the organization endpoint nor retries
+
+#### Scenario: Counts disagree without a rename
+
+- **WHEN** the counts differ but every slug already is canonical
+- **THEN** the adapter does not retry and returns the hits it received
 
 #### Scenario: Organization lookup fails
 
-- **WHEN** the page reports jobs, the first query is empty, and the organization endpoint fails
-- **THEN** the scan records a retryable error instead of silently reporting zero offers
+- **WHEN** the counts differ and the organization endpoint fails
+- **THEN** the scan records a retryable error instead of silently reporting a partial list
 
 ### Requirement: The index query is scoped by facetFilters
 

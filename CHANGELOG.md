@@ -258,12 +258,13 @@
   not the source page's slug; the page slug is only a fallback when a hit
   omits its organization. Pages that list linked organizations therefore
   link each offer to its owner.
-- An empty first page on a renamed organization no longer reports zero
-  offers: when the page claims jobs and exactly one `organization.slug`
-  filter is present, the adapter reads the canonical slug from
-  `/api/v1/organizations/{slug}` and retries page 0 once (Swile:
-  `swile` filter, `lunchr` index, 15 offers). A page reporting no jobs
-  skips the lookup, and a lookup failure is retryable.
+- A count mismatch on a renamed organization no longer reports a partial
+  list: when page 0's `nbHits` differs from the page's `items_count`, the
+  adapter reads the canonical slug of every `organization.slug` value from
+  `/api/v1/organizations/{slug}`, deduplicates them and retries page 0 once
+  if any value changed. This fixes Swile (`swile` filter, `lunchr` index,
+  15 offers) and a renamed brand on a multi-organization page. A page
+  reporting no jobs skips the lookup, and a lookup failure is retryable.
 
 #### Added
 - Partoo fixtures under `internal/sources/testdata`: the nested bootstrap

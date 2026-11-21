@@ -79,10 +79,11 @@ local brand and its parent). The scan queries every organization the page
 declares and links each offer to the organization that owns it, so an
 offer URL may name a different company slug than the source URL.
 
-Organizations renamed on WTTJ keep working: when the page's filter names a
-slug the index no longer uses, an empty first page makes the scan read the
-canonical slug from the organization record and retry once (the `swile`
-page finds the jobs indexed under `lunchr`).
+Organizations renamed on WTTJ keep working: when the first page's total does
+not match the page's job count, the scan reads the canonical slug of every
+organization it was given from the organization record and retries once
+(the `swile` page finds the jobs indexed under `lunchr`, including on
+multi-organization pages).
 
 The flow, its rationale and its known gaps are documented in
 [SOURCE-DECISIONS.md](SOURCE-DECISIONS.md#welcome-to-the-jungle-milestone-10a).

@@ -38,6 +38,12 @@
 - [x] 5.5 Back up the database again, rebuild the binary, re-scan Swile (15 offers, 0 incomplete), then re-scan Fabriq and Partoo (unchanged); record the live results in `docs/SOURCE-DECISIONS.md` and `docs/MILESTONES.md`
 - [x] 5.6 Run `go build ./...`, `go vet ./...` and `go test ./...`; verify all pass
 
+## 6. Count-mismatch alias resolution
+
+- [x] 6.1 Broaden the retry trigger from an empty page to `nbHits != items_count` and canonicalize every distinct `organization.slug` value, deduplicating the results; verify httptest tests for a renamed brand on a multi-organization page, counts already matching, counts disagreeing without a rename, and the single-organization Swile case
+- [x] 6.2 Update the capability delta, design, `SOURCE-DECISIONS.md` (flow, quirks, gap 6), `USAGE.md`, `ARCHITECTURE.md`, `MILESTONES.md` and `CHANGELOG.md`; verify they describe the count trigger and the residual no-rename mismatch
+- [x] 6.3 Run `go build ./...`, `go vet ./...` and `go test ./...`, then re-scan Swile (15 offers), Fabriq (7, 0 new) and Partoo (15, 0 new); record the regression result in `docs/SOURCE-DECISIONS.md`
+
 ## Workflow follow-up
 
 - Archive `harden-wttj-discovery-and-query` after review, sync `wttj-source` to `openspec/specs/`, and replace the WTTJ note in `docs/SPEC.md` §7 with a pointer to that capability plus a spec revision entry.

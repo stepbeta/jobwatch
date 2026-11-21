@@ -109,27 +109,32 @@ https://www.welcometothejungle.com/`, the browser UA, and
 every page request and asserts the exact `facetFilters` string in the body, so a
 future change to params cannot silently drop the scoping.
 
-### An empty first page triggers one canonical-slug retry
+### A count mismatch triggers canonical-slug resolution for every organization
 
 WTTJ's CMS filters can lag behind a rename: the Swile page filters on
 `organization.slug: swile`, while the index still stores `lunchr`. The adapter
-keeps the discovered filters and only falls back when page 0 is empty, the
-page's `path[0].items_count` reports jobs, and exactly one `organization.slug`
-filter exists. It then calls
-`GET /api/v1/organizations/{website_organization.slug}`, and if the record
-returns a different `organization.slug`, replaces that filter value and
-re-queries page 0 once.
+keeps the discovered filters and compares page 0's `nbHits` with the page's
+`path[0].items_count`. When they differ, it resolves every `organization.slug`
+filter value through `GET /api/v1/organizations/{slug}`, deduplicates the
+canonical values and re-queries page 0 once if any value changed.
 
-Alternatives considered: always resolving the slug adds a request to every
-scan and several for multi-organization pages; filtering by
-`organization.name` over-matches same-named organizations; switching to
-`/api/v3/organizations/{slug}/jobs` loses `profile` descriptions and uses
-different job references (UUIDs), which would change external UIDs.
+Using the count difference (rather than only an empty page) is what catches a
+renamed brand on a multi-organization page: the other brands' hits keep page 0
+non-empty, but `nbHits` is lower than `items_count`. Resolving every slug costs
+one request per distinct value, and only on a mismatch. The single-organization
+Swile case is the same path with one value.
 
-A failed lookup while the page reports jobs is a retryable error: silently
-returning zero would reproduce the bug. A genuinely empty page (`items_count`
-0) skips the lookup. Multi-organization pages are not canonicalized because no
-single alias is available; this is documented as a known gap.
+Alternatives considered: always resolving every slug adds requests to every
+scan; resolving only the page's own organization misses a renamed sibling;
+filtering by `organization.name` over-matches same-named organizations;
+switching to `/api/v3/organizations/{slug}/jobs` loses `profile` descriptions
+and uses different job references (UUIDs), which would change external UIDs.
+
+A failed lookup on a count mismatch is a retryable error: silently returning a
+partial list would hide the problem. A page with `items_count` 0 skips the
+lookup. If the counts differ but every slug is already canonical (for example
+the index is lagging), no retry happens and the received hits are returned; this
+residual case is recorded as a known gap.
 
 `wttjSearch` gains `ExpectedItems int`, read from the page path, and `WTTJ`
 gains an `OrganizationsURL` override for tests.
@@ -184,8 +189,10 @@ when neither exists the hit is dropped, as today.
 - **The organization endpoint is an extra upstream dependency** → it is called
   only when page 0 is empty while `items_count` reports jobs; a failure is a
   retryable error, never a silent zero.
-- **A multi-organization page with one stale slug is not canonicalized** → no
-  single alias is available, so it still returns zero; recorded as a known gap.
+- **A multi-organization page with one stale slug is canonicalized** → the
+  count mismatch triggers one lookup per slug; if the counts differ without a
+  rename (index lag), the partial list is returned and the case is recorded as
+  a known gap.
 
 ## Migration Plan
 

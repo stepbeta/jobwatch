@@ -236,13 +236,15 @@ sequenceDiagram
    The discovered filters are sent as `facetFilters`: one JSON array per
    attribute, so several organization slugs are OR-ed, URL-encoded inside
    `params`.
-3. **Stale slug retry** — when page 0 is empty but `path[0].items_count`
-   says the page has jobs, and the filters name exactly one
-   `organization.slug`, the adapter reads
-   `GET https://api.welcometothejungle.com/api/v1/organizations/{website slug}`.
-   If that record reports a different canonical slug, it retries page 0
-   once with the canonical value. A lookup failure is a retryable error,
-   and a page with `items_count` 0 never triggers the lookup.
+3. **Stale slug resolution** — after page 0, the adapter compares `nbHits`
+   with `path[0].items_count`. When they differ and `items_count` is above
+   zero, it reads the canonical slug of every distinct
+   `organization.slug` value from
+   `GET https://api.welcometothejungle.com/api/v1/organizations/{slug}`,
+   deduplicates them, and retries page 0 once if any value changed. A
+   lookup failure is a retryable error; a page with `items_count` 0 never
+   triggers the lookup, and a mismatch without a rename returns the
+   received hits.
 
 Request quirks, all verified against the live site (2026-11) and
 deliberately replicated:
@@ -255,7 +257,7 @@ deliberately replicated:
 | The page's filters are sent explicitly | the secured key only embeds `website.reference:wttj_fr`; without `facetFilters` the query returns the whole site (~60k hits instead of the page's own offers). The adapter never decodes the key and does not repeat the embedded filter |
 | A browser User-Agent for these API calls | the bootstrap endpoint and Algolia reject the identifying JobWatch UA; every other adapter keeps it |
 | Pagination is `hitsPerPage=50`, `page=0..nbPages-1` | same page size as the site; the loop stops at `nbPages` or the first empty page |
-| An empty first page can trigger one organization lookup | the CMS filters can lag behind a rename (Swile: filters `swile`, index `lunchr`); the adapter retries only when `items_count` claims jobs and exactly one `organization.slug` is present, and a lookup failure is retryable |
+| An empty first page can trigger one organization lookup | the CMS filters can lag behind a rename (Swile: filters `swile`, index `lunchr`); page 0's `nbHits` is compared with `items_count`, every `organization.slug` value is canonicalized only on a mismatch, and a lookup failure is retryable |
 
 Hit mapping (both index shapes observed in the wild are tolerated):
 
@@ -323,15 +325,14 @@ GET per scan per source).
    answers with the whole site (~60k hits), and the 100-page guard fails
    the scan instead of storing a truncated list. The adapter never decodes
    the key to recover the scope.
-6. **A renamed organization is only resolved when the first page is
-   empty.** The retry handles a single stale `organization.slug`. A
-   multi-organization page that mixes a stale slug with live ones still
-   returns the live ones and never triggers the lookup, and a page whose
-   `items_count` is wrong may skip the retry.
+6. **A count mismatch without a rename is not corrected.** If `nbHits`
+   differs from `items_count` because the index lags, the lookups return
+   the same slugs, no retry occurs, and the partial list is returned. The
+   adapter does not fail the scan on a mismatch.
 7. **The organization endpoint is a third upstream surface.** It is
-   called only on the empty-first-page path; if WTTJ changes its response
-   shape, the retry fails as a retryable error rather than silently
-   reporting zero offers.
+   called once per distinct slug only on a count mismatch; if WTTJ changes
+   its response shape, the retry fails as a retryable error rather than
+   silently reporting a partial list.
 
 A further gap: offers are identified by `(source, external_uid)`, where
 the uid is `reference` (or the `objectID` fallback). The two observed
@@ -383,3 +384,7 @@ create new offers; the previous ones would disappear on that scan.
   HTTP 200.
 - Re-scanning Fabriq (7 fetched, 0 new) and Partoo (15 fetched, 0 new)
   after the change left both sources unchanged (status `ok`).
+- After broadening the retry trigger from an empty page to
+  `nbHits != items_count` and canonicalizing every slug, the scans were
+  repeated: Swile 15 fetched (0 new, 15 seen), Fabriq 7 (0 new) and
+  Partoo 15 (0 new), all `ok`.
