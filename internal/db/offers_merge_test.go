@@ -39,7 +39,7 @@ func TestMergeOffersMovesEverything(t *testing.T) {
 	target := seedMergeOffer(t, sqlDB, company, "SRE", "Paris")
 	source := seedMergeOffer(t, sqlDB, company, "SRE - Platform", "Lyon")
 	if _, err := sqlDB.ExecContext(ctx,
-		`UPDATE job_offers SET application_state = 'applied', offer_state = 'changed' WHERE id = ?`, source.ID); err != nil {
+		`UPDATE job_offers SET application_state = 'applied', offer_state = 'disappeared' WHERE id = ?`, source.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,8 +82,8 @@ func TestMergeOffersMovesEverything(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if merged.OfferState != model.OfferChanged {
-		t.Errorf("offer_state = %q, want changed", merged.OfferState)
+	if merged.OfferState != model.OfferActive {
+		t.Errorf("offer_state = %q, want active", merged.OfferState)
 	}
 	if merged.ApplicationState != model.AppApplied {
 		t.Errorf("application_state = %q, want applied", merged.ApplicationState)

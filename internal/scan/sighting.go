@@ -102,7 +102,9 @@ func applySighting(ctx context.Context, q db.Querier, in Sighting, now time.Time
 				rawText, textHash, snapshot = &desc, &h, true
 			case *textHash != h:
 				rawText, textHash, snapshot = &desc, &h, true
-				state, outcome = model.OfferChanged, OutcomeChanged
+				// A description edit is not a listing state: the offer
+				// stays active and the new text is kept as a snapshot.
+				state, outcome = model.OfferActive, OutcomeChanged
 			}
 		}
 		if outcome != OutcomeChanged && state == model.OfferDisappeared {

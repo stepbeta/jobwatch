@@ -183,14 +183,14 @@ func TestPatchOffer(t *testing.T) {
 
 	rec := ts.do(t, "PATCH", "/api/offers/1", map[string]any{
 		"application_state": "interview",
-		"offer_state":       "changed",
+		"offer_state":       "disappeared",
 		"location":          "Remote - France",
 	})
 	wantCode(t, rec, 200)
 	got := decodeBody[struct {
 		Offer offerJSON `json:"offer"`
 	}](t, rec).Offer
-	if got.ApplicationState != "interview" || got.OfferState != "changed" || got.Location == nil || *got.Location != "Remote - France" {
+	if got.ApplicationState != "interview" || got.OfferState != "disappeared" || got.Location == nil || *got.Location != "Remote - France" {
 		t.Errorf("patched = %+v", got)
 	}
 

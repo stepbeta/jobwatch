@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Offer identity from source uid (OpenSpec change, task group 1)
+
+#### Added
+- Migration 0012 (`company_keys`, `company_aliases`): companies gain
+  attested identifiers (namespaced ATS board/site/org/tenant/account/
+  subdomain tokens) and per-source or global name aliases. Existing
+  companies get one confirmed alias each, and typed single-employer
+  sources get a key backfilled from their config token.
+- `job_offers.incomplete_reason` and `job_offers.incomplete_raw`, and a
+  nullable `job_offers.company_id`, so an item a source cannot normalize
+  can be stored instead of dropped.
+- A partial unique index on `job_offer_provenance(source_id,
+  external_uid)` for non-empty uids: a posting seen again on the same
+  source can no longer point at two offers.
+- Table-driven migration test covering the rebuild, the provenance
+  squash, key/alias backfill, the `changed` conversion, nullable
+  companies, duplicate fingerprints, FTS triggers, foreign keys and a
+  second no-op run.
+
+#### Changed
+- `offer_state` is now `active | disappeared`. Existing `changed` rows are
+  migrated to `active`; a description edit records a snapshot and keeps
+  the offer active. `changed` is removed from the Go enum, the API filter
+  and the UI state filter.
+- The migration runner runs each migration on a pinned connection with
+  foreign keys disabled (required for the `job_offers` rebuild) and
+  verifies `PRAGMA foreign_key_check` before committing.
+- `job_offers.fingerprint` is no longer UNIQUE. The current scan code
+  still writes and resolves by it until the offer-identity task group
+  lands.
+
+#### Fixed
+- 80 duplicate `(source, external_uid)` pairs (81 extra provenance rows)
+  from the old fingerprint identity are squashed onto the surviving
+  offer. No offer, event, note or snapshot is deleted; the old duplicate
+  offers remain, but without a source link. The live database went from
+  2465 to 2384 provenance rows.
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.

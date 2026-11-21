@@ -45,14 +45,13 @@ type OfferState string
 
 const (
 	OfferActive      OfferState = "active"
-	OfferChanged     OfferState = "changed"
 	OfferDisappeared OfferState = "disappeared"
 )
 
 // Valid reports whether s is a known offer state.
 func (s OfferState) Valid() bool {
 	switch s {
-	case OfferActive, OfferChanged, OfferDisappeared:
+	case OfferActive, OfferDisappeared:
 		return true
 	}
 	return false

@@ -38,7 +38,7 @@ the project overview is the [README](../README.md).
 |---|---|
 | `source_type` | `greenhouse` `lever` `ashby` `personio` `workable` `bamboohr` `wttj` `rss` `html` `manual` |
 | `last_scan_status` | `ok` `error` `blocked`; `null` = never scanned |
-| `offer_state` | `active` `changed` `disappeared` |
+| `offer_state` | `active` `disappeared` |
 | `application_state` | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
 | `remote_policy` | `remote` `hybrid` `onsite` `unknown` |
 | event `type` | `cv_sent` `message_received` `message_sent` `interview` `offer` `rejected` `ghosted` `other` |
@@ -344,16 +344,14 @@ Body may contain any of:
   string stores no description (NULL `raw_text`/`text_hash`) and appends
   an empty snapshot. A description edit does not change `offer_state`.
 - The update bumps `updated_at`; that is the audit trail.
-- Setting `offer_state` to `active` is how a user acknowledges a
-  `changed` offer.
 - Fingerprints are not recomputed on a location correction.
 - `200 { "offer": {...} }` (including the current `raw_text` and
   `saved_at`); `400 validation_failed` when no field is given or a value
   is invalid;
   `404 not_found`.
 - A later scan is not special-cased: a sighting whose description hash
-  differs from the stored (including manual) hash marks the offer
-  `changed` and appends another snapshot; a sighting without a
+  differs from the stored (including manual) hash records another
+  snapshot and keeps the offer `active`; a sighting without a
   description leaves the stored text untouched.
 
 ### POST /api/offers/:id/merge
@@ -368,8 +366,9 @@ In one transaction: every provenance row, event, offer note and snapshot
 of `:id` moves to `into_id`; earliest `first_seen_at`/latest
 `last_seen_at` are kept; duplicate provenance URLs are collapsed; the
 target adopts the source application state only when it is still `todo`;
-`changed` wins if either offer was changed. The absorbed offer row is
-removed after its children have moved.
+an active offer stays active, and only two disappeared offers stay
+disappeared. The absorbed offer row is removed after its children have
+moved.
 
 ```json
 {

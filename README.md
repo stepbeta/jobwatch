@@ -4,7 +4,7 @@ JobWatch is a local, single-user web application that tracks job offers
 during one job search. It is aimed at a full-remote Platform Engineer /
 SRE search in France. It scans ATS boards (Greenhouse, Lever, Ashby,
 Personio, Workable, BambooHR), Welcome to the Jungle company pages,
-RSS/Atom feeds and CSS-selector career pages, and records new, changed
+RSS/Atom feeds and CSS-selector career pages, and records new, updated
 and disappeared offers. Classification is
 deterministic and rule-based — there is no LLM in the scan loop — and
 offers, states, timeline events, notes and description versions all live
@@ -100,7 +100,7 @@ flowchart TD
     C -->|blocked or error| S["Mark the source blocked or error; other sources continue"]
     D --> E["Resolve company and deduplicate by offer fingerprint"]
     E --> F["Deterministic classification: title score, location score, remote policy"]
-    F --> G["New offers become active; changed descriptions mark changed; missing offers become disappeared"]
+    F --> G["New offers become active; description edits keep a snapshot; missing offers become disappeared"]
     G --> H["Review in Offers: filter by state, remote policy and scores"]
     H --> I["Bookmark in Saved"]
     H --> J["Set application state"]

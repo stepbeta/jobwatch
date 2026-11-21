@@ -2,12 +2,12 @@
 
 ## 1. Schema and migration
 
-- [ ] 1.0 Check no `jobwatch` process holds the database (`pgrep -af jobwatch`); if one is running, ask the user to stop it, then back up with `jobwatch backup jobwatch.db.<timestamp>.bkp`
-- [ ] 1.1 Add migration `00NN_company_identity.sql`: `company_keys`, `company_aliases`, `job_offers.incomplete_reason`, `job_offers.incomplete_raw`
-- [ ] 1.2 Backfill one alias per existing company from `name_normalized`; backfill keys from source config tokens where a source's offers map to one company
-- [ ] 1.3 Assert uniqueness on `job_offer_provenance(source_id, external_uid)`; stop writing `job_offers.fingerprint` as identity and drop its unique index
-- [ ] 1.4 Update `changed` rows to `active`, then remove the value from the enum
-- [ ] 1.5 Table-driven migration tests: repeated runs, existing data preserved, rollback notes in `docs/DATA-MODEL.md`
+- [x] 1.0 Check no `jobwatch` process holds the database (`pgrep -af jobwatch`); if one is running, ask the user to stop it, then back up with `jobwatch backup jobwatch.db.<timestamp>.bkp`
+- [x] 1.1 Add migration `00NN_company_identity.sql`: `company_keys`, `company_aliases`, `job_offers.incomplete_reason`, `job_offers.incomplete_raw`
+- [x] 1.2 Backfill one alias per existing company from `name_normalized`; backfill keys from source config tokens where a source's offers map to one company
+- [x] 1.3 Assert uniqueness on `job_offer_provenance(source_id, external_uid)`; stop writing `job_offers.fingerprint` as identity and drop its unique index
+- [x] 1.4 Update `changed` rows to `active`, then remove the value from the enum
+- [x] 1.5 Table-driven migration tests: repeated runs, existing data preserved, rollback notes in `docs/DATA-MODEL.md`
 
 ## 2. Offer identity
 

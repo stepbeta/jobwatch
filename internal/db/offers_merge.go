@@ -211,12 +211,9 @@ func updateMergedOffer(ctx context.Context, q Querier, from, into model.JobOffer
 	return nil
 }
 
-// mergeOfferState keeps the most informative lifecycle state: a changed
-// offer stays changed until the user acknowledges it.
+// mergeOfferState keeps the most informative lifecycle state: an active
+// offer stays active, and only two disappeared offers stay disappeared.
 func mergeOfferState(a, b model.OfferState) model.OfferState {
-	if a == model.OfferChanged || b == model.OfferChanged {
-		return model.OfferChanged
-	}
 	if a == model.OfferActive || b == model.OfferActive {
 		return model.OfferActive
 	}

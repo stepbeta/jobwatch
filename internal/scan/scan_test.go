@@ -133,12 +133,12 @@ func TestScanLifecycle(t *testing.T) {
 			},
 		},
 		{
-			name:       "changed text and missing offer",
+			name:       "description edit and missing offer",
 			offers:     []sources.RawOffer{rawSREChanged},
 			wantStatus: model.ScanOK,
 			want:       Result{Fetched: 1, Seen: 1, Changed: 1, Disappeared: 1},
 			offers2: []wantOffer{
-				{"Site Reliability Engineer", model.OfferChanged, 2},
+				{"Site Reliability Engineer", model.OfferActive, 2},
 				{"Platform Engineer (H/F)", model.OfferDisappeared, 1},
 			},
 		},
@@ -148,7 +148,7 @@ func TestScanLifecycle(t *testing.T) {
 			wantStatus: model.ScanError,
 			want:       Result{},
 			offers2: []wantOffer{
-				{"Site Reliability Engineer", model.OfferChanged, 2},
+				{"Site Reliability Engineer", model.OfferActive, 2},
 				{"Platform Engineer (H/F)", model.OfferDisappeared, 1},
 			},
 		},
@@ -158,17 +158,17 @@ func TestScanLifecycle(t *testing.T) {
 			wantStatus: model.ScanBlocked,
 			want:       Result{},
 			offers2: []wantOffer{
-				{"Site Reliability Engineer", model.OfferChanged, 2},
+				{"Site Reliability Engineer", model.OfferActive, 2},
 				{"Platform Engineer (H/F)", model.OfferDisappeared, 1},
 			},
 		},
 		{
-			name:       "disappeared offer comes back, changed one stays changed",
+			name:       "disappeared offer comes back, description edit stays active",
 			offers:     []sources.RawOffer{rawSREChanged, rawPlatform},
 			wantStatus: model.ScanOK,
 			want:       Result{Fetched: 2, Seen: 2, Reappeared: 1},
 			offers2: []wantOffer{
-				{"Site Reliability Engineer", model.OfferChanged, 2},
+				{"Site Reliability Engineer", model.OfferActive, 2},
 				{"Platform Engineer (H/F)", model.OfferActive, 1},
 			},
 		},
@@ -286,15 +286,15 @@ func TestScanAgainstManualDescription(t *testing.T) {
 	}
 
 	// A later source description that differs from the manual text is not
-	// special-cased: it marks the offer changed and appends a snapshot.
+	// special-cased: it records a snapshot and keeps the offer active.
 	clk.advance()
 	ff.offers[src.ID] = []sources.RawOffer{rawSREChanged}
 	if got := sc.ScanSource(ctx, src); got.Changed != 1 {
 		t.Fatalf("differing-description scan = %+v, want 1 changed", got)
 	}
 	o = offerByTitle(t, sqlDB, rawSRE.Title)
-	if o.OfferState != model.OfferChanged {
-		t.Errorf("offer_state = %q, want changed", o.OfferState)
+	if o.OfferState != model.OfferActive {
+		t.Errorf("offer_state = %q, want active", o.OfferState)
 	}
 	if o.RawText == nil || *o.RawText != rawSREChanged.Description {
 		t.Errorf("raw_text = %v, want the source description", o.RawText)

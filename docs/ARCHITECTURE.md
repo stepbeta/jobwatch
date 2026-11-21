@@ -15,7 +15,7 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 | `internal/scan` | Scan pipeline, manual import and classifier backfill; depends on `db`, `classify` and `sources`, shared by CLI and API |
 | `internal/importmeta` | Lightweight metadata extraction from a job page (JSON-LD, Open Graph, meta tags, title) for URL imports |
 | `internal/classify` | Deterministic title/location scoring, remote-policy derivation and reason lists |
-| `internal/diff` | Small line diff used for snapshot version comparisons and the changed-offer view |
+| `internal/diff` | Small line diff used for snapshot version comparisons |
 | `internal/api` | REST handlers under `/api`: sources, offers, events, notes, companies, import, health |
 | `web/` | React + TypeScript SPA source and its Go embedding (`Handler`) |
 
@@ -217,7 +217,8 @@ An explicit offer merge (`POST /api/offers/{id}/merge`) moves every
 provenance row, event, offer note and snapshot of the absorbed offer to
 the target, keeps the earliest `first_seen_at` and latest `last_seen_at`,
 adopts the source application state when the target is still `todo`, and
-keeps `changed` if either side was changed. Duplicate provenance URLs are
+keeps the offer active if either side was active; only two disappeared
+offers stay disappeared. Duplicate provenance URLs are
 collapsed into one row with the earliest first-seen and latest last-seen.
 The absorbed offer row is then deleted after all children have moved;
 nothing is lost. Only the UI's explicit merge action calls this.

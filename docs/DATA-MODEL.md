@@ -22,6 +22,23 @@ require a table rebuild.
 | 0009 | `0009_interview_entries.sql` | Additive schema change for Milestone 9: creates `interview_entries` for the personal interview-prep FAQ. No existing table or row changes |
 | 0010 | `0010_interview_entry_category.sql` | Additive schema change for Milestone 10: `ALTER TABLE interview_entries ADD COLUMN category TEXT`. NULL means uncategorized; existing entries keep every column and read as uncategorized. No row is deleted or rewritten |
 | 0011 | `0011_seed_wttj_sources.sql` | Data-only seed: the Fabriq Welcome to the Jungle careers page verified in Milestone 10a (`wttj`, `{}` config, enabled). The 0002 WTTJ marketplace row has a different URL and is left untouched. `INSERT … WHERE NOT EXISTS` by URL; never updates existing rows |
+| 0012 | `0012_company_identity.sql` | OpenSpec change `offer-identity-from-source-uid`: creates `company_keys` and `company_aliases`; backfills one confirmed alias per company and keys from typed adapter config tokens; rebuilds `job_offers` so `company_id` is nullable, `fingerprint` is no longer UNIQUE and `incomplete_reason`/`incomplete_raw` exist; converts `offer_state = 'changed'` to `active`; squashes duplicate `(source_id, external_uid)` provenance rows onto the surviving offer and adds a partial unique index on that pair |
+
+Migration 0012 runs on a pinned connection with `foreign_keys=OFF` so it
+can rebuild `job_offers` without `DROP TABLE` cascading into events,
+notes and snapshots; the runner verifies the result with
+`PRAGMA foreign_key_check` before committing and restores enforcement on
+the connection. The rebuild preserves every offer id and child row.
+The one lossy step is the provenance squash: for each duplicate
+`(source_id, external_uid)` the link on the surviving offer (active, then
+changed, then most recently seen) inherits the earliest `first_seen_at`
+and latest `last_seen_at`; the other links are removed. The duplicate
+offers themselves are not deleted and keep their events, notes and
+snapshots, but may have no provenance row afterwards. Rolling back
+therefore requires the pre-migration backup; `jobwatch backup` before
+migrating is the supported safety net. The `changed` -> `active` update is
+recoverable by the next scan, and the two new tables plus the two new
+columns are additive.
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -64,6 +81,38 @@ with the target's normalized name, and deletes the emptied company. A
 rename through the API also rewrites fingerprints in the same
 transaction. Both operations are rejected (`merge_conflict`) when a new
 fingerprint would collide.
+
+### company_keys
+| Column | Type | Notes |
+|---|---|---|
+| id | INTEGER PK | autoincrement |
+| company_id | INTEGER NOT NULL → companies ON DELETE CASCADE | |
+| key | TEXT NOT NULL UNIQUE | attested identifier, namespaced by provider: `greenhouse:<board_token>`, `lever:<site>`, `ashby:<org>`, `personio:<tenant>`, `workable:<account>`, `bamboohr:<subdomain>` |
+| created_at | TEXT | |
+
+One company may hold several keys (for example a Greenhouse board and a
+Lever site). Keys are globally unique because of the provider prefix.
+Migration 0012 backfills a key only for a typed source whose offers all
+belong to one company.
+
+### company_aliases
+| Column | Type | Notes |
+|---|---|---|
+| id | INTEGER PK | autoincrement |
+| company_id | INTEGER NOT NULL → companies ON DELETE CASCADE | |
+| name_normalized | TEXT NOT NULL | `model.NormalizeCompanyName` |
+| source_id | INTEGER → sources ON DELETE CASCADE | NULL = confirmed for every source |
+| created_at | TEXT | |
+
+Two partial unique indexes make the claim unambiguous: one row per
+`(source_id, name_normalized)` for a specific source, and one row per
+`name_normalized` for the global (NULL) scope. Migration 0012 backfills
+one global alias per existing company from its current
+`name_normalized`.
+
+The tables are populated now; the scan pipeline switches from
+name-only `ResolveCompany` to key-then-alias resolution in the
+company-resolution task group of the same OpenSpec change.
 
 ### sources
 | Column | Type | Notes |
@@ -119,15 +168,15 @@ them or keeping a user-edited source is safe.
 | Column | Type | Notes |
 |---|---|---|
 | id | INTEGER PK | |
-| company_id | INTEGER NOT NULL → companies | |
+| company_id | INTEGER → companies | nullable since 0012: an incomplete item may have no company yet |
 | title | TEXT NOT NULL | as first seen |
 | title_normalized | TEXT NOT NULL | `model.NormalizeTitle`: lowercase, accents folded, gender markers (`H/F`, `m/w/d`…) removed, punctuation → space |
 | location | TEXT | free text as first seen |
 | remote_policy | TEXT NOT NULL DEFAULT 'unknown' | `remote` `hybrid` `onsite` `unknown`; derived by the deterministic classifier from location and description on every sighting (and by `jobwatch reclassify`) |
 | url | TEXT | canonical (first-seen) link |
-| fingerprint | TEXT NOT NULL UNIQUE | see Fingerprints |
+| fingerprint | TEXT NOT NULL DEFAULT '' | no longer UNIQUE since 0012; see Fingerprints. The current scan code still writes it; it is not the identity carrier |
 | first_seen_at, last_seen_at | TEXT NOT NULL | |
-| offer_state | TEXT NOT NULL DEFAULT 'active' | `active` `changed` `disappeared` |
+| offer_state | TEXT NOT NULL DEFAULT 'active' | `active` `disappeared` |
 | application_state | TEXT NOT NULL DEFAULT 'todo' | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
 | raw_text | TEXT | latest plain-text description |
 | text_hash | TEXT | SHA-256 hex of whitespace-collapsed `raw_text`; NULL when no description |
@@ -135,9 +184,15 @@ them or keeping a user-edited source is safe.
 | location_confidence | INTEGER | 0..100 (CHECK), probability the offer is full remote and France-compatible; NULL only until classified |
 | match_reasons_json | TEXT | `{"title":["..."],"location":["..."]}`: human-readable matched terms and weights per score (see Classification below) |
 | saved_at | TEXT | NULL = not bookmarked; otherwise the UTC RFC3339 time the user bookmarked the offer (`PATCH /api/offers/:id` with `saved: true`). Independent of `offer_state` and `application_state` |
+| incomplete_reason | TEXT | NULL for a usable offer; otherwise `missing_company`, `missing_title` or `missing_company_title` (validated in Go) |
+| incomplete_raw | TEXT | JSON object with the values the source reported for an incomplete item |
 | created_at, updated_at | TEXT | |
 
 Indexes: company_id, offer_state, application_state, last_seen_at.
+
+An incomplete offer keeps its provenance, snapshots and notes; it is
+excluded from the offers list, dashboard and search until the user
+assigns a company and title. Later scans never overwrite those values.
 
 `saved_at` is a personal-interest bookmark, not a state. Saving never
 changes either state machine, and an offer that becomes an application
@@ -175,24 +230,34 @@ snapshot. A manual edit never changes `offer_state`.
 
 A manual description is not special to the scan diff/merge logic. A later
 sighting whose description hash differs from the stored (manual) hash
-marks the offer `changed` and appends another snapshot; a sighting
-without a description never clears the stored text. Manual and
-scan-captured text therefore share one snapshot chain, and the detail
-diff compares the two latest snapshots regardless of their origin.
+records another snapshot and keeps the offer active; a sighting without a
+description never clears the stored text. Manual and scan-captured text
+therefore share one snapshot chain, and the detail diff compares the two
+latest snapshots regardless of their origin.
 
 ### job_offer_provenance
-One row per (offer, link) sighting. `UNIQUE(offer_id, url)`.
+One row per (offer, link) sighting. `UNIQUE(offer_id, url)`, plus a
+partial unique index on `(source_id, external_uid)` for rows whose
+`external_uid` is non-empty (migration 0012).
 
 | Column | Type | Notes |
 |---|---|---|
 | id | INTEGER PK | |
 | offer_id | INTEGER NOT NULL → job_offers ON DELETE CASCADE | |
 | source_id | INTEGER → sources | NULL for manual imports |
-| external_uid | TEXT | ATS posting id when available |
+| external_uid | TEXT | ATS posting id when available; identity carrier together with `source_id` |
 | url | TEXT NOT NULL | exact link where seen |
 | first_seen_at, last_seen_at | TEXT | `last_seen_at` = start time of the scan that last saw it |
 
-Index: (source_id, external_uid).
+Index: unique partial `(source_id, external_uid)` where `external_uid` is
+non-empty.
+
+Before 0012 the same `(source_id, external_uid)` could point at several
+offers because the fingerprint identity changed with a title or company
+name. Migration 0012 squashes those rows onto the surviving offer; the
+duplicate offers remain (never deleted) but may have no provenance row.
+New sightings resolve by provenance, so they cannot recreate the
+duplicate.
 
 ### events
 | Column | Type | Notes |
@@ -296,6 +361,13 @@ sync by AFTER INSERT / DELETE / UPDATE OF triggers
 
 `fingerprint = sha256_hex(company_normalized + 0x1F + title_normalized [+ 0x1F + location_bucket])`
 
+Migration 0012 removes the UNIQUE constraint: offer identity moves to
+`job_offer_provenance(source_id, external_uid)` with `(source_id, url)` as
+the fallback. The current scan code still computes and resolves by
+fingerprint until the offer-identity task group of the same change lands;
+the column is kept for compatibility and is not an identity carrier. Do
+not add new dependencies on its uniqueness.
+
 - The base fingerprint has no bucket.
 - `model.LocationBucket`: first location segment (split on `, ; | / ( )`
   and `" - "`), normalized; if that segment is only a workplace word
@@ -310,17 +382,23 @@ sync by AFTER INSERT / DELETE / UPDATE OF triggers
 
 ### offer_state (written by scans and imports)
 
+An offer has exactly one of two listing states: `active` or
+`disappeared`. A description edit is not a state change; it is recorded
+as a snapshot.
+
 | From | Trigger | To |
 |---|---|---|
 | — | first sighting | `active` (+ snapshot) |
-| any | sighting with non-empty description whose hash differs from `text_hash` | `changed` (+ snapshot, `raw_text` replaced) |
+| any | sighting with a non-empty description whose hash differs from `text_hash` | unchanged (+ snapshot, `raw_text` replaced) |
 | `disappeared` | sighting without text change | `active` |
-| `active` / `changed` | sighting without text change | unchanged |
-| `active` / `changed` | successful scan of a source that has a provenance row for the offer, no row of that source seen in this scan, and no other source saw it in its own latest `ok` scan | `disappeared` |
+| `active` | sighting without text change | unchanged |
+| `active` | successful scan of a source that has a provenance row for the offer, no row of that source seen in this scan, and no other source saw it in its own latest `ok` scan | `disappeared` |
 
+- Migration 0012 converts every existing `changed` row to `active`; the
+  value is no longer part of the Go enum or the API filter.
 - A sighting without description never clears stored text. A first
   description on an offer that had none fills `raw_text` (+ snapshot)
-  without becoming `changed`.
+  without changing the state.
 - A manual description edit through `PATCH /api/offers/:id` does not
   change the state: it replaces `raw_text`, recomputes `text_hash` and
   appends a snapshot. Later scans compare against that manual hash
@@ -372,7 +450,8 @@ never merge or split offers.
   the target, keeps the earliest `first_seen_at` / latest `last_seen_at`,
   collapses duplicate provenance URLs (earliest first-seen, latest
   last-seen), adopts the absorbed application state when the target is
-  `todo`, and keeps `changed` when either side was changed. The absorbed
+  `todo`, and keeps the offer active if either side was active; only two
+  disappeared offers stay disappeared. The absorbed
   `job_offers` row is deleted only after all children have moved; no
   events, notes, snapshots or provenance rows are lost.
 - **Split** (`POST /api/offers/:id/split` with `provenance_ids`, optional

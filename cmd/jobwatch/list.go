@@ -80,7 +80,7 @@ func newListCmd(opts *rootOptions) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&offerState, "offer-state", "", "filter: active|changed|disappeared")
+	cmd.Flags().StringVar(&offerState, "offer-state", "", "filter: active|disappeared")
 	cmd.Flags().StringVar(&appState, "app-state", "", "filter: todo|applied|responded|interview|offer|negative|maybe|positive")
 	cmd.Flags().IntVar(&limit, "limit", 100, "maximum rows (0 = no limit)")
 	cmd.Flags().BoolVar(&listSources, "sources", false, "list sources instead of offers")

@@ -124,3 +124,32 @@ compared when the user asks to see them.
 
 - Whether the fingerprint column is dropped in this change or left unused for a later
   cleanup. Deferrable: it must stop being unique here either way.
+
+## Implementation notes
+
+- **Duplicate provenance rows.** The live database already held 80
+  `(source_id, external_uid)` pairs attached to two or three offers, left
+  by the old fingerprint identity. A plain unique index cannot be created
+  over them. The user chose to squash each group onto the surviving offer
+  (active, then changed, then most recently seen): the kept link inherits
+  the earliest `first_seen_at` and latest `last_seen_at`, the other links
+  are removed, and the duplicate offer rows are left in place without a
+  source link. No offer, event, note or snapshot is deleted. This is the
+  only place where links move between offers, and it is recorded in the
+  0012 header and in `docs/DATA-MODEL.md`.
+- **Migration runner.** Rebuilding `job_offers` (nullable `company_id`,
+  no fingerprint uniqueness) requires foreign keys to be off, otherwise
+  `DROP TABLE` cascades into events, notes and snapshots. The runner now
+  pins a connection, disables enforcement, runs the migration, checks
+  `PRAGMA foreign_key_check` before committing, and restores enforcement.
+- **Company name uniqueness is still enforced.** Migration 0012 adds
+  `company_keys` and `company_aliases` but leaves
+  `companies.name_normalized UNIQUE` in place; the current resolver still
+  matches by name. The company-resolution group must drop that constraint
+  in a follow-up migration before two same-named companies can resolve
+  independently. The backfilled global aliases are unique, so no conflict
+  exists today.
+- **Fingerprint identity is still written.** Group 1 removes the unique
+  constraint and the `changed` state, but the scan pipeline still
+  resolves and writes fingerprints until the offer-identity group lands.
+  This is intentional and documented as transitional.
