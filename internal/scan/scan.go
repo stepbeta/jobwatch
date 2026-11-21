@@ -33,7 +33,7 @@ type Result struct {
 	Err    error
 
 	Fetched     int // offers returned by the adapter
-	Skipped     int // raw offers ignored (missing title, URL or company evidence)
+	Skipped     int // raw offers ignored (no URL to carry identity)
 	New         int
 	Seen        int // existing offers seen again (includes Reappeared)
 	Reappeared  int // disappeared -> active
