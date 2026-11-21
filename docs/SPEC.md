@@ -226,11 +226,14 @@ Priority of implementations for v1:
 Notes on known sources:
 - Datadog & Cisco run on Workday, SAP on SuccessFactors: skip in v1
   (complex POST APIs); leave the rows disabled with a comment.
-- Welcome to the Jungle company pages use an internal Algolia-backed API
-  without public guarantees: implement cautiously behind rate limits and
-  expect breakage. Since Milestone 10a a `wttj` adapter reads company
-  pages (credentials discovered at runtime); the marketplace rows stay
-  disabled with an explanation.
+- Welcome to the Jungle company pages are specified by the `wttj-source`
+  capability
+  ([openspec/specs/wttj-source/spec.md](../openspec/specs/wttj-source/spec.md)):
+  credentials are discovered at runtime, the query is scoped by the page's
+  filters, renamed organizations are resolved through the organization
+  record, and each job URL names its owning organization. Operational
+  decisions and known gaps stay in `docs/SOURCE-DECISIONS.md`; the
+  marketplace rows stay disabled with an explanation.
 - A source that fails N consecutive times is flagged `error` in the UI
   (visible indicator on the sources list) without blocking other sources.
 
@@ -499,3 +502,8 @@ plain React + a lightweight table component is fine.
   now point at those capabilities for the behavior this change captured;
   obligations they do not cover (manual offer merge/split and its history
   moves) remain written here.
+- 2026-11-21 (OpenSpec change `harden-wttj-discovery-and-query`,
+  archived): the change is archived and its delta was synced to
+  `openspec/specs/wttj-source`. The WTTJ note in section 7 is now a
+  pointer; the two-call flow, request quirks, alias resolution and known
+  gaps remain in `docs/SOURCE-DECISIONS.md`.

@@ -22,6 +22,9 @@ import (
 const (
 	wttjSiteURL  = "https://www.welcometothejungle.com"
 	wttjPagesURL = "https://api.welcometothejungle.com/api/v1/pages"
+	// wttjOrganizationsURL is where discovery resolves the canonical
+	// organization slug when the page filters lag behind a rename.
+	wttjOrganizationsURL = "https://api.welcometothejungle.com/api/v1/organizations"
 	// wttjReferer is required: the Algolia secured key is
 	// referrer-restricted and omitting it makes Algolia answer 403.
 	wttjReferer = "https://www.welcometothejungle.com/"
@@ -34,10 +37,10 @@ const (
 	wttjMaxPages    = 100 // runaway guard for a corrupt nbPages
 )
 
-// ErrNotCareersPage marks a bootstrap response with no usable
-// jobs-search block: the URL is not a WTTJ company careers page. It is
-// permanent (retrying cannot help). Network and JSON decoding failures
-// are ordinary, retryable errors.
+// ErrNotCareersPage marks a bootstrap response with no credentials object
+// (no `properties` carrying algolia_app_id): the URL is not a WTTJ company
+// careers page. It is permanent (retrying cannot help). Network and JSON
+// decoding failures are ordinary, retryable errors.
 var ErrNotCareersPage = errors.New("URL is not a WTTJ careers page")
 
 // WTTJ fetches the offers of a Welcome to the Jungle company careers
@@ -45,15 +48,20 @@ var ErrNotCareersPage = errors.New("URL is not a WTTJ careers page")
 // page tree) and then one Algolia multi-query per result page.
 type WTTJ struct {
 	Client *Client
-	// PagesURL and AlgoliaBaseURL override the public endpoints; tests
-	// point them at httptest servers. Empty means the real endpoints.
-	PagesURL       string
-	AlgoliaBaseURL string
+	// PagesURL, OrganizationsURL and AlgoliaBaseURL override the public
+	// endpoints; tests point them at httptest servers. Empty means the
+	// real endpoints.
+	PagesURL         string
+	OrganizationsURL string
+	AlgoliaBaseURL   string
 }
 
-// wttjFilter is one Algolia facet filter, e.g. organization.slug:fabriq.
-type wttjFilter struct {
-	Attribute, Value string
+// wttjFilterGroup is one discovered filter attribute and its values.
+// Several values are alternatives (Algolia ORs them); separate groups
+// are AND-ed.
+type wttjFilterGroup struct {
+	Attribute string
+	Values    []string
 }
 
 // wttjSearch is what discovery yields for one careers page.
@@ -61,7 +69,8 @@ type wttjSearch struct {
 	AppID, APIKey, Index string
 	Language             string
 	OrgSlug              string // organization.slug: WTTJ job URL segment
-	Filters              []wttjFilter
+	ExpectedItems        int    // page.path[0].items_count, the jobs the page claims
+	Filters              []wttjFilterGroup
 }
 
 // wttjOffice is one hit location.
@@ -77,20 +86,25 @@ type wttjOffice struct {
 // contract_type, sectors, highlights) have no offer column in this
 // milestone and are deliberately not decoded.
 type wttjHit struct {
-	ObjectID     json.RawMessage `json:"objectID"` // string or number
-	Reference    string          `json:"reference"`
-	Name         string          `json:"name"`
-	Slug         string          `json:"slug"`
-	Language     string          `json:"language"`
-	PublishedAt  string          `json:"published_at"`
-	Profile      string          `json:"profile"`
-	Summary      string          `json:"summary"`
-	Offices      []wttjOffice    `json:"offices"`
-	Office       *wttjOffice     `json:"office"`
-	Organization struct {
-		Name string `json:"name"`
-		Slug string `json:"slug"`
-	} `json:"organization"`
+	ObjectID     json.RawMessage  `json:"objectID"` // string or number
+	Reference    string           `json:"reference"`
+	Name         string           `json:"name"`
+	Slug         string           `json:"slug"`
+	Language     string           `json:"language"`
+	PublishedAt  string           `json:"published_at"`
+	Profile      string           `json:"profile"`
+	Summary      string           `json:"summary"`
+	Offices      []wttjOffice     `json:"offices"`
+	Office       *wttjOffice      `json:"office"`
+	Organization wttjOrganization `json:"organization"`
+}
+
+// wttjOrganization is the hit's owning company. A careers page may list
+// jobs of linked organizations, so Organization.Slug is the URL segment
+// and company key, not the source page's slug.
+type wttjOrganization struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
 }
 
 type wttjQuery struct {
@@ -138,6 +152,12 @@ func (w *WTTJ) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 		if err != nil {
 			return nil, err
 		}
+		if page == 0 {
+			search, res, err = w.retryStaleOrgSlug(ctx, src, search, res)
+			if err != nil {
+				return nil, err
+			}
+		}
 		for _, hit := range res.Hits {
 			if offer, ok := mapWTTJHit(hit, search); ok {
 				out = append(out, finalizeOffer(offer, cfg.Company))
@@ -155,6 +175,88 @@ func (w *WTTJ) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 		}
 	}
 	return out, nil
+}
+
+// retryStaleOrgSlug handles a renamed organization whose CMS filters lag
+// behind the index. When the first page's total does not match the job
+// count the page claims, it resolves the canonical slug of every
+// organization.slug filter value, deduplicates them and retries page 0
+// once if any value changed. This covers both a renamed single company
+// (Swile/lunchr) and a renamed brand on a multi-organization page.
+func (w *WTTJ) retryStaleOrgSlug(ctx context.Context, src model.Source, search wttjSearch, first wttjResult) (wttjSearch, wttjResult, error) {
+	if search.ExpectedItems <= 0 || first.NbHits == search.ExpectedItems {
+		return search, first, nil
+	}
+	idx := -1
+	var values []string
+	for i, g := range search.Filters {
+		if g.Attribute != "organization.slug" || len(g.Values) == 0 {
+			continue
+		}
+		idx, values = i, g.Values
+		break
+	}
+	if idx < 0 {
+		return search, first, nil
+	}
+	canonical := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	changed := false
+	for _, v := range values {
+		c, err := w.resolveOrgSlug(ctx, src, v)
+		if err != nil {
+			return search, first, err
+		}
+		if c == "" {
+			c = v
+		}
+		if c != v {
+			changed = true
+		}
+		if !seen[c] {
+			seen[c] = true
+			canonical = append(canonical, c)
+		}
+	}
+	if !changed {
+		return search, first, nil
+	}
+	filters := make([]wttjFilterGroup, len(search.Filters))
+	copy(filters, search.Filters)
+	filters[idx] = wttjFilterGroup{Attribute: "organization.slug", Values: canonical}
+	search.Filters = filters
+	res, err := w.query(ctx, src, search, 0)
+	if err != nil {
+		return search, first, err
+	}
+	return search, res, nil
+}
+
+// resolveOrgSlug reads the canonical organization slug from the public
+// organization record. The website slug in the page tree and the slug
+// stored in the Algolia index can differ after a rename.
+func (w *WTTJ) resolveOrgSlug(ctx context.Context, src model.Source, slug string) (string, error) {
+	base := w.OrganizationsURL
+	if base == "" {
+		base = wttjOrganizationsURL
+	}
+	u := strings.TrimRight(base, "/") + "/" + url.PathEscape(slug)
+	body, err := w.Client.fetch(ctx, src, http.MethodGet, u, map[string]string{
+		"Accept":     "application/json",
+		"User-Agent": wttjBrowserUA,
+	}, nil)
+	if err != nil {
+		return "", fmt.Errorf("wttj: resolve organization %s: %w", slug, err)
+	}
+	var resp struct {
+		Organization struct {
+			Slug string `json:"slug"`
+		} `json:"organization"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("wttj: decode organization %s: %w", slug, err)
+	}
+	return strings.TrimSpace(resp.Organization.Slug), nil
 }
 
 // discover calls the page bootstrap and returns the search settings.
@@ -198,7 +300,11 @@ func (w *WTTJ) discover(ctx context.Context, src model.Source, pageURL *url.URL,
 
 // query performs one Algolia multi-query for the given result page.
 func (w *WTTJ) query(ctx context.Context, src model.Source, search wttjSearch, page int) (wttjResult, error) {
-	body, err := wttjQueryBody(search.Index, wttjAlgoliaParams(search.Filters, page))
+	params, err := wttjAlgoliaParams(search.Filters, page)
+	if err != nil {
+		return wttjResult{}, err
+	}
+	body, err := wttjQueryBody(search.Index, params)
 	if err != nil {
 		return wttjResult{}, err
 	}
@@ -227,63 +333,76 @@ func (w *WTTJ) query(ctx context.Context, src model.Source, search wttjSearch, p
 	return resp.Results[0], nil
 }
 
-// parseWTTJPages extracts the jobs-search settings from the bootstrap
-// page tree. The credentials live in the properties of the
-// kind=="jobs-search" block (nested in its contents on the live site,
-// directly in properties on the documented shape), so the whole subtree
-// is searched for the object that carries algolia_app_id.
+// parseWTTJPages extracts the Algolia settings from the bootstrap page
+// tree. The credentials are published in a `properties` object
+// somewhere in the tree: on some pages directly in the jobs-search
+// block, on others in a nested `contents[]` block under a layout-only
+// `jobs-search` block. The block `kind` is deliberately ignored: the
+// presence of algolia_app_id is the contract, and layout containers
+// carry the same kind as the block that holds the settings.
 func parseWTTJPages(body []byte) (wttjSearch, error) {
 	var root any
 	if err := json.Unmarshal(body, &root); err != nil {
 		return wttjSearch{}, fmt.Errorf("wttj: decode page tree: %w", err)
 	}
-	props, ok := findJobSearchProperties(root)
+	props, ok := findAlgoliaProperties(root)
 	if !ok {
 		return wttjSearch{}, fmt.Errorf("wttj: %w", ErrNotCareersPage)
 	}
-	return wttjSearchFromProperties(props)
-}
-
-// findJobSearchProperties walks the tree (map keys in sorted order, so
-// the result is deterministic) and returns the first properties object
-// carrying Algolia settings that sits inside a jobs-search block.
-func findJobSearchProperties(v any) (map[string]any, bool) {
-	switch t := v.(type) {
-	case map[string]any:
-		if kind, _ := t["kind"].(string); kind == "jobs-search" {
-			if p, ok := findMapWithKey(t, "algolia_app_id"); ok {
-				return p, true
-			}
-		}
-		for _, k := range sortedKeys(t) {
-			if p, ok := findJobSearchProperties(t[k]); ok {
-				return p, true
-			}
-		}
-	case []any:
-		for _, x := range t {
-			if p, ok := findJobSearchProperties(x); ok {
-				return p, true
-			}
-		}
+	search, err := wttjSearchFromProperties(props)
+	if err != nil {
+		return wttjSearch{}, err
 	}
-	return nil, false
+	search.ExpectedItems = wttjItemsCount(root)
+	return search, nil
 }
 
-func findMapWithKey(v any, key string) (map[string]any, bool) {
+// wttjItemsCount reads page.path[0].items_count, the number of jobs the
+// page claims to publish. An empty Algolia page is only suspicious when
+// this is above zero.
+func wttjItemsCount(root any) int {
+	rootMap, ok := root.(map[string]any)
+	if !ok {
+		return 0
+	}
+	page, ok := rootMap["page"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	path, ok := page["path"].([]any)
+	if !ok || len(path) == 0 {
+		return 0
+	}
+	first, ok := path[0].(map[string]any)
+	if !ok {
+		return 0
+	}
+	if n, ok := first["items_count"].(float64); ok {
+		return int(n)
+	}
+	return 0
+}
+
+// findAlgoliaProperties walks the tree (object keys in sorted order, so
+// the result is deterministic) and returns the first `properties` object
+// that carries algolia_app_id. It traverses every object and array,
+// including nested contents[] blocks, without looking at block kinds.
+func findAlgoliaProperties(v any) (map[string]any, bool) {
 	switch t := v.(type) {
 	case map[string]any:
-		if _, ok := t[key]; ok {
-			return t, true
+		if p, ok := t["properties"].(map[string]any); ok {
+			if _, has := p["algolia_app_id"]; has {
+				return p, true
+			}
 		}
 		for _, k := range sortedKeys(t) {
-			if p, ok := findMapWithKey(t[k], key); ok {
+			if p, ok := findAlgoliaProperties(t[k]); ok {
 				return p, true
 			}
 		}
 	case []any:
 		for _, x := range t {
-			if p, ok := findMapWithKey(x, key); ok {
+			if p, ok := findAlgoliaProperties(x); ok {
 				return p, true
 			}
 		}
@@ -303,22 +422,34 @@ func wttjSearchFromProperties(p map[string]any) (wttjSearch, error) {
 		return wttjSearch{}, err
 	}
 	search.Filters = filters
-	for _, f := range filters {
-		if f.Attribute == "organization.slug" && search.OrgSlug == "" {
-			search.OrgSlug = f.Value
-		}
+	// The page slug is the fallback for hits that omit organization.slug.
+	// website_organization names the page itself; a filter group with a
+	// single value can stand in for it, but a multi-organization page
+	// lists siblings first (localoo, partoo-italia, partoo), so the first
+	// value is not the page's identity. Those pages fall back to the
+	// careers path in discover.
+	if org, ok := p["website_organization"].(map[string]any); ok {
+		search.OrgSlug = wttjString(org["slug"])
 	}
 	if search.OrgSlug == "" {
-		if org, ok := p["website_organization"].(map[string]any); ok {
-			search.OrgSlug = wttjString(org["slug"])
+		var orgFilters []string
+		for _, g := range filters {
+			if g.Attribute == "organization.slug" {
+				orgFilters = append(orgFilters, g.Values...)
+			}
+		}
+		if len(orgFilters) == 1 {
+			search.OrgSlug = orgFilters[0]
 		}
 	}
 	return search, nil
 }
 
-// wttjFilters flattens the discovered filters object into ordered
-// attribute/value pairs.
-func wttjFilters(v any) ([]wttjFilter, error) {
+// wttjFilters groups the discovered filters by attribute and keeps the
+// array order inside a group, so several organization slugs survive as
+// alternatives. Attributes come back in sorted order (JSON objects are
+// unordered), which keeps the query params deterministic.
+func wttjFilters(v any) ([]wttjFilterGroup, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -326,21 +457,25 @@ func wttjFilters(v any) ([]wttjFilter, error) {
 	if !ok {
 		return nil, errors.New(`wttj: "filters" in the jobs-search block is not an object`)
 	}
-	out := make([]wttjFilter, 0, len(m))
+	out := make([]wttjFilterGroup, 0, len(m))
 	for _, k := range sortedKeys(m) {
 		switch val := m[k].(type) {
 		case string:
 			if val == "" {
 				return nil, fmt.Errorf("wttj: filter %q is empty", k)
 			}
-			out = append(out, wttjFilter{Attribute: k, Value: val})
+			out = append(out, wttjFilterGroup{Attribute: k, Values: []string{val}})
 		case []any:
+			values := make([]string, 0, len(val))
 			for _, x := range val {
 				s, _ := x.(string)
 				if s == "" {
 					return nil, fmt.Errorf("wttj: filter %q holds a non-string value", k)
 				}
-				out = append(out, wttjFilter{Attribute: k, Value: s})
+				values = append(values, s)
+			}
+			if len(values) > 0 {
+				out = append(out, wttjFilterGroup{Attribute: k, Values: values})
 			}
 		default:
 			return nil, fmt.Errorf("wttj: filter %q has an unsupported value", k)
@@ -349,19 +484,41 @@ func wttjFilters(v any) ([]wttjFilter, error) {
 	return out, nil
 }
 
-// wttjAlgoliaParams serializes the discovered filters and paging into
-// the `params` string of an Algolia multi-query request, e.g.
-// "filters=organization.slug:fabriq&hitsPerPage=50&page=0".
-func wttjAlgoliaParams(filters []wttjFilter, page int) string {
+// wttjKeyEmbeddedFilter is the attribute the secured key already
+// restricts. The adapter deliberately does not decode the key; this
+// attribute is observed in the key's trailing `filters=` suffix, so
+// repeating it in params would be redundant at best.
+const wttjKeyEmbeddedFilter = "website.reference"
+
+// wttjAlgoliaParams serializes the discovered filter groups and paging
+// into the `params` string of an Algolia multi-query request. Each group
+// becomes one facetFilters array (values inside a group are OR-ed), the
+// JSON is URL-encoded inside the params string, and the key-embedded
+// website.reference filter is omitted, e.g.
+// "facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=0".
+func wttjAlgoliaParams(filters []wttjFilterGroup, page int) (string, error) {
 	paging := "hitsPerPage=" + strconv.Itoa(wttjHitsPerPage) + "&page=" + strconv.Itoa(page)
-	if len(filters) == 0 {
-		return paging
+	groups := make([][]string, 0, len(filters))
+	for _, g := range filters {
+		if g.Attribute == wttjKeyEmbeddedFilter {
+			continue
+		}
+		entries := make([]string, 0, len(g.Values))
+		for _, v := range g.Values {
+			entries = append(entries, g.Attribute+":"+v)
+		}
+		if len(entries) > 0 {
+			groups = append(groups, entries)
+		}
 	}
-	parts := make([]string, 0, len(filters))
-	for _, f := range filters {
-		parts = append(parts, f.Attribute+":"+f.Value)
+	if len(groups) == 0 {
+		return paging, nil
 	}
-	return "filters=" + strings.Join(parts, " ") + "&" + paging
+	encoded, err := json.Marshal(groups)
+	if err != nil {
+		return "", fmt.Errorf("wttj: encode facet filters: %w", err)
+	}
+	return "facetFilters=" + url.QueryEscape(string(encoded)) + "&" + paging, nil
 }
 
 func wttjQueryBody(index, params string) ([]byte, error) {

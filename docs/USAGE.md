@@ -68,12 +68,24 @@ company name; nothing has to be extracted from the browser:
 ```
 
 Each scan reads the page bootstrap once to discover the Algolia index,
-its filters and its secured credentials, then pages through the index
-(50 hits per request). The credentials rotate server-side and are
+its filter groups and its secured credentials, then pages through the
+index (50 hits per request). The credentials rotate server-side and are
 re-read on every scan, so there is never a key to paste or refresh. Two
 debug-only config keys, `algolia_app_id` and `algolia_api_key`, override
-the discovered credentials; use them only to reproduce a failure. The
-flow, its rationale and its known gaps are documented in
+the discovered credentials; use them only to reproduce a failure.
+
+A page can list jobs from several linked organizations (for example a
+local brand and its parent). The scan queries every organization the page
+declares and links each offer to the organization that owns it, so an
+offer URL may name a different company slug than the source URL.
+
+Organizations renamed on WTTJ keep working: when the first page's total does
+not match the page's job count, the scan reads the canonical slug of every
+organization it was given from the organization record and retries once
+(the `swile` page finds the jobs indexed under `lunchr`, including on
+multi-organization pages).
+
+The flow, its rationale and its known gaps are documented in
 [SOURCE-DECISIONS.md](SOURCE-DECISIONS.md#welcome-to-the-jungle-milestone-10a).
 
 ### Config keys

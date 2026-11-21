@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -156,6 +157,22 @@ func TestWTTJMapHit(t *testing.T) {
 			wantOK: true,
 		},
 		{
+			name: "hit organization slug wins over the source slug",
+			hit: wttjHit{
+				Reference:    "PARTO_PqAo88l",
+				Name:         "Lead Developer (Python/React) - CDI - Paris - M/F/D",
+				Slug:         "lead-developer-python-react-cdi-paris-m-f-d_paris",
+				Organization: wttjOrganization{Name: "Partoo", Slug: "partoo"},
+			},
+			search: wttjSearch{Language: "en", OrgSlug: "partoo-italia"},
+			want: RawOffer{
+				ExternalUID: "PARTO_PqAo88l",
+				Title:       "Lead Developer (Python/React) - CDI - Paris - M/F/D",
+				URL:         "https://www.welcometothejungle.com/en/companies/partoo/jobs/lead-developer-python-react-cdi-paris-m-f-d_paris",
+			},
+			wantOK: true,
+		},
+		{
 			name:   "page language wins over the hit language",
 			hit:    wttjHit{Reference: "A", Name: "SRE", Slug: "sre", Language: "fr"},
 			search: search,
@@ -290,6 +307,35 @@ func TestWTTJMapHitJSON(t *testing.T) {
 	}
 }
 
+// TestWTTJMapPartooHit maps the recorded Partoo hit. Discovery reports a
+// sibling organization as the fallback, so the URL and company key must
+// follow the hit's own organization slug.
+func TestWTTJMapPartooHit(t *testing.T) {
+	var resp wttjAlgoliaResponse
+	if err := json.Unmarshal(readFixture(t, "wttj_hits_partoo.json"), &resp); err != nil {
+		t.Fatalf("decode hits: %v", err)
+	}
+	if len(resp.Results) != 1 || len(resp.Results[0].Hits) != 1 {
+		t.Fatalf("fixture results = %d/%d, want 1/1", len(resp.Results), len(resp.Results[0].Hits))
+	}
+	hit := resp.Results[0].Hits[0]
+	offer, ok := mapWTTJHit(hit, wttjSearch{Language: "en", OrgSlug: "localoo"})
+	if !ok {
+		t.Fatal("hit was dropped")
+	}
+	want := RawOffer{
+		ExternalUID: "PARTO_PqAo88l",
+		Title:       "Lead Developer (Python/React) - CDI - Paris - M/F/D",
+		Location:    "Paris, France",
+		URL:         "https://www.welcometothejungle.com/en/companies/partoo/jobs/lead-developer-python-react-cdi-paris-m-f-d_paris",
+		Company:     "Partoo",
+		CompanyKey:  companyKey(model.SourceWTTJ, "partoo"),
+	}
+	if offer != want {
+		t.Errorf("offer = %+v, want %+v", offer, want)
+	}
+}
+
 func TestParseWTTJPages(t *testing.T) {
 	t.Run("real page tree", func(t *testing.T) {
 		search, err := parseWTTJPages(readFixture(t, "wttj_page_fabriq.json"))
@@ -302,11 +348,63 @@ func TestParseWTTJPages(t *testing.T) {
 		if search.Language != "en" || search.OrgSlug != "fabriq" {
 			t.Errorf("language/org = %q/%q", search.Language, search.OrgSlug)
 		}
-		if len(search.Filters) != 1 || search.Filters[0] != (wttjFilter{"organization.slug", "fabriq"}) {
+		if search.ExpectedItems != 7 {
+			t.Errorf("expected items = %d, want 7", search.ExpectedItems)
+		}
+		if !reflect.DeepEqual(search.Filters, []wttjFilterGroup{{Attribute: "organization.slug", Values: []string{"fabriq"}}}) {
 			t.Errorf("filters = %+v", search.Filters)
 		}
 		if !strings.HasPrefix(search.APIKey, "NDU3MmUxZGRj") {
 			t.Errorf("api key not read verbatim: %q", search.APIKey)
+		}
+	})
+
+	t.Run("nested layout block (Partoo)", func(t *testing.T) {
+		search, err := parseWTTJPages(readFixture(t, "wttj_page_partoo.json"))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if search.AppID != "CSEKHVMS53" || search.Index != "wk_cms_jobs_production" {
+			t.Errorf("app/index = %q/%q", search.AppID, search.Index)
+		}
+		if search.Language != "en" || search.OrgSlug != "partoo" {
+			t.Errorf("language/org = %q/%q", search.Language, search.OrgSlug)
+		}
+		if search.ExpectedItems != 15 {
+			t.Errorf("expected items = %d, want 15", search.ExpectedItems)
+		}
+		want := []wttjFilterGroup{{
+			Attribute: "organization.slug",
+			Values:    []string{"localoo", "partoo-italia", "partoo"},
+		}}
+		if !reflect.DeepEqual(search.Filters, want) {
+			t.Errorf("filters = %+v, want %+v", search.Filters, want)
+		}
+		if !strings.HasPrefix(search.APIKey, "NDU3MmUxZGRj") {
+			t.Errorf("api key not read verbatim: %q", search.APIKey)
+		}
+	})
+
+	t.Run("stale organization slug (Swile)", func(t *testing.T) {
+		search, err := parseWTTJPages(readFixture(t, "wttj_page_swile.json"))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if search.AppID != "CSEKHVMS53" || search.Index != "wk_cms_jobs_production" {
+			t.Errorf("app/index = %q/%q", search.AppID, search.Index)
+		}
+		if search.Language != "en" || search.OrgSlug != "swile" {
+			t.Errorf("language/org = %q/%q", search.Language, search.OrgSlug)
+		}
+		if search.ExpectedItems != 15 {
+			t.Errorf("expected items = %d, want 15", search.ExpectedItems)
+		}
+		want := []wttjFilterGroup{{
+			Attribute: "organization.slug",
+			Values:    []string{"swile"},
+		}}
+		if !reflect.DeepEqual(search.Filters, want) {
+			t.Errorf("filters = %+v, want %+v", search.Filters, want)
 		}
 	})
 
@@ -322,12 +420,31 @@ func TestParseWTTJPages(t *testing.T) {
 		}
 		if search.AppID != "APP" || search.APIKey != "KEY" || search.Index != "IDX" ||
 			search.Language != "fr" || search.OrgSlug != "" ||
-			len(search.Filters) != 1 || search.Filters[0] != (wttjFilter{"website.reference", "wttj_fr"}) {
+			!reflect.DeepEqual(search.Filters, []wttjFilterGroup{{Attribute: "website.reference", Values: []string{"wttj_fr"}}}) {
 			t.Errorf("search = %+v", search)
 		}
 	})
 
-	t.Run("missing jobs-search block is permanent", func(t *testing.T) {
+	t.Run("credentials under a container that is not jobs-search", func(t *testing.T) {
+		body := `{"page":{"sections":[{"containers":[{"blocks":[
+			{"kind":"layout","properties":{"columns":2},"contents":[
+				{"kind":"promo","properties":{"title":"Jobs"}},
+				{"kind":"promo","properties":{
+					"algolia_app_id":"APP","algolia_api_key":"KEY","algolia_index_name":"IDX",
+					"language":"en","filters":{"organization.slug":["one","two"]}}}]}]}]}]}}`
+		search, err := parseWTTJPages([]byte(body))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if search.AppID != "APP" || search.Index != "IDX" || search.Language != "en" {
+			t.Errorf("search = %+v", search)
+		}
+		if !reflect.DeepEqual(search.Filters, []wttjFilterGroup{{Attribute: "organization.slug", Values: []string{"one", "two"}}}) {
+			t.Errorf("filters = %+v", search.Filters)
+		}
+	})
+
+	t.Run("missing credentials object is permanent", func(t *testing.T) {
 		body := `{"page":{"sections":[{"containers":[{"blocks":[{"kind":"text"}]}]}]}}`
 		_, err := parseWTTJPages([]byte(body))
 		if !errors.Is(err, ErrNotCareersPage) {
@@ -355,28 +472,54 @@ func TestParseWTTJPages(t *testing.T) {
 func TestWTTJAlgoliaParams(t *testing.T) {
 	tests := []struct {
 		name    string
-		filters []wttjFilter
+		filters []wttjFilterGroup
 		page    int
 		want    string
 	}{
 		{
 			name:    "fabriq",
-			filters: []wttjFilter{{"organization.slug", "fabriq"}},
-			want:    "filters=organization.slug:fabriq&hitsPerPage=50&page=0",
+			filters: []wttjFilterGroup{{Attribute: "organization.slug", Values: []string{"fabriq"}}},
+			want:    "facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=0",
 		},
 		{
 			name:    "second page",
-			filters: []wttjFilter{{"organization.slug", "fabriq"}},
+			filters: []wttjFilterGroup{{Attribute: "organization.slug", Values: []string{"fabriq"}}},
 			page:    1,
-			want:    "filters=organization.slug:fabriq&hitsPerPage=50&page=1",
+			want:    "facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=1",
 		},
 		{
-			name: "several filters are AND-joined in attribute order",
-			filters: []wttjFilter{
-				{"organization.slug", "fabriq"},
-				{"website.reference", "wttj_fr"},
+			name: "several values of one attribute are OR-ed",
+			filters: []wttjFilterGroup{{
+				Attribute: "organization.slug",
+				Values:    []string{"localoo", "partoo-italia", "partoo"},
+			}},
+			want: "facetFilters=%5B%5B%22organization.slug%3Alocaloo%22%2C%22organization.slug%3Apartoo-italia%22%2C%22organization.slug%3Apartoo%22%5D%5D&hitsPerPage=50&page=0",
+		},
+		{
+			name: "separate attributes are AND-ed as separate groups",
+			filters: []wttjFilterGroup{
+				{Attribute: "organization.slug", Values: []string{"fabriq"}},
+				{Attribute: "remote", Values: []string{"fulltime"}},
 			},
-			want: "filters=organization.slug:fabriq website.reference:wttj_fr&hitsPerPage=50&page=0",
+			want: "facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%2C%5B%22remote%3Afulltime%22%5D%5D&hitsPerPage=50&page=0",
+		},
+		{
+			name: "the key-embedded website.reference filter is omitted",
+			filters: []wttjFilterGroup{
+				{Attribute: "organization.slug", Values: []string{"fabriq"}},
+				{Attribute: "website.reference", Values: []string{"wttj_fr"}},
+			},
+			want: "facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=0",
+		},
+		{
+			name:    "only the key-embedded filter leaves no facetFilters",
+			filters: []wttjFilterGroup{{Attribute: "website.reference", Values: []string{"wttj_fr"}}},
+			want:    "hitsPerPage=50&page=0",
+		},
+		{
+			name:    "empty group is ignored",
+			filters: []wttjFilterGroup{{Attribute: "organization.slug"}},
+			want:    "hitsPerPage=50&page=0",
 		},
 		{
 			name: "no filters",
@@ -385,7 +528,11 @@ func TestWTTJAlgoliaParams(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := wttjAlgoliaParams(tt.filters, tt.page); got != tt.want {
+			got, err := wttjAlgoliaParams(tt.filters, tt.page)
+			if err != nil {
+				t.Fatalf("params: %v", err)
+			}
+			if got != tt.want {
 				t.Errorf("params = %q, want %q", got, tt.want)
 			}
 		})
@@ -393,11 +540,12 @@ func TestWTTJAlgoliaParams(t *testing.T) {
 }
 
 func TestWTTJQueryBody(t *testing.T) {
-	body, err := wttjQueryBody("wk_cms_jobs_production", "filters=organization.slug:fabriq&hitsPerPage=50&page=0")
+	params := "facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=0"
+	body, err := wttjQueryBody("wk_cms_jobs_production", params)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"requests":[{"indexName":"wk_cms_jobs_production","params":"filters=organization.slug:fabriq&hitsPerPage=50&page=0"}]}`
+	want := `{"requests":[{"indexName":"wk_cms_jobs_production","params":"` + params + `"}]}`
 	if string(body) != want {
 		t.Errorf("body = %s, want %s", body, want)
 	}
@@ -412,6 +560,7 @@ type wttjTestServer struct {
 	discoveryUA   string
 	headers       []http.Header
 	bodies        []string
+	orgRequests   int
 	pagesURL      string
 }
 
@@ -422,16 +571,16 @@ func newWTTJTestServer(t *testing.T) *wttjTestServer {
 	page0 := readFixture(t, "wttj_hits_page0.json")
 	page1 := readFixture(t, "wttj_hits_page1.json")
 	ts.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/robots.txt":
+		switch {
+		case r.URL.Path == "/robots.txt":
 			w.Write([]byte("User-agent: *\nAllow: /\n"))
-		case "/api/v1/pages":
+		case r.URL.Path == "/api/v1/pages":
 			ts.mu.Lock()
 			ts.discoveryPath = r.URL.Query().Get("path")
 			ts.discoveryUA = r.Header.Get("User-Agent")
 			ts.mu.Unlock()
 			w.Write(pagesBody)
-		case "/1/indexes/*/queries":
+		case r.URL.Path == "/1/indexes/*/queries":
 			body, _ := io.ReadAll(r.Body)
 			ts.mu.Lock()
 			ts.headers = append(ts.headers, r.Header.Clone())
@@ -450,6 +599,11 @@ func newWTTJTestServer(t *testing.T) *wttjTestServer {
 			default:
 				http.Error(w, "unexpected page", http.StatusBadRequest)
 			}
+		case strings.HasPrefix(r.URL.Path, "/api/v1/organizations/"):
+			ts.mu.Lock()
+			ts.orgRequests++
+			ts.mu.Unlock()
+			http.NotFound(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -482,6 +636,9 @@ func TestWTTJFetch(t *testing.T) {
 	if ts.discoveryUA != wttjBrowserUA {
 		t.Errorf("discovery User-Agent = %q", ts.discoveryUA)
 	}
+	if ts.orgRequests != 0 {
+		t.Errorf("organization lookups = %d, want 0 for a resolved page", ts.orgRequests)
+	}
 
 	// Algolia: one POST per result page, exact headers, form content
 	// type with a JSON body.
@@ -505,12 +662,13 @@ func TestWTTJFetch(t *testing.T) {
 			t.Errorf("request %d User-Agent = %q", i, got)
 		}
 	}
-	for i, want := range []string{
-		`"indexName":"wk_cms_jobs_production"`,
-		`"params":"filters=organization.slug:fabriq&hitsPerPage=50&page=`,
-	} {
-		if !strings.Contains(ts.bodies[i], want) {
-			t.Errorf("request %d body = %s, want it to contain %s", i, ts.bodies[i], want)
+	for i, body := range ts.bodies {
+		if !strings.Contains(body, `"indexName":"wk_cms_jobs_production"`) {
+			t.Errorf("request %d body = %s, want the discovered index", i, body)
+		}
+		want := `"params":"facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=` + strconv.Itoa(i) + `"`
+		if !strings.Contains(body, want) {
+			t.Errorf("request %d body = %s, want it to contain %s", i, body, want)
 		}
 	}
 
@@ -564,6 +722,203 @@ func TestWTTJFetchConfigOverrides(t *testing.T) {
 	}
 	if got := ts.headers[0].Get("x-algolia-api-key"); got != "OVERRIDEKEY" {
 		t.Errorf("api key = %q, want the override", got)
+	}
+}
+
+// TestWTTJResolveStaleOrgSlug covers a renamed organization: the page
+// filter (swile) lags behind the index (lunchr), so an empty first page
+// triggers one organization lookup and a retry with the canonical slug.
+func TestWTTJResolveStaleOrgSlug(t *testing.T) {
+	tests := []struct {
+		name        string
+		page        []byte
+		orgSlug     string
+		orgStatus   int
+		wantOffers  int
+		wantQueries int
+		wantOrgReqs int
+		wantErr     string
+	}{
+		{
+			name:        "stale slug is retried with the canonical one",
+			page:        readFixture(t, "wttj_page_swile.json"),
+			orgSlug:     "lunchr",
+			wantOffers:  1,
+			wantQueries: 2,
+			wantOrgReqs: 1,
+		},
+		{
+			name:        "canonical slug already matches",
+			page:        readFixture(t, "wttj_page_swile.json"),
+			orgSlug:     "swile",
+			wantQueries: 1,
+			wantOrgReqs: 1,
+		},
+		{
+			name: "page reports no jobs",
+			page: []byte(`{"page":{"path":[{"items_count":0}],"sections":[{"containers":[{"blocks":[
+				{"kind":"jobs-search","properties":{
+					"algolia_app_id":"APP","algolia_api_key":"KEY","algolia_index_name":"IDX",
+					"language":"en","filters":{"organization.slug":["swile"]}}}]}]}]}}`),
+			orgSlug:     "lunchr",
+			wantQueries: 1,
+		},
+		{
+			name:        "organization lookup failure is retryable",
+			page:        readFixture(t, "wttj_page_swile.json"),
+			orgStatus:   http.StatusInternalServerError,
+			wantQueries: 1,
+			wantOrgReqs: 1,
+			wantErr:     "resolve organization",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var queries, orgReqs int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/robots.txt":
+					w.Write([]byte("User-agent: *\nAllow: /\n"))
+				case r.URL.Path == "/api/v1/pages":
+					w.Write(tt.page)
+				case strings.HasPrefix(r.URL.Path, "/api/v1/organizations/"):
+					orgReqs++
+					if tt.orgStatus != 0 {
+						http.Error(w, "boom", tt.orgStatus)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					w.Write([]byte(`{"organization":{"name":"Swile","slug":"` + tt.orgSlug + `"}}`))
+				case r.URL.Path == "/1/indexes/*/queries":
+					queries++
+					body, _ := io.ReadAll(r.Body)
+					if strings.Contains(string(body), "organization.slug%3Aswile") {
+						w.Write([]byte(`{"results":[{"hits":[],"nbPages":0,"nbHits":0}]}`))
+						return
+					}
+					w.Write(readFixture(t, "wttj_hits_swile.json"))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			c, _ := testClient()
+			wttj := &WTTJ{
+				Client:           c,
+				PagesURL:         srv.URL + "/api/v1/pages",
+				OrganizationsURL: srv.URL + "/api/v1/organizations",
+				AlgoliaBaseURL:   srv.URL,
+			}
+			offers, err := wttj.Fetch(context.Background(), model.Source{
+				ID: 1, Type: model.SourceWTTJ,
+				URL: "https://www.welcometothejungle.com/en/companies/swile/jobs",
+			})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("Fetch: %v", err)
+			}
+			if len(offers) != tt.wantOffers {
+				t.Fatalf("offers = %d, want %d: %+v", len(offers), tt.wantOffers, offers)
+			}
+			if queries != tt.wantQueries {
+				t.Errorf("algolia queries = %d, want %d", queries, tt.wantQueries)
+			}
+			if orgReqs != tt.wantOrgReqs {
+				t.Errorf("organization requests = %d, want %d", orgReqs, tt.wantOrgReqs)
+			}
+			if tt.wantOffers == 1 {
+				got := offers[0]
+				if got.CompanyKey != companyKey(model.SourceWTTJ, "lunchr") ||
+					!strings.Contains(got.URL, "/companies/lunchr/jobs/") {
+					t.Errorf("offer = %+v, want the hit's canonical organization", got)
+				}
+			}
+		})
+	}
+}
+
+// TestWTTJRetryMultiOrgAlias covers a multi-organization page where one
+// brand was renamed: the first page returns fewer hits than items_count,
+// every filter slug is canonicalized, and page 0 is retried with the
+// renamed value.
+func TestWTTJRetryMultiOrgAlias(t *testing.T) {
+	page := []byte(`{"page":{"path":[{"items_count":30}],"sections":[{"containers":[{"blocks":[
+		{"kind":"jobs-search","properties":{
+			"algolia_app_id":"APP","algolia_api_key":"KEY","algolia_index_name":"IDX",
+			"language":"en","website_organization":{"slug":"groupe-exemple"},
+			"filters":{"organization.slug":["groupe-exemple","exemple-fr","exemple-br"]}}}]}]}]}}`)
+	canonical := map[string]string{
+		"groupe-exemple": "groupe-exemple",
+		"exemple-fr":     "exemple-fr",
+		"exemple-br":     "exemple-bresil",
+	}
+	var queries, orgReqs int
+	var retryParams string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/robots.txt":
+			w.Write([]byte("User-agent: *\nAllow: /\n"))
+		case r.URL.Path == "/api/v1/pages":
+			w.Write(page)
+		case strings.HasPrefix(r.URL.Path, "/api/v1/organizations/"):
+			orgReqs++
+			slug := strings.TrimPrefix(r.URL.Path, "/api/v1/organizations/")
+			w.Write([]byte(`{"organization":{"slug":"` + canonical[slug] + `"}}`))
+		case r.URL.Path == "/1/indexes/*/queries":
+			queries++
+			body, _ := io.ReadAll(r.Body)
+			var req wttjQueryRequest
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("decode query: %v", err)
+			}
+			if strings.Contains(req.Requests[0].Params, "exemple-bresil") {
+				retryParams = req.Requests[0].Params
+				w.Write([]byte(`{"results":[{"hits":[{"reference":"A","name":"SRE","slug":"sre","organization":{"name":"Groupe Exemple","slug":"exemple-bresil"}}],"nbHits":30,"nbPages":1}]}`))
+				return
+			}
+			w.Write([]byte(`{"results":[{"hits":[{"reference":"A","name":"SRE","slug":"sre","organization":{"name":"Groupe Exemple","slug":"groupe-exemple"}}],"nbHits":25,"nbPages":1}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, _ := testClient()
+	wttj := &WTTJ{
+		Client:           c,
+		PagesURL:         srv.URL + "/api/v1/pages",
+		OrganizationsURL: srv.URL + "/api/v1/organizations",
+		AlgoliaBaseURL:   srv.URL,
+	}
+	offers, err := wttj.Fetch(context.Background(), model.Source{
+		ID: 1, Type: model.SourceWTTJ,
+		URL: "https://www.welcometothejungle.com/en/companies/groupe-exemple/jobs",
+	})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(offers) != 1 || offers[0].CompanyKey != companyKey(model.SourceWTTJ, "exemple-bresil") {
+		t.Fatalf("offers = %+v, want the retried brand", offers)
+	}
+	if queries != 2 {
+		t.Errorf("algolia queries = %d, want 2", queries)
+	}
+	if orgReqs != 3 {
+		t.Errorf("organization requests = %d, want 3", orgReqs)
+	}
+	decoded, err := url.QueryUnescape(retryParams)
+	if err != nil {
+		t.Fatalf("decode retry params: %v", err)
+	}
+	if !strings.Contains(decoded, "organization.slug:exemple-bresil") {
+		t.Errorf("retry params = %s, want the canonical slug", decoded)
+	}
+	if strings.Contains(decoded, `organization.slug:exemple-br"`) {
+		t.Errorf("retry params = %s, still contains the stale slug", decoded)
 	}
 }
 
@@ -688,6 +1043,78 @@ func TestWTTJFetchUsesConfigURL(t *testing.T) {
 	}
 }
 
+// TestWTTJDiscoverFallbacks covers the two discovery fallbacks that the
+// fixtures do not drive: the careers path supplies the page language when
+// the bootstrap omits it, and the path slug when the bootstrap names no
+// organization.
+func TestWTTJDiscoverFallbacks(t *testing.T) {
+	tests := []struct {
+		name      string
+		bootstrap string
+		hit       string
+		sourceURL string
+		wantURL   string
+		wantKey   string
+	}{
+		{
+			name: "language falls back to the careers path",
+			bootstrap: `{"page":{"path":[{"items_count":1}],"sections":[{"containers":[{"blocks":[
+				{"kind":"jobs-search","properties":{
+					"algolia_app_id":"APP","algolia_api_key":"KEY","algolia_index_name":"IDX",
+					"filters":{"organization.slug":["acme"]},
+					"website_organization":{"slug":"acme"}}}]}]}]}}`,
+			hit:       `{"reference":"A","name":"SRE","slug":"sre","organization":{"name":"Acme","slug":"acme"}}`,
+			sourceURL: "https://www.welcometothejungle.com/fr/companies/acme/jobs",
+			wantURL:   "https://www.welcometothejungle.com/fr/companies/acme/jobs/sre",
+			wantKey:   companyKey(model.SourceWTTJ, "acme"),
+		},
+		{
+			name: "organization slug falls back to the careers path",
+			bootstrap: `{"page":{"path":[{"items_count":1}],"sections":[{"containers":[{"blocks":[
+				{"kind":"jobs-search","properties":{
+					"algolia_app_id":"APP","algolia_api_key":"KEY","algolia_index_name":"IDX",
+					"filters":{"website.reference":"wttj_fr"}}}]}]}]}}`,
+			hit:       `{"reference":"A","name":"SRE","slug":"sre","organization":{"name":"Acme"}}`,
+			sourceURL: "https://www.welcometothejungle.com/fr/companies/acme/jobs",
+			wantURL:   "https://www.welcometothejungle.com/fr/companies/acme/jobs/sre",
+			wantKey:   companyKey(model.SourceWTTJ, "acme"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/robots.txt":
+					w.Write([]byte("User-agent: *\nAllow: /\n"))
+				case r.URL.Path == "/api/v1/pages":
+					w.Write([]byte(tt.bootstrap))
+				case r.URL.Path == "/1/indexes/*/queries":
+					w.Write([]byte(`{"results":[{"hits":[` + tt.hit + `],"nbHits":1,"nbPages":1}]}`))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			c, _ := testClient()
+			wttj := &WTTJ{Client: c, PagesURL: srv.URL + "/api/v1/pages", AlgoliaBaseURL: srv.URL}
+			offers, err := wttj.Fetch(context.Background(), model.Source{
+				ID: 1, Type: model.SourceWTTJ, URL: tt.sourceURL,
+			})
+			if err != nil {
+				t.Fatalf("Fetch: %v", err)
+			}
+			if len(offers) != 1 {
+				t.Fatalf("offers = %d, want 1: %+v", len(offers), offers)
+			}
+			got := offers[0]
+			if got.URL != tt.wantURL || got.CompanyKey != tt.wantKey {
+				t.Errorf("offer = %+v, want URL %q and key %q", got, tt.wantURL, tt.wantKey)
+			}
+		})
+	}
+}
+
 func TestWTTJHelpers(t *testing.T) {
 	tests := []struct {
 		path, wantSlug, wantLang string
@@ -731,7 +1158,7 @@ func TestWTTJPageLimit(t *testing.T) {
 			w.Write(pagesBody)
 		case "/1/indexes/*/queries":
 			requests++
-			w.Write([]byte(`{"results":[{"hits":[` + hit + `],"nbPages":` + strconv.Itoa(wttjMaxPages+1) + `}]}`))
+			w.Write([]byte(`{"results":[{"hits":[` + hit + `],"nbHits":7,"nbPages":` + strconv.Itoa(wttjMaxPages+1) + `}]}`))
 		default:
 			http.NotFound(w, r)
 		}

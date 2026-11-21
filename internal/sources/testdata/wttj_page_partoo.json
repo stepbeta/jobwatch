@@ -1,0 +1,95 @@
+{
+  "page": {
+    "id": 1704,
+    "reference": "jobs",
+    "path": [
+      {
+        "id": 1704,
+        "name": "Jobs",
+        "reference": "jobs",
+        "slug": "/jobs",
+        "items_count": 15,
+        "rendered_language": "en"
+      }
+    ],
+    "sections": [
+      {
+        "id": 44294,
+        "position": 0,
+        "containers": [
+          {
+            "id": 2041,
+            "blocks": [
+              {
+                "id": 12484,
+                "position": 65536.0,
+                "kind": "text",
+                "contents": [
+                  {
+                    "id": 13902,
+                    "position": 1,
+                    "kind": "text",
+                    "properties": {
+                      "title": "Good to know",
+                      "body": "Some key figures (trimmed for the fixture).",
+                      "theme": null
+                    }
+                  }
+                ],
+                "properties": {
+                  "eba": "51"
+                }
+              }
+            ]
+          },
+          {
+            "id": 102253,
+            "blocks": [
+              {
+                "id": 467892,
+                "position": 16384.0,
+                "kind": "jobs-search",
+                "contents": [
+                  {
+                    "id": 558089,
+                    "position": 1,
+                    "kind": "jobs-search",
+                    "properties": {
+                      "filters": {
+                        "organization.slug": [
+                          "localoo",
+                          "partoo-italia",
+                          "partoo"
+                        ]
+                      },
+                      "language": "en",
+                      "organization": {
+                        "name": "Partoo",
+                        "reference": "V97m7GW"
+                      },
+                      "website_organization": {
+                        "slug": "partoo"
+                      },
+                      "default_job": null,
+                      "algolia_api_key": "NDU3MmUxZGRjODdiZDQ5ZTZlOWUzODE5MmUxNjRhMzU1NzRjZGJjZWRiNzM5OGRjN2YwOTM3MTg5NjRiNzI1N2ZpbHRlcnM9d2Vic2l0ZS5yZWZlcmVuY2UlM0F3dHRqX2Zy",
+                      "algolia_index_name": "wk_cms_jobs_production",
+                      "algolia_app_id": "CSEKHVMS53",
+                      "multi_organization": false
+                    }
+                  }
+                ],
+                "properties": {
+                  "columns": 3
+                }
+              }
+            ],
+            "properties": {
+              "columns": 3
+            },
+            "layout_reference": "page-content"
+          }
+        ]
+      }
+    ]
+  }
+}

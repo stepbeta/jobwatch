@@ -12,6 +12,9 @@ deterministically, and serves the React UI and REST API from one process.
 The OpenSpec change `offer-identity-from-source-uid` is implemented
 through task group 8 and archived; its four capabilities now live under
 `openspec/specs/` and the matching `docs/SPEC.md` sections are pointers.
+The OpenSpec change `harden-wttj-discovery-and-query` is implemented and
+archived; its `wttj-source` capability lives under `openspec/specs/` and
+the WTTJ note in `docs/SPEC.md` is a pointer.
 End to end, a user can add sources, scan, filter and bookmark offers, set
 application states, keep a timeline and notes, browse description
 versions, merge or split records after explicit confirmation, and build a
@@ -800,6 +803,73 @@ Done criteria (all met):
 | The discovery response is not cached beyond the scan | the prompt asks for in-memory, per-run caching only; one extra GET per scan is acceptable and credentials can rotate between runs |
 | `algolia_app_id`/`algolia_api_key` config overrides still trigger discovery | the index name, filters and language are only available from the bootstrap; the overrides are documented as a debug tool |
 
+## Milestone 10a fix-up — WTTJ discovery and query hardening — DONE
+
+Done criteria (all met):
+- [x] Discovery walks the whole bootstrap tree for the first `properties`
+      object carrying `algolia_app_id`, including nested `contents[]`
+      blocks. Block `kind` no longer gates the search, so a layout-only
+      outer `jobs-search` block with credentials in its contents is
+      handled; a response with no credentials object stays the permanent
+      `URL is not a WTTJ careers page`.
+- [x] The discovered filters are sent as URL-encoded `facetFilters` (one
+      JSON group per attribute, several values OR-ed) instead of a
+      space-joined `filters=`. The `website.reference` filter embedded in
+      the secured key is omitted, and the key is never decoded. `Referer`,
+      browser User-Agent, form content type with raw JSON body and
+      50-hit paging are unchanged.
+- [x] Job URLs and company keys use the hit's `organization.slug`; the
+      discovered page slug is only a fallback for hits that omit it.
+      Multi-organization pages therefore link each offer to its owner.
+- [x] A stale organization filter is resolved: when page 0's `nbHits`
+      differs from `items_count` (above zero), the canonical slug of every
+      `organization.slug` value is read from
+      `/api/v1/organizations/{slug}` and page 0 is retried once if any
+      value changed (Swile: `swile` → `lunchr`, 15 offers; also covers a
+      renamed brand on a multi-organization page). A page reporting no
+      jobs skips the lookup, a mismatch without a rename returns the
+      received hits, and a lookup failure is retryable.
+- [x] Fixtures: `wttj_page_partoo.json` (nested layout-only block, three
+      organization slugs) and `wttj_hits_partoo.json` (one real hit),
+      documented in `internal/sources/testdata/README.md`. No test touches
+      the network (httptest only).
+- [x] Tests: nested/direct/generic-container discovery, the permanent and
+      retryable discovery errors, multi-organization and key-filter
+      `facetFilters` params, exact per-page params in the full fetch,
+      org-slug precedence in the table and fixture mapping, plus the
+      existing error matrix.
+- [x] Live verification (2026-11-21): Fabriq re-scan fetched 7 offers
+      (0 new, 7 seen, status ok). The pre-existing Partoo `wttj` source
+      (id 82, `/fr/companies/partoo/jobs`, previously `error`) scanned
+      `ok` with 15 fetched and 15 new, 0 incomplete; all 15 offers belong
+      to company Partoo and their URLs use
+      `/en/companies/partoo/jobs/...` (the discovered page language), and
+      a spot-checked URL answered HTTP 200. No duplicate source was
+      created.
+- [x] Live verification (2026-11-21, stale slug): the `/swile/jobs`
+      source previously fetched 0 offers because its page filter said
+      `swile` while the index still used `lunchr`. The organization record
+      returned `lunchr`, the retry fetched 15 offers (0 incomplete), and
+      the URLs use `/companies/lunchr/jobs/...` and resolve with HTTP 200.
+- [x] `go build ./...`, `go vet ./...` and `go test ./...` green; no
+      schema, API, CLI or UI change.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| Discovery selects the first `properties` object with `algolia_app_id` anywhere in the tree and ignores block `kind` | live pages nest a layout-only `jobs-search` block around the credentialed block; the property is the real contract, and `kind` is a CMS detail |
+| Multi-value filters become `facetFilters` JSON arrays with URL-encoded params | a space-joined `filters=` ANDs the values and returns no hits; the secured key embeds only `website.reference`, so the page's filters must be sent explicitly or the query returns the whole site |
+| `website.reference` is dropped when building params | the key already enforces it; repeating it is redundant and the adapter deliberately never decodes keys |
+| The page-slug fallback prefers `website_organization.slug`, then a single filter value, then the careers path | on a multi-organization page the first filter value is a sibling (`localoo`), not the page itself |
+| The Partoo hit fixture keeps `organization.slug: partoo` | all 15 live hits belonged to `partoo` that day; the sibling-slug precedence is covered by a table case (`partoo-italia` fallback) and the fixture test (`localoo` fallback) instead of fabricating a fixture |
+| The organization lookup runs only when `nbHits` differs from `items_count` | keeps the two-call flow for healthy pages; the CMS filter is normally correct and only lags after a rename, and a count mismatch without a rename returns the received hits |
+
+The change is archived as OpenSpec change
+`harden-wttj-discovery-and-query`; its `wttj-source` capability is synced
+to `openspec/specs/wttj-source/spec.md` and the WTTJ note in
+`docs/SPEC.md` section 7 points there.
+
 ## Milestone 11 — table controls, sources upgrade, detail layout, Makefile — DONE
 
 Done criteria (all met):
@@ -858,7 +928,7 @@ Done criteria (all met):
 | Offers with no current sighting keep their adapter-era company | §5 | Open data artifact. `jobwatch reattribute` matches by `(source, uid)`; an offer the source no longer lists has no current sighting, so it stays as history until explicitly merged or deleted |
 | Workday/SuccessFactors adapters missing | §7 | By design for v1. Disabled seeded rows carry an explanation |
 | HTML adapter is listing-only | §7 | Open. It fetches one page per scan; descriptions are whatever the configured selector exposes |
-| WTTJ adapter has undocumented dependencies | §7 | Open. Credentials are discovered from the `kind: "jobs-search"` block of the bootstrap page tree; a CMS restructure breaks discovery (permanent scan error). The secured key is referrer-restricted, and two index shapes are known. See `docs/SOURCE-DECISIONS.md` |
+| WTTJ adapter has undocumented dependencies | §7 | Open. Credentials are found by walking the bootstrap page tree for a `properties` object with the `algolia_*` keys; layout-only `jobs-search` blocks and nested `contents[]` are handled, but a CMS rename breaks discovery (permanent scan error). The query is scoped by copying the page's `filters` as `facetFilters`; on a count mismatch every `organization.slug` is canonicalized from the organization record and page 0 is retried once, while a mismatch without a rename returns the received hits. The secured key embeds `website.reference` and is referrer-restricted, and two index shapes are known. See `docs/SOURCE-DECISIONS.md` |
 | Import metadata extraction is heuristic | §3 | Open. JSON-LD/Open Graph/meta/title only; pages without them need the manual form |
 | No "N consecutive failures" counter | §7 | Open. One failed scan marks the source `error`/`blocked`; the next success resets it. The error text is in the scan summary but not stored |
 | `notes_fts` not exposed | §4 | Open. The index is maintained but `GET /api/offers?q=` searches offers only |
@@ -870,7 +940,7 @@ Done criteria (all met):
 | Source names link by override/source name only, not the board-reported company | §9 | Open. The sources payload has no board-reported company and Milestone 11 avoided a display-only endpoint; a source whose offers use a different company stays unlinked unless `config.company` is set |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
 | robots.txt cache is in memory | §2 | Open. Refetched once per process (24 h TTL within a long-running `serve`) |
-| Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked, plus the Fabriq WTTJ company page from 10a; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ marketplace pages, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |
+| Some career-page bookmarks remain untrackable | §7 | By design after 5b. 19 boards, 5 RSS feeds and 5 HTML listings are tracked, plus the Fabriq (10a) and Partoo (10a fix-up) WTTJ company pages; 28 URLs are disabled with a `note` (JS-only SPAs, Notion, candidate logins, Workday/SuccessFactors/iCIMS/Pinpoint/Zoho, WTTJ marketplace pages, robots.txt disallows, aggregators). See `docs/SOURCE-DECISIONS.md` |
 | Workable public search is not tracked | §7 | By design after 5c. The France+remote query URL is robots-disallowed; allowed category pages are incomplete. Track the company's `apply.workable.com/<account>` board instead |
 | Aggregator offers require manual import | §7 | By design after 5c. FlexJobs, RemoteMore, the `my.greenhouse.io` dashboard, The Product Crew, WTTJ marketplace pages and Jobgether are never scraped; use `jobwatch import` or the UI import form |
 | Teamtailor offers created before the mapping fix have no location | §7 | Open data artifact. The `locations/location/name` mapping is correct and fixture-tested; scans do not update the location of an existing offer, so only new offers carry it |

@@ -1,0 +1,51 @@
+{
+  "results": [
+    {
+      "hits": [
+        {
+          "objectID": "4090936",
+          "reference": "PARTO_PqAo88l",
+          "name": "Lead Developer (Python/React) - CDI - Paris - M/F/D",
+          "slug": "lead-developer-python-react-cdi-paris-m-f-d_paris",
+          "language": "en",
+          "published_at": "2026-11-12T09:00:00.000+01:00",
+          "profile": null,
+          "website": {
+            "reference": "wttj_fr"
+          },
+          "organization": {
+            "name": "Partoo",
+            "slug": "partoo",
+            "reference": "V97m7GW"
+          },
+          "contract_type": "FULL_TIME",
+          "salary_currency": "EUR",
+          "salary_minimum": 70000,
+          "salary_maximum": 85000,
+          "salary_period": "monthly",
+          "salary_yearly_minimum": 840000,
+          "office": {
+            "city": "Paris",
+            "district": "Paris",
+            "state": "Ile-de-France",
+            "country": "France",
+            "country_code": "FR"
+          },
+          "offices": [
+            {
+              "city": "Paris",
+              "district": "Paris",
+              "state": "Ile-de-France",
+              "country": "France",
+              "country_code": "FR"
+            }
+          ],
+          "remote": "partial"
+        }
+      ],
+      "page": 0,
+      "nbPages": 1,
+      "nbHits": 15
+    }
+  ]
+}

@@ -1,5 +1,6 @@
-Fixtures recorded from the public APIs/sites on 2026-11-15/16 and trimmed
-(long text fields truncated) or hand-edited where noted:
+Fixtures recorded from the public APIs/sites on 2026-11-15/16 and
+2026-11-21, and trimmed (long text fields truncated) or hand-edited where
+noted:
 
 - `greenhouse_jobs.json`: boards-api.greenhouse.io/v1/boards/gitlab/jobs?content=true
 - `lever_postings.json`: api.lever.co/v0/postings/spotify?mode=json
@@ -34,6 +35,30 @@ Fixtures recorded from the public APIs/sites on 2026-11-15/16 and trimmed
   (recorded 2026-11-18, trimmed to the `jobs-search` block with its real
   `contents[].properties`: app id, secured key, index, filters, language;
   other blocks removed)
+- `wttj_page_partoo.json`: api.welcometothejungle.com/api/v1/pages?path=/en/companies/partoo/jobs
+  (recorded 2026-11-21, trimmed to two blocks: a text block and the
+  `jobs-search` layout block whose own `properties` hold only
+  `{"columns": 3}` while the credentials sit in `contents[].properties`.
+  Keeps the real three-value filter
+  `organization.slug: [localoo, partoo-italia, partoo]`, page id, path and
+  items_count; text body shortened)
+- `wttj_hits_partoo.json`: Algolia multi-query response for the Partoo
+  page (recorded 2026-11-21, first of 15 hits under the page's three
+  organization slugs; `_highlightResult`, `_geoloc`, organization
+  images/descriptions/sectors and the empty `profile` are trimmed,
+  while reference, offices, contract and salary extras are kept). All
+  15 live hits belonged to `organization.slug: partoo`, so the fixture
+  keeps that real value.
+- `wttj_page_swile.json`: api.welcometothejungle.com/api/v1/pages?path=/en/companies/swile/jobs
+  (recorded 2026-11-21, trimmed to a text block and the `jobs-search`
+  block; `path[0].items_count` is 15 and the filters say
+  `organization.slug: [swile]`, while the index still uses `lunchr` —
+  see the hits fixture; text body shortened)
+- `wttj_hits_swile.json`: Algolia multi-query response for Swile
+  (recorded 2026-11-21, one hit; `organization.slug` is `lunchr` and
+  `organization.website_organization.slug` is `swile`). Trimmed of
+  `_highlightResult`, `_snippetResult`, `_geoloc`, organization
+  images/descriptions/sectors; profile shortened.
 - `wttj_hits_page0.json`: Algolia multi-query response, CMS-index shape
   (reference and objectID are UUIDs, `salary_yearly_maximum` null while
   `salary_maximum` is 80000; the `_highlightResult`/`_snippetResult`/
