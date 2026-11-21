@@ -190,10 +190,12 @@ superseded for company pages only. The two 5b URLs stay disabled and are
 never scanned: `.../en/companies-v1/joko/jobs` (a legacy `companies-v1`
 path that is not a `/companies/` page) and `.../fr/jobs-matches` (the
 marketplace, not a company page). The seeded Fabriq page is the live
-reference source:
+reference source, and the Partoo page is the multi-organization reference
+(three `organization.slug` values in one filter group):
 
 ```
 https://www.welcometothejungle.com/en/companies/fabriq/jobs
+https://www.welcometothejungle.com/fr/companies/partoo/jobs
 ```
 
 ### The two-call flow
@@ -209,7 +211,7 @@ sequenceDiagram
     participant Algolia as "{app_id}-dsn.algolia.net"
     Adapter->>API: GET /api/v1/pages?path=/en/companies/fabriq/jobs
     API-->>Adapter: 200 JSON page tree
-    Note over Adapter: find kind == "jobs-search"<br/>read algolia_app_id, algolia_api_key,<br/>algolia_index_name, filters, language
+    Note over Adapter: walk the page tree for the properties<br/>object with algolia_app_id; read the key,<br/>index, filters and language
     loop page 0, 1, ... up to nbPages
         Adapter->>Algolia: POST /1/indexes/*/queries<br/>x-algolia-application-id, x-algolia-api-key,<br/>Referer, form content type, JSON body
         Algolia-->>Adapter: results[0].hits[], nbPages
@@ -218,16 +220,21 @@ sequenceDiagram
 ```
 
 1. **Discovery** — `GET https://api.welcometothejungle.com/api/v1/pages?path=<careers path>`
-   with a normal browser User-Agent. The block with `kind == "jobs-search"`
-   carries the settings. On the live response they sit in the block's
-   `contents[*].properties` (the block's own `properties` only holds
-   layout keys such as `columns`), so the adapter searches the whole
-   `jobs-search` subtree for the object holding `algolia_app_id`; both
-   that shape and a directly populated `properties` are accepted.
-   A missing block is a permanent error (`URL is not a WTTJ careers page`).
-   HTTP or network failures and undecodable JSON are retryable errors.
+   with a normal browser User-Agent. The settings are published in a
+   `properties` object somewhere in the page tree. On live company pages
+   the `jobs-search` block is a layout container (its own `properties`
+   hold keys such as `columns`) and the credentials sit in a nested
+   `contents[*]` block, so the adapter walks the whole tree — objects and
+   arrays, including nested `contents[]` — and picks the first
+   `properties` object carrying `algolia_app_id`. Block `kind` values are
+   ignored. A response with no such object is a permanent error
+   (`URL is not a WTTJ careers page`). HTTP or network failures and
+   undecodable JSON are retryable errors.
 2. **Algolia multi-query** —
    `POST https://{app_id}-dsn.algolia.net/1/indexes/*/queries`.
+   The discovered filters are sent as `facetFilters`: one JSON array per
+   attribute, so several organization slugs are OR-ed, URL-encoded inside
+   `params`.
 
 Request quirks, all verified against the live site (2026-11) and
 deliberately replicated:
@@ -236,8 +243,8 @@ deliberately replicated:
 |---|---|
 | The `Referer: https://www.welcometothejungle.com/` header is mandatory | the secured key is referrer-restricted; without it Algolia answers 403 |
 | `Content-Type: application/x-www-form-urlencoded` with a JSON body | this is what the site's Algolia JS client 4.x sends; changing it to `application/json` is unnecessary and untested against the site |
-| `params` starts with `filters=` | Algolia parses `params` as a query string; `filters=organization.slug:fabriq&hitsPerPage=50&page=N` is the verified form |
-| Filters come verbatim from discovery | Algolia enforces the restrictions embedded in the secured key server-side; the adapter never decodes the key nor repeats those restrictions in `filters` |
+| `params` carries `facetFilters=` | Algolia parses `params` as a query string; the discovered filter groups are serialized as URL-encoded JSON, e.g. `facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=N`. Space-joining `attribute:value` pairs would AND a multi-value group and select nothing |
+| The page's filters are sent explicitly | the secured key only embeds `website.reference:wttj_fr`; without `facetFilters` the query returns the whole site (~60k hits instead of the page's own offers). The adapter never decodes the key and does not repeat the embedded filter |
 | A browser User-Agent for both calls | the bootstrap endpoint and Algolia reject the identifying JobWatch UA; every other adapter keeps it |
 | Pagination is `hitsPerPage=50`, `page=0..nbPages-1` | same page size as the site; the loop stops at `nbPages` or the first empty page |
 
@@ -250,7 +257,7 @@ Hit mapping (both index shapes observed in the wild are tolerated):
 | Company | `hit.organization.name` |
 | Location | `offices[]` joined as `City, Country` (`; ` between offices); fallback `office.*` |
 | Description | `hit.profile` (markdown) verbatim; fallback `hit.summary` |
-| URL | `https://www.welcometothejungle.com/{language}/companies/{organization.slug}/jobs/{hit.slug}` with the discovery `language`; the slug falls back to the discovered `organization.slug` filter, and the hit language is only used when discovery has none |
+| URL | `https://www.welcometothejungle.com/{language}/companies/{organization.slug}/jobs/{hit.slug}` with the discovery `language`. The organization slug is the hit's own, because a page may list jobs of linked organizations; the discovered page slug is used only when the hit omits it. The hit language is only used when discovery has none |
 | PublishedAt | `hit.published_at` (RFC3339 with `Z` or a numeric offset); parsed and validated but not stored — `job_offers` has no publication-date column and 10a adds none |
 
 `salary_yearly_minimum/maximum`, `salary_currency`, `remote` and
@@ -279,10 +286,12 @@ GET per scan per source).
 ### Known gaps
 
 1. **The bootstrap response shape is undocumented.** The adapter depends
-   on the `kind: "jobs-search"` block and its `algolia_*` keys. If WTTJ
-   restructures its CMS, discovery breaks; the scan then reports the
-   permanent error `URL is not a WTTJ careers page` (or a missing-credential
-   error) instead of silently returning zero offers.
+   on finding a `properties` object with the `algolia_*` keys somewhere in
+   the page tree. Nested layouts are handled (see gap 4), but if WTTJ
+   renames those properties or publishes them outside a `properties`
+   object, discovery breaks; the scan then reports the permanent error
+   `URL is not a WTTJ careers page` instead of silently returning zero
+   offers.
 2. **The secured key is referrer-restricted.** The adapter must keep
    sending the fixed `Referer`. If WTTJ tightens the restriction to an
    `Origin`/session pair, the Algolia call returns 403 and the scan marks
@@ -290,21 +299,34 @@ GET per scan per source).
 3. **Two index shapes have been observed.** `reference`/`objectID` may be
    a business id (`FABRI_...`) or a CMS row id (a UUID or a number),
    organizations may or may not carry a slug, and locations may come as
-   `offers[]` or `office`. The mapper tolerates both, but a third shape
+   `offices[]` or `office`. The mapper tolerates both, but a third shape
    (for example a renamed `profile` field) would need a code change.
+4. **`jobs-search` blocks are nested.** The outer block can be a layout
+   container whose `properties` hold only keys such as `columns`, with the
+   credentials in `contents[*].properties`; the adapter walks the tree by
+   property rather than by block kind, so depth is not a problem. It does
+   assume one credentials object per page — the first one found in
+   deterministic order wins.
+5. **Discovery filters must be sent as `facetFilters`.** The query is
+   scoped only by copying the page's own `filters` object. The secured key
+   covers `website.reference:wttj_fr` and nothing else, so if a page stops
+   publishing its filters the adapter sends paging params only, Algolia
+   answers with the whole site (~60k hits), and the 100-page guard fails
+   the scan instead of storing a truncated list. The adapter never decodes
+   the key to recover the scope.
 
-A fourth, smaller gap: offers are identified by `reference` (or the
-`objectID` fallback). The two observed shapes use different values for
-the same job on different indexes, so switching a source to a different
-index would change external UIDs. Offer identity does not depend on the
-UID (it is company+title+location), so no duplicates would be created.
+A further gap: offers are identified by `(source, external_uid)`, where
+the uid is `reference` (or the `objectID` fallback). The two observed
+shapes use different values for the same job on different indexes, so
+switching a source to a different index would change external UIDs and
+create new offers; the previous ones would disappear on that scan.
 
 ### Live verification (2026-11-18)
 
 - Discovery returned the Fabriq `jobs-search` block: app id
   `CSEKHVMS53`, index `wk_cms_jobs_production`, language `en`, filters
   `{"organization.slug":["fabriq"]}`.
-- Algolia reported `nbHits: 7` for `filters=organization.slug:fabriq`.
+- Algolia reported `nbHits: 7` for the 10a `filters=organization.slug:fabriq` parameter.
 - The first scan of source 76 (`Fabriq`) fetched 7 offers and created 7:
   `ok`, 7 new, 0 changed, 0 disappeared, `raw_text` filled from
   `profile`, location `Paris, France` on all seven.
@@ -313,3 +335,22 @@ UID (it is company+title+location), so no duplicates would be created.
 - A second scan fetched the same 7 offers: 0 new, 7 seen, 0 changed, 0
   disappeared, still 7 provenance rows and 7 snapshots — no duplicates
   and no false "changed".
+
+### Live verification (2026-11-21)
+
+- Discovery on the Partoo page (`/fr/companies/partoo/jobs`) found the
+  credentials in `contents[].properties` under an outer `jobs-search`
+  block whose own `properties` held only `{"columns": 3}`. It returned
+  app id `CSEKHVMS53`, index `wk_cms_jobs_production`, language `en` and
+  filters `{"organization.slug":["localoo","partoo-italia","partoo"]}`.
+- The same page queried with the new params returned `nbHits: 15` and
+  `nbPages: 1`, matching its `items_count` of 15; an unscoped query is
+  the whole site (~60k hits).
+- Re-scanning source 76 (Fabriq) fetched 7 offers: 0 new, 7 seen,
+  status `ok`, so the 10a page is unaffected.
+- Re-scanning the existing Partoo source (id 82, `/fr/...`, previously
+  `error`) moved it to `ok`: 15 fetched, 15 new, 0 incomplete. All 15
+  offers belong to company Partoo and use
+  `/en/companies/partoo/jobs/...` URLs (the discovered page language);
+  one spot-checked URL answered HTTP 200. No duplicate source was
+  created.

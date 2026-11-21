@@ -239,6 +239,44 @@
   `docs/SPEC.md` sections now point there instead of restating the
   behavior. `docs/MILESTONES.md` records the archive as done.
 
+### WTTJ discovery and query hardening (OpenSpec change `harden-wttj-discovery-and-query`)
+
+#### Fixed
+- Discovery finds the Algolia credentials by walking the whole bootstrap
+  page tree for the first `properties` object carrying `algolia_app_id`,
+  including nested `contents[]` blocks, instead of requiring a
+  `kind: "jobs-search"` block. Pages whose outer `jobs-search` block is a
+  layout container with no credentials (Partoo) now resolve; block `kind`
+  no longer decides anything.
+- The Algolia query sends the page's filters as URL-encoded
+  `facetFilters`, one group per attribute with several values OR-ed,
+  instead of a space-joined `filters=`. The secured key only embeds
+  `website.reference:wttj_fr`, so an unscoped query returned the whole
+  site (~60k hits). The embedded filter is not repeated in `params`, and
+  the key is never decoded.
+- Offer URLs and company keys follow the hit's own `organization.slug`,
+  not the source page's slug; the page slug is only a fallback when a hit
+  omits its organization. Pages that list linked organizations therefore
+  link each offer to its owner.
+
+#### Added
+- Partoo fixtures under `internal/sources/testdata`: the nested bootstrap
+  block (layout-only outer block, three `organization.slug` values) and
+  one hit, trimmed and documented in the fixtures README.
+- httptest-only tests for nested-block discovery, multi-organization
+  `facetFilters` construction (including key-filter exclusion), and
+  org-slug-based hit mapping.
+
+#### Changed
+- The WTTJ filter model is now ordered groups rather than flat
+  attribute/value pairs; `website.reference` is omitted from the query
+  params.
+- Live verification 2026-11-21: Fabriq re-scan fetched 7 offers (0 new,
+  7 seen); the pre-existing Partoo `wttj` source (id 82,
+  `/fr/companies/partoo/jobs`) recovered from its previous error and
+  fetched 15 offers (15 new, 0 incomplete), all under company Partoo; one
+  constructed URL answered HTTP 200.
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.

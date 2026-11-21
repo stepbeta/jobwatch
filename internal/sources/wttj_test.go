@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -156,6 +157,22 @@ func TestWTTJMapHit(t *testing.T) {
 			wantOK: true,
 		},
 		{
+			name: "hit organization slug wins over the source slug",
+			hit: wttjHit{
+				Reference:    "PARTO_PqAo88l",
+				Name:         "Lead Developer (Python/React) - CDI - Paris - M/F/D",
+				Slug:         "lead-developer-python-react-cdi-paris-m-f-d_paris",
+				Organization: wttjOrganization{Name: "Partoo", Slug: "partoo"},
+			},
+			search: wttjSearch{Language: "en", OrgSlug: "partoo-italia"},
+			want: RawOffer{
+				ExternalUID: "PARTO_PqAo88l",
+				Title:       "Lead Developer (Python/React) - CDI - Paris - M/F/D",
+				URL:         "https://www.welcometothejungle.com/en/companies/partoo/jobs/lead-developer-python-react-cdi-paris-m-f-d_paris",
+			},
+			wantOK: true,
+		},
+		{
 			name:   "page language wins over the hit language",
 			hit:    wttjHit{Reference: "A", Name: "SRE", Slug: "sre", Language: "fr"},
 			search: search,
@@ -290,6 +307,35 @@ func TestWTTJMapHitJSON(t *testing.T) {
 	}
 }
 
+// TestWTTJMapPartooHit maps the recorded Partoo hit. Discovery reports a
+// sibling organization as the fallback, so the URL and company key must
+// follow the hit's own organization slug.
+func TestWTTJMapPartooHit(t *testing.T) {
+	var resp wttjAlgoliaResponse
+	if err := json.Unmarshal(readFixture(t, "wttj_hits_partoo.json"), &resp); err != nil {
+		t.Fatalf("decode hits: %v", err)
+	}
+	if len(resp.Results) != 1 || len(resp.Results[0].Hits) != 1 {
+		t.Fatalf("fixture results = %d/%d, want 1/1", len(resp.Results), len(resp.Results[0].Hits))
+	}
+	hit := resp.Results[0].Hits[0]
+	offer, ok := mapWTTJHit(hit, wttjSearch{Language: "en", OrgSlug: "localoo"})
+	if !ok {
+		t.Fatal("hit was dropped")
+	}
+	want := RawOffer{
+		ExternalUID: "PARTO_PqAo88l",
+		Title:       "Lead Developer (Python/React) - CDI - Paris - M/F/D",
+		Location:    "Paris, France",
+		URL:         "https://www.welcometothejungle.com/en/companies/partoo/jobs/lead-developer-python-react-cdi-paris-m-f-d_paris",
+		Company:     "Partoo",
+		CompanyKey:  companyKey(model.SourceWTTJ, "partoo"),
+	}
+	if offer != want {
+		t.Errorf("offer = %+v, want %+v", offer, want)
+	}
+}
+
 func TestParseWTTJPages(t *testing.T) {
 	t.Run("real page tree", func(t *testing.T) {
 		search, err := parseWTTJPages(readFixture(t, "wttj_page_fabriq.json"))
@@ -302,8 +348,31 @@ func TestParseWTTJPages(t *testing.T) {
 		if search.Language != "en" || search.OrgSlug != "fabriq" {
 			t.Errorf("language/org = %q/%q", search.Language, search.OrgSlug)
 		}
-		if len(search.Filters) != 1 || search.Filters[0] != (wttjFilter{"organization.slug", "fabriq"}) {
+		if !reflect.DeepEqual(search.Filters, []wttjFilterGroup{{Attribute: "organization.slug", Values: []string{"fabriq"}}}) {
 			t.Errorf("filters = %+v", search.Filters)
+		}
+		if !strings.HasPrefix(search.APIKey, "NDU3MmUxZGRj") {
+			t.Errorf("api key not read verbatim: %q", search.APIKey)
+		}
+	})
+
+	t.Run("nested layout block (Partoo)", func(t *testing.T) {
+		search, err := parseWTTJPages(readFixture(t, "wttj_page_partoo.json"))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if search.AppID != "CSEKHVMS53" || search.Index != "wk_cms_jobs_production" {
+			t.Errorf("app/index = %q/%q", search.AppID, search.Index)
+		}
+		if search.Language != "en" || search.OrgSlug != "partoo" {
+			t.Errorf("language/org = %q/%q", search.Language, search.OrgSlug)
+		}
+		want := []wttjFilterGroup{{
+			Attribute: "organization.slug",
+			Values:    []string{"localoo", "partoo-italia", "partoo"},
+		}}
+		if !reflect.DeepEqual(search.Filters, want) {
+			t.Errorf("filters = %+v, want %+v", search.Filters, want)
 		}
 		if !strings.HasPrefix(search.APIKey, "NDU3MmUxZGRj") {
 			t.Errorf("api key not read verbatim: %q", search.APIKey)
@@ -322,12 +391,31 @@ func TestParseWTTJPages(t *testing.T) {
 		}
 		if search.AppID != "APP" || search.APIKey != "KEY" || search.Index != "IDX" ||
 			search.Language != "fr" || search.OrgSlug != "" ||
-			len(search.Filters) != 1 || search.Filters[0] != (wttjFilter{"website.reference", "wttj_fr"}) {
+			!reflect.DeepEqual(search.Filters, []wttjFilterGroup{{Attribute: "website.reference", Values: []string{"wttj_fr"}}}) {
 			t.Errorf("search = %+v", search)
 		}
 	})
 
-	t.Run("missing jobs-search block is permanent", func(t *testing.T) {
+	t.Run("credentials under a container that is not jobs-search", func(t *testing.T) {
+		body := `{"page":{"sections":[{"containers":[{"blocks":[
+			{"kind":"layout","properties":{"columns":2},"contents":[
+				{"kind":"promo","properties":{"title":"Jobs"}},
+				{"kind":"promo","properties":{
+					"algolia_app_id":"APP","algolia_api_key":"KEY","algolia_index_name":"IDX",
+					"language":"en","filters":{"organization.slug":["one","two"]}}}]}]}]}]}}`
+		search, err := parseWTTJPages([]byte(body))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if search.AppID != "APP" || search.Index != "IDX" || search.Language != "en" {
+			t.Errorf("search = %+v", search)
+		}
+		if !reflect.DeepEqual(search.Filters, []wttjFilterGroup{{Attribute: "organization.slug", Values: []string{"one", "two"}}}) {
+			t.Errorf("filters = %+v", search.Filters)
+		}
+	})
+
+	t.Run("missing credentials object is permanent", func(t *testing.T) {
 		body := `{"page":{"sections":[{"containers":[{"blocks":[{"kind":"text"}]}]}]}}`
 		_, err := parseWTTJPages([]byte(body))
 		if !errors.Is(err, ErrNotCareersPage) {
@@ -355,28 +443,54 @@ func TestParseWTTJPages(t *testing.T) {
 func TestWTTJAlgoliaParams(t *testing.T) {
 	tests := []struct {
 		name    string
-		filters []wttjFilter
+		filters []wttjFilterGroup
 		page    int
 		want    string
 	}{
 		{
 			name:    "fabriq",
-			filters: []wttjFilter{{"organization.slug", "fabriq"}},
-			want:    "filters=organization.slug:fabriq&hitsPerPage=50&page=0",
+			filters: []wttjFilterGroup{{Attribute: "organization.slug", Values: []string{"fabriq"}}},
+			want:    "facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=0",
 		},
 		{
 			name:    "second page",
-			filters: []wttjFilter{{"organization.slug", "fabriq"}},
+			filters: []wttjFilterGroup{{Attribute: "organization.slug", Values: []string{"fabriq"}}},
 			page:    1,
-			want:    "filters=organization.slug:fabriq&hitsPerPage=50&page=1",
+			want:    "facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=1",
 		},
 		{
-			name: "several filters are AND-joined in attribute order",
-			filters: []wttjFilter{
-				{"organization.slug", "fabriq"},
-				{"website.reference", "wttj_fr"},
+			name: "several values of one attribute are OR-ed",
+			filters: []wttjFilterGroup{{
+				Attribute: "organization.slug",
+				Values:    []string{"localoo", "partoo-italia", "partoo"},
+			}},
+			want: "facetFilters=%5B%5B%22organization.slug%3Alocaloo%22%2C%22organization.slug%3Apartoo-italia%22%2C%22organization.slug%3Apartoo%22%5D%5D&hitsPerPage=50&page=0",
+		},
+		{
+			name: "separate attributes are AND-ed as separate groups",
+			filters: []wttjFilterGroup{
+				{Attribute: "organization.slug", Values: []string{"fabriq"}},
+				{Attribute: "remote", Values: []string{"fulltime"}},
 			},
-			want: "filters=organization.slug:fabriq website.reference:wttj_fr&hitsPerPage=50&page=0",
+			want: "facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%2C%5B%22remote%3Afulltime%22%5D%5D&hitsPerPage=50&page=0",
+		},
+		{
+			name: "the key-embedded website.reference filter is omitted",
+			filters: []wttjFilterGroup{
+				{Attribute: "organization.slug", Values: []string{"fabriq"}},
+				{Attribute: "website.reference", Values: []string{"wttj_fr"}},
+			},
+			want: "facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=0",
+		},
+		{
+			name:    "only the key-embedded filter leaves no facetFilters",
+			filters: []wttjFilterGroup{{Attribute: "website.reference", Values: []string{"wttj_fr"}}},
+			want:    "hitsPerPage=50&page=0",
+		},
+		{
+			name:    "empty group is ignored",
+			filters: []wttjFilterGroup{{Attribute: "organization.slug"}},
+			want:    "hitsPerPage=50&page=0",
 		},
 		{
 			name: "no filters",
@@ -385,7 +499,11 @@ func TestWTTJAlgoliaParams(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := wttjAlgoliaParams(tt.filters, tt.page); got != tt.want {
+			got, err := wttjAlgoliaParams(tt.filters, tt.page)
+			if err != nil {
+				t.Fatalf("params: %v", err)
+			}
+			if got != tt.want {
 				t.Errorf("params = %q, want %q", got, tt.want)
 			}
 		})
@@ -393,11 +511,12 @@ func TestWTTJAlgoliaParams(t *testing.T) {
 }
 
 func TestWTTJQueryBody(t *testing.T) {
-	body, err := wttjQueryBody("wk_cms_jobs_production", "filters=organization.slug:fabriq&hitsPerPage=50&page=0")
+	params := "facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=0"
+	body, err := wttjQueryBody("wk_cms_jobs_production", params)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"requests":[{"indexName":"wk_cms_jobs_production","params":"filters=organization.slug:fabriq&hitsPerPage=50&page=0"}]}`
+	want := `{"requests":[{"indexName":"wk_cms_jobs_production","params":"` + params + `"}]}`
 	if string(body) != want {
 		t.Errorf("body = %s, want %s", body, want)
 	}
@@ -505,12 +624,13 @@ func TestWTTJFetch(t *testing.T) {
 			t.Errorf("request %d User-Agent = %q", i, got)
 		}
 	}
-	for i, want := range []string{
-		`"indexName":"wk_cms_jobs_production"`,
-		`"params":"filters=organization.slug:fabriq&hitsPerPage=50&page=`,
-	} {
-		if !strings.Contains(ts.bodies[i], want) {
-			t.Errorf("request %d body = %s, want it to contain %s", i, ts.bodies[i], want)
+	for i, body := range ts.bodies {
+		if !strings.Contains(body, `"indexName":"wk_cms_jobs_production"`) {
+			t.Errorf("request %d body = %s, want the discovered index", i, body)
+		}
+		want := `"params":"facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=` + strconv.Itoa(i) + `"`
+		if !strings.Contains(body, want) {
+			t.Errorf("request %d body = %s, want it to contain %s", i, body, want)
 		}
 	}
 
