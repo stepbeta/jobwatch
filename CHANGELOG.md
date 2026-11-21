@@ -286,6 +286,14 @@
   canonical-slug retry (`swile` → `lunchr`); one constructed URL answered
   HTTP 200.
 
+### WTTJ discovery and query hardening (OpenSpec change, archive)
+
+#### Changed
+- The change is archived. Its `wttj-source` capability was synced to
+  `openspec/specs/wttj-source/spec.md`, and the WTTJ note in
+  `docs/SPEC.md` section 7 now points there. `docs/MILESTONES.md` records
+  the archive as done.
+
 ### Added
 - Go module, project layout, `.gitignore`, placeholders for `web/` and
   `internal/classify`.

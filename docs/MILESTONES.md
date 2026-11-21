@@ -12,6 +12,9 @@ deterministically, and serves the React UI and REST API from one process.
 The OpenSpec change `offer-identity-from-source-uid` is implemented
 through task group 8 and archived; its four capabilities now live under
 `openspec/specs/` and the matching `docs/SPEC.md` sections are pointers.
+The OpenSpec change `harden-wttj-discovery-and-query` is implemented and
+archived; its `wttj-source` capability lives under `openspec/specs/` and
+the WTTJ note in `docs/SPEC.md` is a pointer.
 End to end, a user can add sources, scan, filter and bookmark offers, set
 application states, keep a timeline and notes, browse description
 versions, merge or split records after explicit confirmation, and build a
@@ -861,6 +864,11 @@ Done criteria (all met):
 | The page-slug fallback prefers `website_organization.slug`, then a single filter value, then the careers path | on a multi-organization page the first filter value is a sibling (`localoo`), not the page itself |
 | The Partoo hit fixture keeps `organization.slug: partoo` | all 15 live hits belonged to `partoo` that day; the sibling-slug precedence is covered by a table case (`partoo-italia` fallback) and the fixture test (`localoo` fallback) instead of fabricating a fixture |
 | The organization lookup runs only when `nbHits` differs from `items_count` | keeps the two-call flow for healthy pages; the CMS filter is normally correct and only lags after a rename, and a count mismatch without a rename returns the received hits |
+
+The change is archived as OpenSpec change
+`harden-wttj-discovery-and-query`; its `wttj-source` capability is synced
+to `openspec/specs/wttj-source/spec.md` and the WTTJ note in
+`docs/SPEC.md` section 7 points there.
 
 ## Milestone 11 — table controls, sources upgrade, detail layout, Makefile — DONE
 
