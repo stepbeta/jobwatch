@@ -55,7 +55,7 @@ func TestNotesCRUD(t *testing.T) {
 
 	// ... but not to an event of another company's offer.
 	other := ts.seedCompany(t, "Another Co")
-	otherOffer := ts.seedOffer(t, other, "SRE", "", model.AppTodo, model.RemoteUnknown, 0, 0)
+	otherOffer := ts.seedOffer(t, other, "SRE", "", model.AppTodo, model.RemoteUnknown)
 	otherEvent := ts.seedEvent(t, otherOffer.ID, model.EventOther, ts.clock.now(), "")
 	wantErrorCode(t, ts.do(t, "POST", "/api/notes", map[string]any{
 		"entity_type": "company", "entity_id": acme.ID, "body": "wrong pin", "pinned_event_id": otherEvent.ID,

@@ -67,8 +67,11 @@ func TestImportOfferFromURL(t *testing.T) {
 	if len(detail.Provenance) != 1 || detail.Provenance[0].URL != srv.URL+"/job" {
 		t.Errorf("provenance = %+v", detail.Provenance)
 	}
-	if detail.Offer.TitleConfidence == nil || detail.Offer.LocationConfidence == nil {
-		t.Errorf("scores missing: %+v", detail.Offer)
+	if detail.Offer.TitleAffinity != 85 || detail.Offer.LocationAffinity != 60 {
+		t.Errorf("read-time affinity = %d/%d, want 85/60", detail.Offer.TitleAffinity, detail.Offer.LocationAffinity)
+	}
+	if len(detail.Offer.MatchReasons.Title) == 0 || len(detail.Offer.MatchReasons.Location) == 0 {
+		t.Errorf("match reasons missing: %+v", detail.Offer.MatchReasons)
 	}
 
 	// Explicit fields override extracted ones and skip the fetch: this

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -21,11 +20,6 @@ type offerListResp struct {
 	Offset int         `json:"offset"`
 }
 
-type MatchReasons struct {
-	Title    []string `json:"title"`
-	Location []string `json:"location"`
-}
-
 type offerDetailResp struct {
 	Offer          offerJSON             `json:"offer"`
 	Company        companyJSON           `json:"company"`
@@ -42,10 +36,10 @@ func seedOfferSet(t *testing.T, ts *testServer) (model.JobOffer, model.Company) 
 	t.Helper()
 	acme := ts.seedCompany(t, "Acme")
 	other := ts.seedCompany(t, "Other")
-	sre := ts.seedOffer(t, acme, "Site Reliability Engineer", "Paris", model.AppApplied, model.RemoteFull, 95, 90)
-	ts.seedOffer(t, acme, "Platform Engineer", "Remote - France", model.AppTodo, model.RemoteFull, 80, 85)
-	ts.seedOffer(t, other, "SRE", "Lyon", model.AppInterview, model.RemoteHybrid, 70, 60)
-	ts.seedOffer(t, other, "Marketing Manager", "", model.AppTodo, model.RemoteOnsite, 0, 0)
+	sre := ts.seedOffer(t, acme, "Site Reliability Engineer", "Paris", model.AppApplied, model.RemoteFull)
+	ts.seedOffer(t, acme, "Platform Engineer", "Remote - France", model.AppTodo, model.RemoteFull)
+	ts.seedOffer(t, other, "SRE", "Lyon", model.AppInterview, model.RemoteHybrid)
+	ts.seedOffer(t, other, "Marketing Manager", "", model.AppTodo, model.RemoteOnsite)
 	if _, err := ts.db.ExecContext(context.Background(),
 		`UPDATE job_offers SET raw_text = 'Kubernetes and Terraform' WHERE id = ?`, sre.ID); err != nil {
 		t.Fatal(err)
@@ -68,14 +62,18 @@ func TestListOffers(t *testing.T) {
 		{"application state list", "/api/offers?application_state=applied,interview", 2, 2},
 		{"offer state", "/api/offers?offer_state=active", 4, 4},
 		{"remote policy", "/api/offers?remote_policy=remote", 2, 2},
-		{"min title confidence", "/api/offers?min_title_confidence=90", 1, 1},
-		{"min location confidence", "/api/offers?min_location_confidence=85", 2, 2},
+		{"min title affinity", "/api/offers?min_title_affinity=85", 2, 2},
+		{"min location affinity", "/api/offers?min_location_affinity=35", 1, 1},
+		{"remote accepted", "/api/offers?remote_accepted=true", 2, 2},
+		{"remote not accepted", "/api/offers?remote_accepted=false", 2, 2},
 		{"company", "/api/offers?company_id=2", 2, 2},
 		{"has application", "/api/offers?has_application=true&sort=recent_event", 2, 2},
 		{"full text", "/api/offers?q=kubernetes", 1, 1},
 		{"pagination", "/api/offers?limit=2&offset=2", 4, 2},
+		{"affinity pagination", "/api/offers?sort=title_affinity&order=desc&limit=2&offset=1", 4, 2},
 		{"limit capped response", "/api/offers?limit=200", 4, 4},
-		{"title confidence sort", "/api/offers?sort=title_confidence&order=asc", 4, 4},
+		{"title affinity sort", "/api/offers?sort=title_affinity&order=asc", 4, 4},
+		{"location affinity sort", "/api/offers?sort=location_affinity&order=desc", 4, 4},
 		{"location sort", "/api/offers?sort=location&order=desc", 4, 4},
 	}
 	for _, tt := range tests {
@@ -116,8 +114,10 @@ func TestListOffers(t *testing.T) {
 		"/api/offers?application_state=nope",
 		"/api/offers?offer_state=nope",
 		"/api/offers?remote_policy=nope",
-		"/api/offers?min_title_confidence=101",
-		"/api/offers?min_location_confidence=-1",
+		"/api/offers?min_title_affinity=101",
+		"/api/offers?min_location_affinity=-1",
+		"/api/offers?remote_accepted=maybe",
+		"/api/offers?profile_id=abc",
 		"/api/offers?company_id=abc",
 		"/api/offers?limit=0",
 	}
@@ -497,7 +497,7 @@ func TestImportOffer(t *testing.T) {
 func TestOfferDetailSnapshotDiff(t *testing.T) {
 	ts := newTestServer(t)
 	acme := ts.seedCompany(t, "Acme")
-	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown)
 	ctx := context.Background()
 	if err := db.InsertSnapshot(ctx, ts.db, o.ID, "one\ntwo\nthree", ts.clock.now()); err != nil {
 		t.Fatal(err)
@@ -532,7 +532,7 @@ func TestOfferDetailSnapshotDiff(t *testing.T) {
 func TestOfferSnapshotHistory(t *testing.T) {
 	ts := newTestServer(t)
 	acme := ts.seedCompany(t, "Acme")
-	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown)
 	ctx := context.Background()
 
 	if err := db.InsertSnapshot(ctx, ts.db, o.ID, "one", ts.clock.now()); err != nil {
@@ -600,7 +600,7 @@ func TestOfferSnapshotHistory(t *testing.T) {
 func TestSnapshotDiffEndpoint(t *testing.T) {
 	ts := newTestServer(t)
 	acme := ts.seedCompany(t, "Acme")
-	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown)
 	ctx := context.Background()
 
 	texts := []string{"alpha\nbeta", "alpha\ngamma", "alpha\ngamma\ndelta"}
@@ -652,7 +652,7 @@ func TestSnapshotDiffEndpoint(t *testing.T) {
 	}
 
 	// Snapshots of another offer are rejected.
-	other := ts.seedOffer(t, acme, "Platform Engineer", "Lyon", model.AppTodo, model.RemoteUnknown, 0, 0)
+	other := ts.seedOffer(t, acme, "Platform Engineer", "Lyon", model.AppTodo, model.RemoteUnknown)
 	if err := db.InsertSnapshot(ctx, ts.db, other.ID, "foreign", ts.clock.now()); err != nil {
 		t.Fatal(err)
 	}
@@ -719,8 +719,8 @@ func TestSnapshotOriginsScanAndPatch(t *testing.T) {
 func TestMergeOffersAPI(t *testing.T) {
 	ts := newTestServer(t)
 	acme := ts.seedCompany(t, "Acme")
-	target := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
-	source := ts.seedOffer(t, acme, "SRE - Platform", "Lyon", model.AppApplied, model.RemoteUnknown, 0, 0)
+	target := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown)
+	source := ts.seedOffer(t, acme, "SRE - Platform", "Lyon", model.AppApplied, model.RemoteUnknown)
 	ctx := context.Background()
 	for _, p := range []struct {
 		id  int64
@@ -774,7 +774,7 @@ func TestMergeOffersAPI(t *testing.T) {
 func TestSplitOfferAPI(t *testing.T) {
 	ts := newTestServer(t)
 	acme := ts.seedCompany(t, "Acme")
-	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown, 0, 0)
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown)
 	ctx := context.Background()
 	var provIDs []int64
 	for _, url := range []string{"https://ex.com/a", "https://ex.com/b", "https://ex.com/c"} {
@@ -834,7 +834,7 @@ func TestSplitOfferAPI(t *testing.T) {
 	}), 404, "not_found")
 }
 
-func TestImportClassifiesAndFilters(t *testing.T) {
+func TestImportComputesAffinityAtReadTime(t *testing.T) {
 	ts := newTestServer(t)
 	rec := ts.do(t, "POST", "/api/offers/import", map[string]any{
 		"company": "Acme", "title": "Platform Engineer", "location": "Remote - France",
@@ -845,27 +845,40 @@ func TestImportClassifiesAndFilters(t *testing.T) {
 	})
 	wantCode(t, rec, 201)
 
-	rec = ts.do(t, "GET", "/api/offers?min_title_confidence=80&min_location_confidence=80", nil)
+	rec = ts.do(t, "GET", "/api/offers?min_title_affinity=80&min_location_affinity=35", nil)
 	wantCode(t, rec, 200)
 	got := decodeBody[offerListResp](t, rec)
 	if got.Total != 1 || len(got.Offers) != 1 {
 		t.Fatalf("filtered offers = %+v", got)
 	}
 	o := got.Offers[0]
-	if o.Title != "Platform Engineer" || o.TitleConfidence == nil || *o.TitleConfidence != 85 {
+	if o.Title != "Platform Engineer" || o.TitleAffinity != 85 {
 		t.Errorf("offer = %+v", o)
 	}
-	if o.LocationConfidence == nil || *o.LocationConfidence != 80 {
-		t.Errorf("location_confidence = %v, want 80", o.LocationConfidence)
+	if o.LocationAffinity != 35 {
+		t.Errorf("location_affinity = %d, want 35", o.LocationAffinity)
 	}
-	if o.RemotePolicy != "remote" {
-		t.Errorf("remote_policy = %q, want remote", o.RemotePolicy)
+	if o.RemotePolicy != "remote" || !o.RemotePolicyAccepted {
+		t.Errorf("remote policy = %q accepted=%v, want remote/accepted", o.RemotePolicy, o.RemotePolicyAccepted)
 	}
-	var reasons MatchReasons
-	if err := json.Unmarshal(o.MatchReasons, &reasons); err != nil {
-		t.Fatalf("match_reasons %q: %v", o.MatchReasons, err)
+	if len(o.MatchReasons.Title) == 0 || len(o.MatchReasons.Location) == 0 {
+		t.Errorf("match reasons = %+v", o.MatchReasons)
 	}
-	if len(reasons.Title) == 0 || len(reasons.Location) == 0 {
-		t.Errorf("match reasons = %+v", reasons)
+	for _, m := range o.MatchReasons.Title {
+		if m.Term == "" || m.Bucket == "" {
+			t.Errorf("incomplete title reason = %+v", m)
+		}
+	}
+
+	// The marketing title clamps to zero and is filtered out by the
+	// title threshold; it stays visible without the filter.
+	rec = ts.do(t, "GET", "/api/offers?sort=title_affinity&order=asc", nil)
+	wantCode(t, rec, 200)
+	got = decodeBody[offerListResp](t, rec)
+	if got.Total != 2 || got.Offers[0].Title != "Marketing Platform Lead" || got.Offers[0].TitleAffinity != 0 {
+		t.Fatalf("title affinity order = %+v", got.Offers)
+	}
+	if got.Offers[1].TitleAffinity < got.Offers[0].TitleAffinity {
+		t.Errorf("title affinity sort not ascending: %+v", got.Offers)
 	}
 }

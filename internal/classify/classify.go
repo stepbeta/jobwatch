@@ -1,180 +1,136 @@
-// Package classify is JobWatch's deterministic scoring engine (SPEC
-// section 6). It turns a title, location and description into a title
-// confidence (is this a Platform/SRE/DevOps role?), a location confidence
-// (is this full remote and France-compatible?), a derived remote policy
-// and a human-readable list of reasons. There is no LLM and no I/O: the
-// same input always produces the same output.
+// Package classify is JobWatch's deterministic scoring engine. It turns
+// offer facts (title, location, description) into title affinity,
+// location affinity and a remote policy, using a user search profile for
+// the preferences. There is no LLM and no I/O: the same input and profile
+// always produce the same output.
+//
+// The term tables are not in Go: they are stored per profile in
+// search_profile_terms (migration 0015). This package only normalizes
+// text, matches whole-token phrases, adds weights and clamps the result.
+// The remote phrase lists are fixed; the user selects which derived
+// policies are acceptable.
 package classify
 
 import (
-	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/stepbeta/jobwatch/internal/model"
 )
 
-// Reasons is the JSON shape stored in job_offers.match_reasons_json. Each
-// list explains one score in human-readable terms; the UI shows them as
-// badge tooltips.
-type Reasons struct {
-	Title    []string `json:"title"`
-	Location []string `json:"location"`
+// Match is one profile term that matched an offer text. Neutral terms are
+// reported with weight 0: they explain a match without changing the score.
+type Match struct {
+	Term   string
+	Weight int
+	Bucket model.TermBucket
 }
 
-// Result is the classifier output for one offer.
+// Affinity is a computed score (0..100) plus the terms that produced it.
+type Affinity struct {
+	Score   int
+	Matches []Match
+}
+
+// Result is the read-time classification of one offer against one
+// profile.
 type Result struct {
-	TitleConfidence    int
-	LocationConfidence int
-	RemotePolicy       model.RemotePolicy
-	Reasons            Reasons
+	TitleAffinity    Affinity
+	LocationAffinity Affinity
+	RemotePolicy     model.RemotePolicy
 }
 
-// Scores converts the result into the persisted column values.
-func (r Result) Scores() model.OfferScores {
-	return model.OfferScores{
-		RemotePolicy:       r.RemotePolicy,
-		TitleConfidence:    r.TitleConfidence,
-		LocationConfidence: r.LocationConfidence,
-		MatchReasonsJSON:   r.ReasonsJSON(),
-	}
-}
-
-// ReasonsJSON marshals the reasons. Encoding a struct of strings cannot
-// fail in practice, but the fallback keeps the column valid JSON.
-func (r Result) ReasonsJSON() string {
-	b, err := json.Marshal(r.Reasons)
-	if err != nil {
-		return `{"title":[],"location":[]}`
-	}
-	return string(b)
-}
-
-// Classify scores one offer. location and description may be empty; the
-// description is used for remote and geography keywords only, never as a
-// substitute for the title.
-func Classify(title, location, description string) Result {
-	titleScore, titleReasons := scoreTitle(title)
-	locationScore, policy, locationReasons := scoreLocation(location, description)
+// Score computes the three signals for one offer. location and
+// description may be empty; the description contributes to location
+// affinity and to remote detection, never to title affinity.
+func Score(title, location, description string, p model.SearchProfile) Result {
 	return Result{
-		TitleConfidence:    titleScore,
-		LocationConfidence: locationScore,
-		RemotePolicy:       policy,
-		Reasons: Reasons{
-			Title:    titleReasons,
-			Location: locationReasons,
-		},
+		TitleAffinity:    ScoreTitle(title, p),
+		LocationAffinity: ScoreLocation(location, description, p),
+		RemotePolicy:     DeriveRemotePolicy(location, description),
 	}
 }
 
-func scoreTitle(title string) (int, []string) {
+// ScoreTitle adds the weights of the profile's title terms that match the
+// title, using whole-token phrase matching after model.NormalizeTitle.
+func ScoreTitle(title string, p model.SearchProfile) Affinity {
 	norm := model.NormalizeTitle(title)
-	score := 0
-	reasons := make([]string, 0, 4)
-	for _, kw := range titleKeywords {
-		if !containsPhrase(norm, kw.term) {
+	matches := make([]Match, 0, 4)
+	for _, t := range p.Terms {
+		if t.Affinity != model.AffinityTitle {
 			continue
 		}
-		score += kw.weight
-		reasons = append(reasons, fmt.Sprintf("%s %q (%+d)", kw.kind, kw.term, kw.weight))
+		if containsPhrase(norm, t.Term) {
+			matches = append(matches, Match{Term: t.Term, Weight: t.Weight, Bucket: t.Bucket})
+		}
 	}
-	if len(reasons) == 0 {
-		reasons = append(reasons, "no title keywords matched")
-	}
-	return clamp(score), reasons
+	return newAffinity(matches)
 }
 
-func scoreLocation(location, description string) (int, model.RemotePolicy, []string) {
+// ScoreLocation adds the weights of the profile's location terms that
+// match the location and of its description terms that match the
+// description. Description terms affect geography only; they never change
+// the remote policy.
+func ScoreLocation(location, description string, p model.SearchProfile) Affinity {
 	loc := model.NormalizeKeywords(location)
 	desc := model.NormalizeKeywords(description)
-	reasons := make([]string, 0, 8)
+	matches := make([]Match, 0, 4)
+	for _, t := range p.Terms {
+		switch t.Affinity {
+		case model.AffinityLocation:
+			if containsPhrase(loc, t.Term) {
+				matches = append(matches, Match{Term: t.Term, Weight: t.Weight, Bucket: t.Bucket})
+			}
+		case model.AffinityDescription:
+			if containsPhrase(desc, t.Term) {
+				matches = append(matches, Match{Term: t.Term, Weight: t.Weight, Bucket: t.Bucket})
+			}
+		}
+	}
+	return newAffinity(matches)
+}
 
-	locRemoteMatch := matchAny(loc, remotePhrases)
-	descRemoteMatch := matchAny(desc, remotePhrases)
-	locHybridMatch := matchAny(loc, hybridPhrases)
-	descHybridMatch := matchAny(desc, hybridPhrases)
-	locOnsiteMatch := matchAny(loc, onsitePhrases)
-	descOnsiteMatch := matchAny(desc, onsitePhrases)
+// DeriveRemotePolicy is the fixed detector: it produces the offer fact
+// from the location and description text. The user cannot edit the phrase
+// lists; only the acceptance of the resulting policy is a preference.
+func DeriveRemotePolicy(location, description string) model.RemotePolicy {
+	loc := model.NormalizeKeywords(location)
+	desc := model.NormalizeKeywords(description)
 
-	remote := locRemoteMatch != "" || descRemoteMatch != ""
-	hybrid := locHybridMatch != "" || descHybridMatch != ""
-	onsite := locOnsiteMatch != "" || descOnsiteMatch != ""
+	remote := matchAny(loc, remotePhrases) != "" || matchAny(desc, remotePhrases) != ""
+	hybrid := matchAny(loc, hybridPhrases) != "" || matchAny(desc, hybridPhrases) != ""
+	onsite := matchAny(loc, onsitePhrases) != "" || matchAny(desc, onsitePhrases) != ""
 
-	policy := model.RemoteUnknown
 	switch {
 	case hybrid || (remote && onsite):
-		policy = model.RemoteHybrid
+		return model.RemoteHybrid
 	case onsite:
-		policy = model.RemoteOnsite
+		return model.RemoteOnsite
 	case remote:
-		policy = model.RemoteFull
+		return model.RemoteFull
+	default:
+		return model.RemoteUnknown
 	}
+}
 
+// RemoteAccepted reports whether the profile accepts a derived policy. It
+// is a membership check, never a weighted score.
+func RemoteAccepted(policy model.RemotePolicy, p model.SearchProfile) bool {
+	return p.Accepts(policy)
+}
+
+// newAffinity sums the matched weights and clamps the total to 0..100.
+func newAffinity(matches []Match) Affinity {
 	score := 0
-	switch policy {
-	case model.RemoteFull:
-		if locRemoteMatch != "" {
-			score += remoteLocationWeight
-			reasons = append(reasons, fmt.Sprintf("location %q (%+d)", locRemoteMatch, remoteLocationWeight))
-		}
-		if descRemoteMatch != "" {
-			score += remoteDescriptionWeight
-			reasons = append(reasons, fmt.Sprintf("description %q (%+d)", descRemoteMatch, remoteDescriptionWeight))
-		}
-	case model.RemoteHybrid:
-		hook := locRemoteMatch
-		if locHybridMatch != "" {
-			hook = locHybridMatch
-		}
-		if hook != "" {
-			score += hybridLocationWeight
-			reasons = append(reasons, fmt.Sprintf("location %q (%+d)", hook, hybridLocationWeight))
-		}
-		hook = descRemoteMatch
-		if descHybridMatch != "" {
-			hook = descHybridMatch
-		}
-		if hook != "" {
-			score += hybridDescriptionWeight
-			reasons = append(reasons, fmt.Sprintf("description %q (%+d)", hook, hybridDescriptionWeight))
-		}
-	case model.RemoteOnsite:
-		hook := locOnsiteMatch
-		if hook == "" {
-			hook = descOnsiteMatch
-		}
-		reasons = append(reasons, fmt.Sprintf("workplace %q (onsite, full remote not offered)", hook))
+	for _, m := range matches {
+		score += m.Weight
 	}
-
-	for _, kw := range locationKeywords {
-		if !containsPhrase(loc, kw.term) {
-			continue
-		}
-		score += kw.weight
-		reasons = append(reasons, fmt.Sprintf("location %q (%+d)", kw.term, kw.weight))
+	if score < 0 {
+		score = 0
 	}
-	for _, kw := range descriptionKeywords {
-		if !containsPhrase(desc, kw.term) {
-			continue
-		}
-		score += kw.weight
-		reasons = append(reasons, fmt.Sprintf("description %q (%+d)", kw.term, kw.weight))
+	if score > 100 {
+		score = 100
 	}
-
-	score = clamp(score)
-	switch policy {
-	case model.RemoteOnsite:
-		score = min(score, onsitePolicyCap)
-	case model.RemoteHybrid:
-		score = min(score, hybridPolicyCap)
-	case model.RemoteUnknown:
-		score = min(score, unknownPolicyCap)
-	}
-	if len(reasons) == 0 {
-		reasons = append(reasons, "no location or remote keywords matched")
-	}
-	reasons = append(reasons, "remote policy: "+string(policy))
-	return score, policy, reasons
+	return Affinity{Score: score, Matches: matches}
 }
 
 // containsPhrase reports whether the normalized phrase occurs in the
@@ -196,14 +152,4 @@ func matchAny(normalized string, phrases []string) string {
 		}
 	}
 	return ""
-}
-
-func clamp(v int) int {
-	if v < 0 {
-		return 0
-	}
-	if v > 100 {
-		return 100
-	}
-	return v
 }

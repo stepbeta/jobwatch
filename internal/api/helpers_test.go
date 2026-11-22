@@ -112,7 +112,7 @@ func (ts *testServer) seedCompany(t *testing.T, name string) model.Company {
 }
 
 func (ts *testServer) seedOffer(t *testing.T, c model.Company, title, location string, app model.ApplicationState,
-	remote model.RemotePolicy, titleConf, locConf int) model.JobOffer {
+	remote model.RemotePolicy) model.JobOffer {
 	t.Helper()
 	ctx := context.Background()
 	titleNorm := model.NormalizeTitle(title)
@@ -130,8 +130,8 @@ func (ts *testServer) seedOffer(t *testing.T, c model.Company, title, location s
 		t.Fatalf("seed offer %q: %v", title, err)
 	}
 	if _, err := ts.db.ExecContext(ctx,
-		`UPDATE job_offers SET application_state = ?, remote_policy = ?, title_confidence = ?, location_confidence = ? WHERE id = ?`,
-		string(app), string(remote), titleConf, locConf, o.ID); err != nil {
+		`UPDATE job_offers SET application_state = ?, remote_policy = ? WHERE id = ?`,
+		string(app), string(remote), o.ID); err != nil {
 		t.Fatal(err)
 	}
 	o, err = db.GetOffer(ctx, ts.db, o.ID)

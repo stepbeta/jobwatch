@@ -210,14 +210,17 @@ Built with React + TypeScript (Vite). The pages are:
   Saved shows every bookmarked offer regardless of application state;
   its "Show all" link opens the offers page with the saved filter preset.
 - **Offers** (`#/offers`) — the full table with filters (application/offer
-  state, remote policy, saved/unsaved, score minima, a searchable company
-  combobox, and debounced full-text search), a column picker, header-click
-  sorting, a per-page selector and pagination. Every row has a star
+  state, remote policy, remote acceptance, minimum title/location affinity,
+  saved/unsaved, a searchable company combobox, and debounced full-text
+  search), a column picker, header-click sorting (including the affinity
+  sorts), a per-page selector and pagination. Every row has a star
   bookmark toggle, and the header **Add offer** button opens a modal import
   form (URL fetch-and-prefill or manual fields). A successful import closes
   the modal, shows the success toast, refreshes the data and opens the new
-  or matched offer's detail page. Score badges show 0–100 title/location
-  confidences; hover one to see the matched keywords from the classifier.
+  or matched offer's detail page. Title and location affinity badges show
+  0–100 from the current profile; hover one to see the matched terms,
+  weights and buckets. The remote column shows the detected policy with a
+  ✓/✗ for whether the profile accepts it.
 - **Incomplete** (`#/incomplete`) — items a source could not normalize,
   with the item count, the source-reported company/title/location, the
   reason and source link. **Repair** opens a form that assigns a company
@@ -240,7 +243,8 @@ Built with React + TypeScript (Vite). The pages are:
   not-trackable sources show their explanation; the seeded Fabriq WTTJ
   company page is enabled and scannable.
 - **Offer detail** — a two-column header panel: identity (company, title,
-  editable application/offer state and location, score badges, bookmark,
+  editable application/offer state and location, title/location affinity
+  badges, remote policy badge with profile acceptance, bookmark,
   description version count, Merge/Split actions) on the left and an
   always-visible compact provenance list (links, source names, external
   UID, first/last seen) on the right.
@@ -256,6 +260,13 @@ Built with React + TypeScript (Vite). The pages are:
   (server-side `company_id` query), per-page selector and pagination.
   Merging always asks which company row to keep; nothing is merged
   automatically.
+- **Search profile** (`#/search-profile`) — the target role and geography:
+  name and labels, a 3-bucket or 5-bucket scale, title and location term
+  rows (bucket plus a numeric weight), an advanced description-terms
+  section, and remote policy checkboxes. Explanatory text states that
+  positive terms raise an affinity, negative terms lower it, neutral terms
+  only appear in reasons, description terms affect location affinity only,
+  and remote is a membership check. Saving applies to the next offer read.
 - **Interview prep** (`#/interview-prep`) — a personal FAQ of anticipated
   interview questions and prepared answers. Entries are grouped into one
   section per category, sorted alphabetically with "Uncategorized" last; a
@@ -360,18 +371,26 @@ user-driven from the UI or `PATCH /api/offers/:id`; no automatic
 transition is derived from timeline events. See
 [DATA-MODEL.md](DATA-MODEL.md#application_state).
 
-## Classification
+## Classification and search profiles
 
-Every scan and import scores each offer deterministically (no LLM):
-`title_confidence` asks whether the title is a Platform/SRE/DevOps/Infra
-role, `location_confidence` whether it is full remote and
-France-compatible, and `remote_policy` is derived from the location and
-description. The keyword tables live in `internal/classify/tables.go`.
-Offer lists can be filtered by both minimum scores. Run
-`./jobwatch reclassify` once after upgrading an existing database to fill
-older offers; `--all` recomputes after changing the tables.
+Every scan and import stores offer facts only: title, location,
+description and the `remote_policy` derived from the location and
+description by a fixed detector. Title and location affinity are computed
+when an offer is read, from the search profile:
 
-The scoring rules, caps and reason lists are described in
+- **Title affinity** adds the weights of the profile's title terms that
+  match the title.
+- **Location affinity** adds the weights of its location terms (location)
+  and description terms (description); description terms never change
+  the remote policy.
+- **Remote policy** is the detected fact; the profile accepts or rejects
+  each policy with a checkbox.
+
+Edit the profile on the Search profile page (`#/search-profile`) or
+through `PUT /api/search-profiles/:id`. A profile change applies to the
+next read; there is no reclassification command and no stored score.
+Offer lists can be filtered by minimum title/location affinity and by
+remote acceptance. The three signals and the reasons are described in
 [ARCHITECTURE.md](ARCHITECTURE.md#classification-internalclassify).
 
 ## Re-attribution
@@ -416,7 +435,6 @@ backup is a normal SQLite file; point `--db` at it to use it.
 | `add-sources <file> [--disabled]` | Register every recognized URL in a file; reports added / already registered / not detected |
 | `list [--offer-state S] [--app-state S] [--limit N] [--sources]` | List offers (most recently seen first) or sources |
 | `import <url \| json \| file.json \| ->` | Add an offer seen elsewhere. A bare URL is fetched for JSON-LD/Open Graph/title metadata (`--no-fetch` disables); JSON fields can be supplied manually |
-| `reclassify [--all]` | Backfill title/location scores and remote policies with the deterministic classifier; `--all` recomputes every offer |
 | `reattribute [--all \| --source <id>]` | Re-fetch a source and move offers matched by `(source, uid)` to the company and title the adapter now reports, preserving history; `--source` accepts a disabled source |
 | `backup <dest>` | Write and validate a consistent copy of the database (must not exist) |
 
@@ -446,11 +464,9 @@ All commands accept the global `--db <path>` flag (default
 
 # Headless usage still works
 ./jobwatch scan
-./jobwatch list                  # ID, company, title, location, remote, T/L scores, states
+./jobwatch list                  # ID, company, title, location, remote, accepted, title/location affinity, states
 ./jobwatch list --offer-state disappeared
 ./jobwatch list --sources        # includes notes on disabled seeded sources
-./jobwatch reclassify            # backfill scores of older offers
-./jobwatch reclassify --all      # recompute every score after keyword changes
 ./jobwatch reattribute --source 36   # move old We Work Remotely offers to their employers
 ./jobwatch reattribute --all         # reattribute every enabled source
 ./jobwatch backup ~/jobwatch-$(date +%F).db   # validated copy
@@ -466,7 +482,6 @@ All commands accept the global `--db <path>` flag (default
 | `add-sources` | `--disabled` |
 | `list` | `--offer-state`, `--app-state`, `--limit` (default 100; `0` = no limit), `--sources` |
 | `import` | `--company`, `--title`, `--location`, `--description`, `--no-fetch` |
-| `reclassify` | `--all` |
 | `reattribute` | `--all` or `--source <id>`; no argument |
 | `backup` | none; destination must not exist |
 

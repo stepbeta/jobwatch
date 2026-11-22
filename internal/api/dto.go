@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/stepbeta/jobwatch/internal/classify"
 	"github.com/stepbeta/jobwatch/internal/db"
 	"github.com/stepbeta/jobwatch/internal/model"
 )
@@ -79,58 +80,96 @@ type companyCandidateJSON struct {
 	Reason         string `json:"reason"`
 }
 
-type offerJSON struct {
-	ID                 int64           `json:"id"`
-	CompanyID          *int64          `json:"company_id"`
-	CompanyName        string          `json:"company_name"`
-	Title              string          `json:"title"`
-	Location           *string         `json:"location"`
-	RemotePolicy       string          `json:"remote_policy"`
-	URL                *string         `json:"url"`
-	OfferState         string          `json:"offer_state"`
-	ApplicationState   string          `json:"application_state"`
-	FirstSeenAt        string          `json:"first_seen_at"`
-	LastSeenAt         string          `json:"last_seen_at"`
-	UpdatedAt          string          `json:"updated_at"`
-	TitleConfidence    *int            `json:"title_confidence"`
-	LocationConfidence *int            `json:"location_confidence"`
-	MatchReasons       json.RawMessage `json:"match_reasons"`
-	LastEventAt        *string         `json:"last_event_at"`
-	SavedAt            *string         `json:"saved_at"`
-	RawText            *string         `json:"raw_text,omitempty"`
-	IncompleteReason   string          `json:"incomplete_reason,omitempty"`
-	IncompleteRaw      json.RawMessage `json:"incomplete_raw,omitempty"`
+// matchReasonJSON is one profile term that contributed to an affinity.
+type matchReasonJSON struct {
+	Term   string `json:"term"`
+	Weight int    `json:"weight"`
+	Bucket string `json:"bucket"`
 }
 
-func offerToJSON(o db.OfferListItem) offerJSON {
-	out := offerModelToJSON(o.JobOffer, o.CompanyName)
+// matchReasonsJSON is the read-time explanation of both affinities.
+type matchReasonsJSON struct {
+	Title    []matchReasonJSON `json:"title"`
+	Location []matchReasonJSON `json:"location"`
+}
+
+type offerJSON struct {
+	ID                   int64            `json:"id"`
+	CompanyID            *int64           `json:"company_id"`
+	CompanyName          string           `json:"company_name"`
+	Title                string           `json:"title"`
+	Location             *string          `json:"location"`
+	RemotePolicy         string           `json:"remote_policy"`
+	RemotePolicyAccepted bool             `json:"remote_policy_accepted"`
+	TitleAffinity        int              `json:"title_affinity"`
+	LocationAffinity     int              `json:"location_affinity"`
+	MatchReasons         matchReasonsJSON `json:"match_reasons"`
+	URL                  *string          `json:"url"`
+	OfferState           string           `json:"offer_state"`
+	ApplicationState     string           `json:"application_state"`
+	FirstSeenAt          string           `json:"first_seen_at"`
+	LastSeenAt           string           `json:"last_seen_at"`
+	UpdatedAt            string           `json:"updated_at"`
+	LastEventAt          *string          `json:"last_event_at"`
+	SavedAt              *string          `json:"saved_at"`
+	RawText              *string          `json:"raw_text,omitempty"`
+	IncompleteReason     string           `json:"incomplete_reason,omitempty"`
+	IncompleteRaw        json.RawMessage  `json:"incomplete_raw,omitempty"`
+}
+
+func offerToJSON(o db.OfferListItem, p model.SearchProfile) offerJSON {
+	out := offerModelToJSON(o.JobOffer, o.CompanyName, p)
 	if o.LastEventAt != nil {
 		out.LastEventAt = timeString(*o.LastEventAt)
 	}
 	return out
 }
 
-func offerModelToJSON(o model.JobOffer, companyName string) offerJSON {
+// offerModelToJSON serializes an offer and computes its title and
+// location affinity from the given profile. Scores are never read from
+// the (deprecated) stored columns.
+func offerModelToJSON(o model.JobOffer, companyName string, p model.SearchProfile) offerJSON {
+	res := classify.Score(o.Title, derefString(o.Location), derefString(o.RawText), p)
 	return offerJSON{
-		ID:                 o.ID,
-		CompanyID:          o.CompanyID,
-		CompanyName:        companyName,
-		Title:              o.Title,
-		Location:           o.Location,
-		RemotePolicy:       string(o.RemotePolicy),
-		URL:                o.URL,
-		OfferState:         string(o.OfferState),
-		ApplicationState:   string(o.ApplicationState),
-		FirstSeenAt:        model.FormatTime(o.FirstSeenAt),
-		LastSeenAt:         model.FormatTime(o.LastSeenAt),
-		UpdatedAt:          model.FormatTime(o.UpdatedAt),
-		TitleConfidence:    o.TitleConfidence,
-		LocationConfidence: o.LocationConfidence,
-		MatchReasons:       rawJSON(o.MatchReasonsJSON),
-		SavedAt:            timeStringPtr(o.SavedAt),
-		IncompleteReason:   string(o.IncompleteReason),
-		IncompleteRaw:      rawJSON(o.IncompleteRaw),
+		ID:                   o.ID,
+		CompanyID:            o.CompanyID,
+		CompanyName:          companyName,
+		Title:                o.Title,
+		Location:             o.Location,
+		RemotePolicy:         string(o.RemotePolicy),
+		RemotePolicyAccepted: p.Accepts(o.RemotePolicy),
+		TitleAffinity:        res.TitleAffinity.Score,
+		LocationAffinity:     res.LocationAffinity.Score,
+		MatchReasons:         matchReasonsToJSON(res),
+		URL:                  o.URL,
+		OfferState:           string(o.OfferState),
+		ApplicationState:     string(o.ApplicationState),
+		FirstSeenAt:          model.FormatTime(o.FirstSeenAt),
+		LastSeenAt:           model.FormatTime(o.LastSeenAt),
+		UpdatedAt:            model.FormatTime(o.UpdatedAt),
+		SavedAt:              timeStringPtr(o.SavedAt),
+		IncompleteReason:     string(o.IncompleteReason),
+		IncompleteRaw:        rawJSON(o.IncompleteRaw),
 	}
+}
+
+// matchReasonsToJSON converts the structured classifier reasons.
+func matchReasonsToJSON(res classify.Result) matchReasonsJSON {
+	match := func(ms []classify.Match) []matchReasonJSON {
+		out := make([]matchReasonJSON, 0, len(ms))
+		for _, m := range ms {
+			out = append(out, matchReasonJSON{Term: m.Term, Weight: m.Weight, Bucket: string(m.Bucket)})
+		}
+		return out
+	}
+	return matchReasonsJSON{Title: match(res.TitleAffinity.Matches), Location: match(res.LocationAffinity.Matches)}
+}
+
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // timeStringPtr formats a nullable time, returning nil for nil or zero.

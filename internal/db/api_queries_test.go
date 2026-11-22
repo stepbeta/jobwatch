@@ -355,18 +355,12 @@ func TestQueryOffersSortValues(t *testing.T) {
 	acme := mustCompany(t, sqlDB, "Acme")
 	zeta := mustCompany(t, sqlDB, "Zeta")
 
-	mk := func(c model.Company, title, loc string, tc, lc int) model.JobOffer {
-		o := mustOffer(t, sqlDB, c, title, loc)
-		if _, err := sqlDB.ExecContext(ctx,
-			`UPDATE job_offers SET title_confidence = ?, location_confidence = ? WHERE id = ?`,
-			tc, lc, o.ID); err != nil {
-			t.Fatal(err)
-		}
-		return o
+	mk := func(c model.Company, title, loc string) model.JobOffer {
+		return mustOffer(t, sqlDB, c, title, loc)
 	}
-	mk(acme, "Beta SRE", "Zurich", 70, 95)
-	mk(zeta, "Alpha Platform", "Paris", 95, 60)
-	mk(acme, "Gamma Engineer", "", 80, 80)
+	mk(acme, "Beta SRE", "Zurich")
+	mk(zeta, "Alpha Platform", "Paris")
+	mk(acme, "Gamma Engineer", "")
 
 	tests := []struct {
 		name  string
@@ -380,9 +374,6 @@ func TestQueryOffersSortValues(t *testing.T) {
 		{"company desc", SortCompany, OrderDesc, []string{"Alpha Platform", "Gamma Engineer", "Beta SRE"}},
 		{"location asc with empty first", SortLocation, OrderAsc, []string{"Gamma Engineer", "Alpha Platform", "Beta SRE"}},
 		{"location desc", SortLocation, OrderDesc, []string{"Beta SRE", "Alpha Platform", "Gamma Engineer"}},
-		{"title confidence defaults desc", SortTitleConfidence, "", []string{"Alpha Platform", "Gamma Engineer", "Beta SRE"}},
-		{"title confidence asc", SortTitleConfidence, OrderAsc, []string{"Beta SRE", "Gamma Engineer", "Alpha Platform"}},
-		{"location confidence desc", SortLocationConfidence, OrderDesc, []string{"Beta SRE", "Gamma Engineer", "Alpha Platform"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -409,7 +400,7 @@ func TestQueryOffersSortValues(t *testing.T) {
 func TestValidOfferSortAndOrder(t *testing.T) {
 	for _, s := range []string{
 		SortLastSeen, SortFirstSeen, SortRecentEvent, SortTitle, SortCompany,
-		SortLocation, SortTitleConfidence, SortLocationConfidence, SortSaved,
+		SortLocation, SortSaved,
 	} {
 		if !ValidOfferSort(s) {
 			t.Errorf("ValidOfferSort(%q) = false", s)
@@ -484,16 +475,6 @@ func TestQueryOffersFilters(t *testing.T) {
 		{
 			name:  "remote policy",
 			query: OfferQuery{RemotePolicies: []model.RemotePolicy{model.RemoteFull}, Sort: SortLastSeen},
-			want:  []string{"Site Reliability Engineer", "Platform Engineer"}, total: 2,
-		},
-		{
-			name:  "min title confidence",
-			query: OfferQuery{MinTitleConfidence: intPtrOf(90), Sort: SortLastSeen},
-			want:  []string{"Site Reliability Engineer"}, total: 1,
-		},
-		{
-			name:  "min location confidence",
-			query: OfferQuery{MinLocationConfidence: intPtrOf(85), Sort: SortLastSeen},
 			want:  []string{"Site Reliability Engineer", "Platform Engineer"}, total: 2,
 		},
 		{
@@ -655,4 +636,52 @@ func TestDeleteSourceDetachesProvenance(t *testing.T) {
 	if prov[0].SourceID != nil {
 		t.Errorf("provenance source_id = %v, want nil", *prov[0].SourceID)
 	}
+}
+
+// TestUpdateOfferFieldsRederivesRemotePolicy checks that a manual
+// location or description edit refreshes the derived policy fact and
+// still writes no legacy affinity score.
+func TestUpdateOfferFieldsRederivesRemotePolicy(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTest(t)
+	c := mustCompany(t, sqlDB, "Acme")
+	o := mustOffer(t, sqlDB, c, "Site Reliability Engineer", "Paris, France")
+
+	desc := "Fully remote within France."
+	if err := UpdateOfferFields(ctx, sqlDB, o.ID, OfferUpdate{Description: &desc}, testNow); err != nil {
+		t.Fatalf("UpdateOfferFields(description): %v", err)
+	}
+	got, err := GetOffer(ctx, sqlDB, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RemotePolicy != model.RemoteFull {
+		t.Errorf("policy after description edit = %q, want remote", got.RemotePolicy)
+	}
+
+	loc := "Hybrid - Lyon"
+	if err := UpdateOfferFields(ctx, sqlDB, o.ID, OfferUpdate{Location: &loc}, testNow); err != nil {
+		t.Fatalf("UpdateOfferFields(location): %v", err)
+	}
+	got, err = GetOffer(ctx, sqlDB, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RemotePolicy != model.RemoteHybrid {
+		t.Errorf("policy after location edit = %q, want hybrid", got.RemotePolicy)
+	}
+
+	// Clearing the location falls back to the description text.
+	empty := ""
+	if err := UpdateOfferFields(ctx, sqlDB, o.ID, OfferUpdate{Location: &empty}, testNow); err != nil {
+		t.Fatalf("UpdateOfferFields(empty location): %v", err)
+	}
+	got, err = GetOffer(ctx, sqlDB, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RemotePolicy != model.RemoteFull {
+		t.Errorf("policy after clearing location = %q, want remote", got.RemotePolicy)
+	}
+	assertNoLegacyScores(t, sqlDB, o.ID)
 }

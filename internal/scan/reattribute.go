@@ -146,8 +146,8 @@ func (s *Scanner) ReattributeSource(ctx context.Context, src model.Source) Reatt
 			res.Status, res.Err = model.ScanError, err
 			return res
 		}
-		scores := classify.Classify(title, strValue(link.Location), strValue(link.RawText)).Scores()
-		if err := db.SetOfferClassification(ctx, tx, link.OfferID, scores); err != nil {
+		policy := classify.DeriveRemotePolicy(strValue(link.Location), strValue(link.RawText))
+		if err := db.SetOfferRemotePolicy(ctx, tx, link.OfferID, policy); err != nil {
 			res.Status, res.Err = model.ScanError, err
 			return res
 		}

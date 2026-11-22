@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stepbeta/jobwatch/internal/classify"
 	"github.com/stepbeta/jobwatch/internal/model"
 )
 
@@ -18,17 +19,15 @@ var ErrInvalidQuery = errors.New("invalid search query")
 // OfferQuery narrows QueryOffers. Zero values mean "no filter". Search
 // runs against the job_offers FTS5 index (title and description).
 type OfferQuery struct {
-	Search                string
-	ApplicationStates     []model.ApplicationState
-	OfferStates           []model.OfferState
-	RemotePolicies        []model.RemotePolicy
-	MinTitleConfidence    *int
-	MinLocationConfidence *int
-	CompanyID             *int64
-	HasApplication        bool  // application_state != 'todo'
-	Saved                 *bool // nil = no filter; true/false = saved_at set/NULL
-	IncompleteOnly        bool  // list only incomplete items; default excludes them
-	Sort                  string
+	Search            string
+	ApplicationStates []model.ApplicationState
+	OfferStates       []model.OfferState
+	RemotePolicies    []model.RemotePolicy
+	CompanyID         *int64
+	HasApplication    bool  // application_state != 'todo'
+	Saved             *bool // nil = no filter; true/false = saved_at set/NULL
+	IncompleteOnly    bool  // list only incomplete items; default excludes them
+	Sort              string
 	// Order is "asc" or "desc". Empty keeps each sort's historical
 	// direction, so callers that do not send it see unchanged ordering.
 	Order  string
@@ -38,15 +37,13 @@ type OfferQuery struct {
 
 // Sort values accepted by QueryOffers.
 const (
-	SortLastSeen           = "last_seen"
-	SortFirstSeen          = "first_seen"
-	SortRecentEvent        = "recent_event"
-	SortTitle              = "title"
-	SortCompany            = "company"
-	SortLocation           = "location"
-	SortTitleConfidence    = "title_confidence"
-	SortLocationConfidence = "location_confidence"
-	SortSaved              = "saved"
+	SortLastSeen    = "last_seen"
+	SortFirstSeen   = "first_seen"
+	SortRecentEvent = "recent_event"
+	SortTitle       = "title"
+	SortCompany     = "company"
+	SortLocation    = "location"
+	SortSaved       = "saved"
 )
 
 // Order values accepted by QueryOffers.
@@ -59,7 +56,7 @@ const (
 func ValidOfferSort(s string) bool {
 	switch s {
 	case SortLastSeen, SortFirstSeen, SortRecentEvent, SortTitle, SortCompany,
-		SortLocation, SortTitleConfidence, SortLocationConfidence, SortSaved:
+		SortLocation, SortSaved:
 		return true
 	}
 	return false
@@ -173,14 +170,6 @@ func offerWhere(ctx context.Context, q Querier, f OfferQuery) (string, []any, er
 			args = append(args, string(s))
 		}
 	}
-	if f.MinTitleConfidence != nil {
-		b.WriteString(` AND o.title_confidence IS NOT NULL AND o.title_confidence >= ?`)
-		args = append(args, *f.MinTitleConfidence)
-	}
-	if f.MinLocationConfidence != nil {
-		b.WriteString(` AND o.location_confidence IS NOT NULL AND o.location_confidence >= ?`)
-		args = append(args, *f.MinLocationConfidence)
-	}
 	if f.CompanyID != nil {
 		b.WriteString(` AND o.company_id = ?`)
 		args = append(args, *f.CompanyID)
@@ -211,10 +200,6 @@ func offerOrder(sortBy, order string) string {
 		return `COALESCE(c.name, '') COLLATE NOCASE ` + dir + `, o.title COLLATE NOCASE ` + dir + `, o.id ` + dir
 	case SortLocation:
 		return `COALESCE(o.location, '') COLLATE NOCASE ` + dir + `, o.id ` + dir
-	case SortTitleConfidence:
-		return `COALESCE(o.title_confidence, -1) ` + dir + `, o.id ` + dir
-	case SortLocationConfidence:
-		return `COALESCE(o.location_confidence, -1) ` + dir + `, o.id ` + dir
 	case SortSaved:
 		return `o.saved_at ` + dir + `, o.id ` + dir
 	default:
@@ -224,7 +209,7 @@ func offerOrder(sortBy, order string) string {
 
 // offerSortDirection resolves an explicit order, or the historical
 // direction of each sort when no order is supplied. Text sorts default
-// to ascending; date, score and bookmark sorts default to descending.
+// to ascending; date and bookmark sorts default to descending.
 func offerSortDirection(sortBy, order string) string {
 	switch order {
 	case OrderAsc:
@@ -263,7 +248,8 @@ type OfferUpdate struct {
 // fingerprints are not recomputed: location is a display/collision-bucket
 // field, and the fingerprint stays stable for dedup. A description edit
 // is versioned with a new snapshot row, exactly like a scan-captured
-// description.
+// description. A location or description edit re-derives the offer's
+// remote policy fact; title and location affinity are not stored.
 func UpdateOfferFields(ctx context.Context, sqlDB *sql.DB, id int64, u OfferUpdate, now time.Time) error {
 	var sets []string
 	var args []any
@@ -311,6 +297,29 @@ func UpdateOfferFields(ctx context.Context, sqlDB *sql.DB, id int64, u OfferUpda
 		return fmt.Errorf("begin offer %d update: %w", id, err)
 	}
 	defer tx.Rollback()
+
+	// A location or description edit changes the text the remote detector
+	// reads, so the policy is derived from the resulting values inside the
+	// same transaction.
+	if u.Location != nil || u.Description != nil {
+		var curLoc, curRaw sql.NullString
+		if err := tx.QueryRowContext(ctx,
+			`SELECT location, raw_text FROM job_offers WHERE id = ?`, id).Scan(&curLoc, &curRaw); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return fmt.Errorf("read offer %d for remote policy: %w", id, err)
+		}
+		effLoc, effDesc := curLoc.String, curRaw.String
+		if u.Location != nil {
+			effLoc = strings.TrimSpace(*u.Location)
+		}
+		if u.Description != nil {
+			effDesc = strings.TrimSpace(*u.Description)
+		}
+		sets = append(sets, "remote_policy = ?")
+		args = append(args, string(classify.DeriveRemotePolicy(effLoc, effDesc)))
+	}
 
 	sets = append(sets, "updated_at = ?")
 	args = append(args, model.FormatTime(now), id)

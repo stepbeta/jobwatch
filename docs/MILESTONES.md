@@ -9,6 +9,10 @@ Milestones 1–11 are complete. The binary scans the 71 seeded sources
 plus any sources the user adds, detects new and disappeared offers,
 keeps every distinct description as a version, classifies offers
 deterministically, and serves the React UI and REST API from one process.
+The OpenSpec change `classification-profiles` (task groups 1-8) is
+implemented: offer facts are separated from the search profile, title and
+location affinity are computed at read time, and the profile is editable
+in the SPA.
 The OpenSpec change `offer-identity-from-source-uid` is implemented
 through task group 8 and archived; its four capabilities now live under
 `openspec/specs/` and the matching `docs/SPEC.md` sections are pointers.
@@ -29,6 +33,40 @@ page adapter and seeds the Fabriq source. Milestone 11 adds shared table
 controls, the sources bulk workflow, the two-column offer header and the
 root Makefile. Open items and deliberate limitations remain in the
 known-gaps table below.
+
+## Classification profiles — DONE
+
+OpenSpec change `classification-profiles`, implemented in task groups 1-8.
+
+Done criteria (all met):
+- [x] Migration 0015 creates `search_profiles`, `search_profile_terms`
+  and `search_profile_remote` (additive; legacy score columns kept and
+  unused) and seeds one default profile with the former 35/79/15 term
+  tables and their exact weights.
+- [x] `internal/classify` is a pure read-time scorer taking a profile:
+  title affinity, location affinity (location + description terms),
+  the fixed remote detector and a membership check, with structured
+  reasons. The hardcoded term tables, policy points and caps are gone.
+- [x] Scan, manual import, repair, split, merge and location/description
+  edits store facts and re-derive only `remote_policy`; no affinity is
+  written. `reclassify` and `scan.Reclassify` are removed.
+- [x] Profile API (`GET` list/detail, `PUT` replace) and offer affinity
+  filters/sorts with a Go-side score pass over SQL fact filters.
+- [x] Search profile page and affinity/remote presentation in the offers
+  table and detail; SPA tests and production build pass.
+- [x] `go build ./...`, `go vet ./...`, `go test ./...`, `npm test` and
+  `npm run build` pass; docs and changelog updated.
+- [x] Known gap about stale scores after manual edits is closed.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| The SPA edits only the default profile; the API and schema support several | the change explicitly defers a profile selector; a second profile can be selected with `profile_id` in API/URL tests |
+| Affinity filters and sorts run in Go after the SQL fact filters | scores are read-time values with no stored column; the personal dataset is small and this keeps profile edits immediately effective |
+| `floor`/`ceil` weights are not used: bucket selection sets a default numeric weight that stays editable | the bucket is a display label; the numeric weight is the value the scorer uses, as the data model states |
+| Offer responses use the stored `remote_policy` fact and compute acceptance from the profile | the detector runs at ingestion/edits; reads must not silently re-detect a fact |
+| `docs/SPEC.md` §6 is updated now and becomes a pointer when the change is archived | ownership moves to `openspec/specs/classification` only at archive time |
 
 ## Milestone 1 — Core: bootstrap, database, sources, scan, CLI — DONE
 
@@ -429,7 +467,7 @@ Done criteria (all met):
 | Deviation | Reason |
 |---|---|
 | An empty `description` string stores no description (NULL `raw_text`/`text_hash`) and appends an empty snapshot | the prompt only forbids `null`; an empty string is a legitimate edit and follows the existing scan/import convention for offers without text |
-| A manual description edit does not re-run the classifier | the prompt keeps the classifier unchanged; scores refresh on the next sighting or `jobwatch reclassify --all`, just like any other text change outside the scan loop |
+| ~~A manual description edit does not re-run the classifier~~ — superseded by `classification-profiles`: a manual location/description edit re-derives the remote policy, and title/location affinity is computed at read time, so no refresh command exists | the original 7b prompt kept the classifier unchanged; the later change moved scoring out of ingestion |
 | Provenance expansion persists per offer in `localStorage` instead of per session | the user usually revisits the same offer; remembering the choice per offer is the least noisy option and survives reloads |
 | The description editor lives inside the existing Description `<details>` block rather than a separate panel | keeps the diff, snapshot count and manual edit in one place without changing the established detail layout |
 
@@ -934,7 +972,7 @@ Done criteria (all met):
 | `notes_fts` not exposed | §4 | Open. The index is maintained but `GET /api/offers?q=` searches offers only |
 | No FTS search over companies in the UI | §9 | Open. `GET /api/companies?q=` matches the name; no full-text company search |
 | Pre-7c snapshot origins are all `scan` | §9 | By design after 7c. The old schema had no reliable manual marker; only snapshots written from 7c onward carry an exact origin |
-| Manual description edits do not refresh classifier scores | §6 | Open. Scores keep their previous values until the next sighting or `jobwatch reclassify --all`; the edit itself is versioned normally |
+| ~~Manual description edits do not refresh classifier scores~~ — closed by OpenSpec change `classification-profiles`: affinity is computed at read time from the current search profile, and the remote policy is re-derived on every location/description edit | §6 | the stored score columns are deprecated and unused; a profile edit applies on the next read |
 | Offer merge does not carry the absorbed offer's bookmark | §9 | Open. The kept offer keeps its own `saved_at`; the absorbed bookmark is not copied. Merge semantics were left unchanged in 7e |
 | Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, offers import modal, offers table controls (columns, sort requests, URL round-trip, debounced search, page size, company combobox), incomplete list/repair, sources filters/bulk/switch/icons/company links, company two-column layout, company keys and offers-table controls, offer header/provenance layout and description Edit/View save, hash routing and interview prep (sections, cue, drag-and-drop payloads, Edit/View, new category, accordion, add/edit/delete, escaped markdown) | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); real-browser drag-and-drop, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
 | Source names link by override/source name only, not the board-reported company | §9 | Open. The sources payload has no board-reported company and Milestone 11 avoided a display-only endpoint; a source whose offers use a different company stays unlinked unless `config.company` is set |

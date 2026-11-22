@@ -112,9 +112,14 @@ func (s *Server) getCompany(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	profile, err := db.DefaultSearchProfile(ctx, s.DB)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
 	offerOut := make([]offerJSON, 0, len(offers.Offers))
 	for _, o := range offers.Offers {
-		offerOut = append(offerOut, offerToJSON(o))
+		offerOut = append(offerOut, offerToJSON(o, profile))
 	}
 	noteOut := make([]noteJSON, 0, len(notes))
 	for _, n := range notes {

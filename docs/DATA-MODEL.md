@@ -25,6 +25,7 @@ require a table rebuild.
 | 0012 | `0012_company_identity.sql` | OpenSpec change `offer-identity-from-source-uid`: creates `company_keys` and `company_aliases`; backfills one confirmed alias per company and keys from typed adapter config tokens; rebuilds `job_offers` so `company_id` is nullable, `fingerprint` is no longer UNIQUE and `incomplete_reason`/`incomplete_raw` exist; converts `offer_state = 'changed'` to `active`; squashes duplicate `(source_id, external_uid)` provenance rows onto the surviving offer and adds a partial unique index on that pair |
 | 0013 | `0013_company_resolution.sql` | OpenSpec change `offer-identity-from-source-uid`: rebuilds `companies` so `name_normalized` is no longer UNIQUE (display names are attributes, not identity) and adds a non-unique lookup index; backfills a global alias for any company without one; sets `config.company` to the current display name on enabled single-employer sources (typed ATS plus RSS/HTML except We Work Remotely) so the scan pipeline can stop using `sources.name` as a company fallback |
 | 0014 | `0014_wwr_employer_rule.sql` | Data-only: adds `{"employer":{"separator":":"}}` to the registered We Work Remotely RSS config when no employer rule is present, so the adapter splits `Employer: Role` into company and title. Every other config key is kept; re-applying matches no row |
+| 0015 | `0015_search_profiles.sql` | OpenSpec change `classification-profiles`: creates `search_profiles`, `search_profile_terms` and `search_profile_remote` and seeds one default profile from the former hardcoded classifier tables (35 title, 79 location, 15 description terms with their exact weights; `remote` and `unknown` accepted). Additive: no `job_offers` row or column is changed; the legacy score columns stay unused |
 
 Migration 0012 runs on a pinned connection with `foreign_keys=OFF` so it
 can rebuild `job_offers` without `DROP TABLE` cascading into events,
@@ -54,6 +55,15 @@ Migration 0014 is data-only and additive: it adds the employer rule to
 the We Work Remotely config when the key is absent and leaves every other
 config value untouched. Removing the `employer` key from that source's
 config reverts it; no table or row is rebuilt.
+
+Migration 0015 is additive: it creates the three profile tables and
+seeds one default profile. It does not rebuild or rewrite `job_offers`,
+so the legacy `title_confidence`, `location_confidence` and
+`match_reasons_json` columns keep their values and every offer id, child
+row and fingerprint is untouched. The previous binary ignores the new
+tables; rolling back only needs the pre-migration backup if the user also
+wants the seeded profile gone. Re-running the migration is impossible
+because `schema_migrations` records version 15.
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -202,7 +212,7 @@ them or keeping a user-edited source is safe.
 | title | TEXT NOT NULL | as first seen; empty only for an incomplete item whose source reported no title |
 | title_normalized | TEXT NOT NULL | `model.NormalizeTitle`: lowercase, accents folded, gender markers (`H/F`, `m/w/d`…) removed, punctuation → space; empty when the title is missing |
 | location | TEXT | free text as first seen |
-| remote_policy | TEXT NOT NULL DEFAULT 'unknown' | `remote` `hybrid` `onsite` `unknown`; derived by the deterministic classifier from location and description on every sighting (and by `jobwatch reclassify`) |
+| remote_policy | TEXT NOT NULL DEFAULT 'unknown' | `remote` `hybrid` `onsite` `unknown`; an offer fact derived by the fixed remote detector from location and description on every sighting and on location/description edits |
 | url | TEXT | canonical (first-seen) link |
 | fingerprint | TEXT NOT NULL DEFAULT '' | no longer UNIQUE since 0012; see Fingerprints. Written on creation for compatibility with the merge/rename code; never used for resolution |
 | first_seen_at, last_seen_at | TEXT NOT NULL | |
@@ -210,9 +220,9 @@ them or keeping a user-edited source is safe.
 | application_state | TEXT NOT NULL DEFAULT 'todo' | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
 | raw_text | TEXT | latest plain-text description |
 | text_hash | TEXT | SHA-256 hex of whitespace-collapsed `raw_text`; NULL when no description |
-| title_confidence | INTEGER | 0..100 (CHECK), probability the title is a Platform/SRE/DevOps/Infra role; NULL only until classified |
-| location_confidence | INTEGER | 0..100 (CHECK), probability the offer is full remote and France-compatible; NULL only until classified |
-| match_reasons_json | TEXT | `{"title":["..."],"location":["..."]}`: human-readable matched terms and weights per score (see Classification below) |
+| title_confidence | INTEGER | **Deprecated since 0015, unused.** Legacy stored title score. Kept only for rollback; no code reads or writes it, and it is absent from API responses and filters |
+| location_confidence | INTEGER | **Deprecated since 0015, unused.** Legacy stored location score. Same status as `title_confidence` |
+| match_reasons_json | TEXT | **Deprecated since 0015, unused.** Legacy stored reason strings; reasons are computed from the current profile at read time |
 | saved_at | TEXT | NULL = not bookmarked; otherwise the UTC RFC3339 time the user bookmarked the offer (`PATCH /api/offers/:id` with `saved: true`). Independent of `offer_state` and `application_state` |
 | incomplete_reason | TEXT | NULL for a usable offer; otherwise `missing_company`, `missing_title` or `missing_company_title` (validated in Go) |
 | incomplete_raw | TEXT | JSON object with the values the source reported for an incomplete item. Kept after a repair as the durable marker that protects the user's title and location from later scans |
@@ -234,24 +244,73 @@ NULL.
 changes either state machine, and an offer that becomes an application
 keeps its bookmark until the user explicitly clears it.
 
-### Classification columns
+### Deprecated classification columns
 
-- Scores are additive keyword outcomes clamped to 0..100. The title table
-  has strong positives (60), weak technology/role terms (15–25), strong
-  negatives (marketing, sales, recruiter, internship, account executive,
-  French internship/apprenticeship words; −120) and management penalties
-  (−20). A strong negative therefore suppresses even a strong positive.
-- Location scoring combines remote/hybrid/onsite phrases with France,
-  French city, EMEA/EU/Europe and time-zone terms; clearly incompatible
-  locations subtract points. Description evidence carries lower weight.
-  The derived policy caps the score: onsite ≤ 50, hybrid ≤ 75, unknown
-  ≤ 60; only a remote role can reach 100.
-- `match_reasons_json` is always valid JSON with two arrays. Each element
-  is a readable string such as `strong positive "platform engineer"
-  (+60)` or `description "remote" (+25)`. The UI uses the matching array
-  as the score-badge tooltip.
-- `jobwatch reclassify` fills missing scores; `--all` recomputes every
-  offer after a keyword-table change. It does not change `updated_at`.
+The 0015 migration moved classification decisions out of the offer row.
+`title_confidence`, `location_confidence` and `match_reasons_json` remain
+in `job_offers` but are **unused**: no code reads or writes them, no API
+response exposes them, and no filter or sort uses them. They are kept for
+rollback only. Title affinity, location affinity and the score reasons
+are computed from the current search profile at read time (see
+`ARCHITECTURE.md`); a profile edit takes effect on the next read with no
+reclassification command.
+
+### search_profiles
+
+One user search profile: the target role, geography and remote policy
+selection. The schema supports several profiles; the UI edits one.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | INTEGER PK | autoincrement |
+| name | TEXT NOT NULL | display name; validated non-empty in Go |
+| title_label | TEXT NOT NULL DEFAULT '' | optional heading for the title term list |
+| location_label | TEXT NOT NULL DEFAULT '' | optional heading for the location term list |
+| bucket_scale | TEXT NOT NULL DEFAULT 'five' | `three` (`positive` `neutral` `negative`) or `five` (`strong_positive` `mild_positive` `neutral` `mild_negative` `strong_negative`). A display choice: the scorer always adds `search_profile_terms.weight` |
+| is_default | INTEGER NOT NULL DEFAULT 0 | 0/1; a partial unique index `idx_search_profiles_default` allows at most one default |
+| created_at, updated_at | TEXT NOT NULL | |
+
+The default profile is the one with `is_default = 1`; it is used for
+offer scoring when a request does not name a profile. The migration seeds
+exactly one: name `Default`, title label `Platform Engineer / SRE`,
+location label `France / full remote`, five-bucket scale.
+
+### search_profile_terms
+
+| Column | Type | Notes |
+|---|---|---|
+| id | INTEGER PK | autoincrement |
+| profile_id | INTEGER NOT NULL → search_profiles ON DELETE CASCADE | |
+| affinity | TEXT NOT NULL | `title`, `location` or `description` (validated in Go). Description terms add location evidence only |
+| bucket | TEXT NOT NULL | display label; must belong to the profile's `bucket_scale` |
+| term | TEXT NOT NULL | term as entered (outer whitespace trimmed). Matching normalizes with `model.NormalizeKeywords` |
+| weight | INTEGER NOT NULL | score added when the term matches. Neutral terms must be 0; a non-neutral bucket needs a non-zero weight |
+| sort_order | INTEGER NOT NULL DEFAULT 0 | position inside the profile editor |
+
+`UNIQUE(profile_id, affinity, term)`; index
+`idx_search_profile_terms_profile(profile_id, affinity, sort_order)`.
+Validation rejects empty terms, duplicate terms after normalization,
+buckets outside the scale and neutral/non-neutral weight mismatches. A
+profile update replaces these rows in one transaction.
+
+The seed copies the former hardcoded tables exactly: 35 title terms
+(strong positive 60, weak technology/role terms 15–25, management −20,
+strong negatives −120), 79 location terms (France and cities, EMEA/EU/
+Europe and time zones positive; UK/Germany −20, other countries −15,
+clearly incompatible countries −35) and 15 description terms (5–20).
+
+### search_profile_remote
+
+| Column | Type | Notes |
+|---|---|---|
+| profile_id | INTEGER NOT NULL → search_profiles ON DELETE CASCADE | |
+| policy | TEXT NOT NULL | `remote` `hybrid` `onsite` `unknown`; `remote` is labelled "Full remote" in the UI |
+| accepted | INTEGER NOT NULL DEFAULT 0 | 0/1 membership checkbox; missing row = not accepted |
+
+`PRIMARY KEY(profile_id, policy)`. Remote is a fact plus a membership
+check, never a weighted score: `job_offers.remote_policy` is detected from
+the offer text and `accepted` says whether the current profile wants it.
+The seed accepts `remote` and `unknown` and rejects `hybrid` and `onsite`.
 
 ### Manual description edits
 

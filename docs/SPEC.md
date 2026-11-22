@@ -175,29 +175,15 @@ Not yet captured as a capability: the UI must let the user manually
 merge two offers and manually split a wrongly merged one, and that merge
 or split moves provenance, snapshots, events and notes.
 
-## 6. Classification engine (deterministic, hardcoded)
+## 6. Classification engine (deterministic, read-time)
 
-Goal: for every scanned offer, produce two confidence scores (0–100) and
-human-readable reasons. No LLM in the scan loop.
-
-- **Title confidence** (is it a Platform Eng / SRE / DevOps / Infra role?):
-  weighted keyword sets over the normalized title.
-  - strong positives: "platform engineer", "site reliability", "sre",
-    "devops", "infrastructure engineer", "cloud engineer"
-  - weak positives: "kubernetes", "reliability", "backend infrastructure"
-  - strong negatives: "marketing", "sales", "recruiter", "internship",
-    "account executive"
-  → produce 0–100.
-- **Location confidence** (full remote, France-compatible?): parse
-  location strings + description keywords ("remote", "France", "Paris",
-  "EMEA", "EU", time zones). Map to `remote_policy` and 0–100.
-- Store both scores separately so the UI can filter independently on
-  them ("show me everything with title ≥ 80 AND location ≥ 80").
-- `match_reasons_json` stores the matched keywords/locations so the UI
-  can explain any score. Hardcoded config lives in a single Go package
-  (`internal/classify`) with keyword tables as constants — easy to tweak.
-- No separate "needs review" queue. Scores are shown as small badges;
-  filtering happens on the two score fields.
+Classification and search profiles are specified by the `classification`
+and `search-profiles` capabilities
+([openspec/specs/classification/spec.md](../openspec/specs/classification/spec.md),
+[openspec/specs/search-profiles/spec.md](../openspec/specs/search-profiles/spec.md)):
+offer facts separate from user preferences, read-time title and location
+affinity, remote policy as a fact plus a profile membership check, and
+the profile terms, buckets, validation and default seed.
 
 ## 7. Sources & fetching architecture
 
@@ -507,3 +493,9 @@ plain React + a lightweight table component is fine.
   `openspec/specs/wttj-source`. The WTTJ note in section 7 is now a
   pointer; the two-call flow, request quirks, alias resolution and known
   gaps remain in `docs/SOURCE-DECISIONS.md`.
+- 2026-11-22 (OpenSpec change `classification-profiles`, archived): the
+  change is archived and its deltas were synced to
+  `openspec/specs/classification` and `openspec/specs/search-profiles`.
+  Section 6 is now a pointer; the schema, endpoints and profile
+  procedure remain in `docs/DATA-MODEL.md`, `docs/API.md` and
+  `docs/USAGE.md`.

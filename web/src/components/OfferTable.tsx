@@ -2,7 +2,7 @@ import { appLabel, fmtDateTime, relativeTime } from '../format'
 import type { Offer } from '../types'
 import { BookmarkButton } from './BookmarkButton'
 import { Link } from './Link'
-import { ScoreBadge } from './ScoreBadge'
+import { RemoteBadge, ScoreBadge } from './ScoreBadge'
 import { StatePill } from './StatePill'
 import { SortHeader, type SortOrder, type TableColumn } from './TableControls'
 
@@ -14,8 +14,8 @@ export const OFFER_COLUMNS: TableColumn[] = [
   { id: 'remote', label: 'Remote' },
   { id: 'offer', label: 'Offer' },
   { id: 'application', label: 'Application' },
-  { id: 'title_score', label: 'Title score' },
-  { id: 'location_score', label: 'Location score' },
+  { id: 'title_affinity', label: 'Title affinity' },
+  { id: 'location_affinity', label: 'Location affinity' },
   { id: 'last_seen', label: 'Last seen' },
 ]
 
@@ -25,8 +25,8 @@ const SORT_KEYS: Record<string, string> = {
   company: 'company',
   title: 'title',
   location: 'location',
-  title_score: 'title_confidence',
-  location_score: 'location_confidence',
+  title_affinity: 'title_affinity',
+  location_affinity: 'location_affinity',
   last_seen: 'last_seen',
 }
 
@@ -37,8 +37,8 @@ export const OFFER_SORT_VALUES = [
   'title',
   'company',
   'location',
-  'title_confidence',
-  'location_confidence',
+  'title_affinity',
+  'location_affinity',
   'saved',
 ] as const
 
@@ -49,8 +49,8 @@ export const OFFER_SORT_LABELS: Record<string, string> = {
   title: 'Title',
   company: 'Company',
   location: 'Location',
-  title_confidence: 'Title confidence',
-  location_confidence: 'Location confidence',
+  title_affinity: 'Title affinity',
+  location_affinity: 'Location affinity',
   saved: 'Recently saved',
 }
 
@@ -122,8 +122,8 @@ export function OfferTable({
             {visible.includes('remote') && header('remote', 'Remote')}
             {visible.includes('offer') && header('offer', 'Offer')}
             {visible.includes('application') && header('application', 'Application')}
-            {visible.includes('title_score') && header('title_score', 'Title score')}
-            {visible.includes('location_score') && header('location_score', 'Location score')}
+            {visible.includes('title_affinity') && header('title_affinity', 'Title affinity')}
+            {visible.includes('location_affinity') && header('location_affinity', 'Location affinity')}
             {visible.includes('last_seen') && header('last_seen', 'Last seen')}
           </tr>
         </thead>
@@ -154,7 +154,11 @@ export function OfferTable({
                 </td>
               )}
               {visible.includes('location') && <td>{o.location ?? '—'}</td>}
-              {visible.includes('remote') && <td>{o.remote_policy}</td>}
+              {visible.includes('remote') && (
+                <td>
+                  <RemoteBadge policy={o.remote_policy} accepted={o.remote_policy_accepted} />
+                </td>
+              )}
               {visible.includes('offer') && (
                 <td>
                   <StatePill kind={`offer-${o.offer_state}`}>{o.offer_state}</StatePill>
@@ -165,21 +169,21 @@ export function OfferTable({
                   <StatePill kind={`app-${o.application_state}`}>{appLabel(o.application_state)}</StatePill>
                 </td>
               )}
-              {visible.includes('title_score') && (
+              {visible.includes('title_affinity') && (
                 <td className="scores">
                   <ScoreBadge
                     label="T"
-                    value={o.title_confidence}
+                    value={o.title_affinity}
                     reasons={o.match_reasons}
                     kind="title"
                   />
                 </td>
               )}
-              {visible.includes('location_score') && (
+              {visible.includes('location_affinity') && (
                 <td className="scores">
                   <ScoreBadge
                     label="L"
-                    value={o.location_confidence}
+                    value={o.location_affinity}
                     reasons={o.match_reasons}
                     kind="location"
                   />

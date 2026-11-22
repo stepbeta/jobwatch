@@ -97,22 +97,12 @@ func RepairOffer(ctx context.Context, sqlDB *sql.DB, id, companyID int64, title 
 			loc = &v
 		}
 	}
-	scores := classify.Classify(title, derefString(loc), derefString(o.RawText)).Scores()
-	policy := scores.RemotePolicy
-	if policy == "" {
-		policy = model.RemoteUnknown
-	}
-	reasons := scores.MatchReasonsJSON
-	if reasons == "" {
-		reasons = `{"title":[],"location":[]}`
-	}
+	policy := classify.DeriveRemotePolicy(derefString(loc), derefString(o.RawText))
 	if _, err := tx.ExecContext(ctx, `UPDATE job_offers
 		SET company_id = ?, title = ?, title_normalized = ?, location = ?, remote_policy = ?,
-		    title_confidence = ?, location_confidence = ?, match_reasons_json = ?,
 		    incomplete_reason = NULL, updated_at = ?
 		WHERE id = ?`,
-		companyID, title, norm, nullStr(loc), string(policy),
-		scores.TitleConfidence, scores.LocationConfidence, reasons, model.FormatTime(now), id); err != nil {
+		companyID, title, norm, nullStr(loc), string(policy), model.FormatTime(now), id); err != nil {
 		return model.JobOffer{}, fmt.Errorf("repair offer %d: %w", id, err)
 	}
 	if err := tx.Commit(); err != nil {

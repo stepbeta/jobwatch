@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -106,6 +107,10 @@ func TestMergeOffersMovesEverything(t *testing.T) {
 	if n, err := CountSnapshots(ctx, sqlDB, target.ID); err != nil || n != 2 {
 		t.Errorf("snapshots = %d, err %v", n, err)
 	}
+	if merged.RemotePolicy != model.RemoteUnknown {
+		t.Errorf("merged remote_policy = %q, want unknown", merged.RemotePolicy)
+	}
+	assertNoLegacyScores(t, sqlDB, target.ID)
 }
 
 func TestMergeOffersCollapsesDuplicateURLs(t *testing.T) {
@@ -202,6 +207,10 @@ func TestSplitOfferMovesProvenance(t *testing.T) {
 	if n, _ := ListProvenance(ctx, sqlDB, res.Offer.ID); len(n) != 1 {
 		t.Errorf("new provenance = %+v", n)
 	}
+	if res.Offer.RemotePolicy != model.RemoteUnknown {
+		t.Errorf("split remote_policy = %q, want unknown", res.Offer.RemotePolicy)
+	}
+	assertNoLegacyScores(t, sqlDB, res.Offer.ID)
 }
 
 func TestSplitOfferValidation(t *testing.T) {
@@ -254,5 +263,22 @@ func TestSplitOfferValidation(t *testing.T) {
 		ProvenanceIDs: []int64{otherProv[0].ID}, Title: "SRE - Payments",
 	}, now); !errors.Is(err, ErrOfferSplitProvenance) {
 		t.Errorf("foreign provenance err = %v", err)
+	}
+}
+
+// assertNoLegacyScores fails when a write path stored the deprecated
+// title/location score columns.
+func assertNoLegacyScores(t *testing.T, sqlDB *sql.DB, offerID int64) {
+	t.Helper()
+	var titleConf, locConf sql.NullInt64
+	var reasons sql.NullString
+	if err := sqlDB.QueryRow(
+		`SELECT title_confidence, location_confidence, match_reasons_json FROM job_offers WHERE id = ?`,
+		offerID).Scan(&titleConf, &locConf, &reasons); err != nil {
+		t.Fatal(err)
+	}
+	if titleConf.Valid || locConf.Valid || reasons.Valid {
+		t.Errorf("offer %d stored legacy scores: title=%v location=%v reasons=%v",
+			offerID, titleConf, locConf, reasons)
 	}
 }

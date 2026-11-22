@@ -194,17 +194,14 @@ func updateMergedOffer(ctx context.Context, q Querier, from, into model.JobOffer
 	if appState == model.AppTodo && from.ApplicationState != model.AppTodo {
 		appState = from.ApplicationState
 	}
-	scores := classify.Classify(into.Title, derefString(location), derefString(rawText)).Scores()
-	titleConf, locConf := scores.TitleConfidence, scores.LocationConfidence
-	reasons := scores.MatchReasonsJSON
+	policy := classify.DeriveRemotePolicy(derefString(location), derefString(rawText))
 	if _, err := q.ExecContext(ctx, `UPDATE job_offers SET
 		url = ?, location = ?, remote_policy = ?, first_seen_at = ?, last_seen_at = ?,
-		offer_state = ?, application_state = ?, raw_text = ?, text_hash = ?,
-		title_confidence = ?, location_confidence = ?, match_reasons_json = ?, updated_at = ?
+		offer_state = ?, application_state = ?, raw_text = ?, text_hash = ?, updated_at = ?
 		WHERE id = ?`,
-		nullStr(url), nullStr(location), string(scores.RemotePolicy), model.FormatTime(firstSeen), model.FormatTime(lastSeen),
+		nullStr(url), nullStr(location), string(policy), model.FormatTime(firstSeen), model.FormatTime(lastSeen),
 		string(mergeOfferState(from.OfferState, into.OfferState)), string(appState), nullStr(rawText), nullStr(textHash),
-		titleConf, locConf, reasons, model.FormatTime(now), into.ID); err != nil {
+		model.FormatTime(now), into.ID); err != nil {
 		return fmt.Errorf("update merged offer %d: %w", into.ID, err)
 	}
 	return nil
@@ -345,24 +342,19 @@ func SplitOffer(ctx context.Context, sqlDB *sql.DB, offerID int64, in OfferSplit
 	if original.OfferState == model.OfferDisappeared {
 		state = model.OfferDisappeared
 	}
-	scores := classify.Classify(title, derefString(location), "").Scores()
-	titleConf, locConf := scores.TitleConfidence, scores.LocationConfidence
-	reasons := scores.MatchReasonsJSON
+	policy := classify.DeriveRemotePolicy(derefString(location), "")
 	newOffer := model.JobOffer{
-		CompanyID:          &company.ID,
-		Title:              title,
-		TitleNormalized:    titleNorm,
-		Location:           location,
-		RemotePolicy:       scores.RemotePolicy,
-		URL:                &selected[0].url,
-		Fingerprint:        fp,
-		FirstSeenAt:        firstSeen,
-		LastSeenAt:         lastSeen,
-		OfferState:         state,
-		ApplicationState:   model.AppTodo,
-		TitleConfidence:    &titleConf,
-		LocationConfidence: &locConf,
-		MatchReasonsJSON:   &reasons,
+		CompanyID:        &company.ID,
+		Title:            title,
+		TitleNormalized:  titleNorm,
+		Location:         location,
+		RemotePolicy:     policy,
+		URL:              &selected[0].url,
+		Fingerprint:      fp,
+		FirstSeenAt:      firstSeen,
+		LastSeenAt:       lastSeen,
+		OfferState:       state,
+		ApplicationState: model.AppTodo,
 	}
 	created, err := InsertOffer(ctx, tx, newOffer, now)
 	if err != nil {

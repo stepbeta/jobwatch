@@ -4,7 +4,7 @@ import { BookmarkButton } from '../components/BookmarkButton'
 import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
 import { EditViewEditor } from '../components/EditViewEditor'
 import { Link } from '../components/Link'
-import { ScoreBadge } from '../components/ScoreBadge'
+import { RemoteBadge, ScoreBadge } from '../components/ScoreBadge'
 import { ActionIcon, EventIcon } from '../components/icons'
 import {
   APP_STATES,
@@ -15,6 +15,7 @@ import {
   eventTimestamp,
   fmtDate,
   fmtDateTime,
+  remoteLabel,
   splitLocalInput,
   toLocalInput,
 } from '../format'
@@ -566,7 +567,7 @@ export function OfferPage({
           <div className="offer-title">
             <h1>{detail.offer.title || 'Untitled offer'}</h1>
             <div className="muted">
-              {detail.offer.location ?? 'No location'} · {detail.offer.remote_policy} · first seen{' '}
+              {detail.offer.location ?? 'No location'} · {remoteLabel(detail.offer.remote_policy)} · first seen{' '}
               {fmtDateTime(detail.offer.first_seen_at)} · {detail.snapshot_count} description{' '}
               version{detail.snapshot_count === 1 ? '' : 's'}
             </div>
@@ -580,15 +581,19 @@ export function OfferPage({
             />
             <ScoreBadge
               label="Title"
-              value={detail.offer.title_confidence}
+              value={detail.offer.title_affinity}
               reasons={detail.offer.match_reasons}
               kind="title"
             />
             <ScoreBadge
               label="Location"
-              value={detail.offer.location_confidence}
+              value={detail.offer.location_affinity}
               reasons={detail.offer.match_reasons}
               kind="location"
+            />
+            <RemoteBadge
+              policy={detail.offer.remote_policy}
+              accepted={detail.offer.remote_policy_accepted}
             />
           </div>
           <form className="state-controls" onSubmit={(e) => void saveStates(e)}>

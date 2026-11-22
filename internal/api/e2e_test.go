@@ -76,8 +76,8 @@ func TestSmokeFlows(t *testing.T) {
 		if o.CompanyName != "Hugging Face" {
 			t.Errorf("company = %q", o.CompanyName)
 		}
-		if o.TitleConfidence == nil || o.LocationConfidence == nil {
-			t.Errorf("offer %d was not classified: %+v", o.ID, o)
+		if o.RemotePolicy == "" {
+			t.Errorf("offer %d has no remote policy fact: %+v", o.ID, o)
 		}
 		if o.ApplicationState != "todo" {
 			t.Errorf("new offer %d state = %q", o.ID, o.ApplicationState)

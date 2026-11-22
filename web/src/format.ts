@@ -6,6 +6,7 @@ import type {
   RemotePolicy,
   ScanStatus,
   SourceType,
+  TermBucket,
 } from './types'
 
 export const APP_STATES: ApplicationState[] = [
@@ -22,6 +23,31 @@ export const APP_STATES: ApplicationState[] = [
 export const OFFER_STATES: OfferState[] = ['active', 'disappeared']
 
 export const REMOTE_POLICIES: RemotePolicy[] = ['remote', 'hybrid', 'onsite', 'unknown']
+
+const REMOTE_LABELS: Record<RemotePolicy, string> = {
+  remote: 'Full remote',
+  hybrid: 'Hybrid',
+  onsite: 'Onsite',
+  unknown: 'Unknown',
+}
+
+export function remoteLabel(policy: RemotePolicy): string {
+  return REMOTE_LABELS[policy] ?? policy
+}
+
+export const BUCKET_LABELS: Record<TermBucket, string> = {
+  strong_positive: 'Strong positive',
+  mild_positive: 'Mild positive',
+  neutral: 'Neutral',
+  mild_negative: 'Mild negative',
+  strong_negative: 'Strong negative',
+  positive: 'Positive',
+  negative: 'Negative',
+}
+
+export function bucketLabel(bucket: TermBucket): string {
+  return BUCKET_LABELS[bucket] ?? bucket
+}
 
 export const EVENT_TYPES: EventType[] = [
   'cv_sent',
@@ -73,8 +99,7 @@ export function scanLabel(s: ScanStatus | null): string {
   return 'Never'
 }
 
-export function scoreClass(value: number | null): string {
-  if (value === null) return 'score score-empty'
+export function scoreClass(value: number): string {
   if (value >= 80) return 'score score-good'
   if (value >= 50) return 'score score-mid'
   return 'score score-bad'
@@ -142,18 +167,11 @@ export function eventTimestamp(date: string, time: string): string {
   return d.toISOString()
 }
 
-// reasonsText renders the classifier's match reasons for one score as a
-// badge tooltip. Legacy array-shaped reasons are still rendered.
-export function reasonsText(reasons: MatchReasons | unknown, kind: 'title' | 'location'): string {
-  if (Array.isArray(reasons)) {
-    const parts = reasons.filter((r): r is string => typeof r === 'string')
-    return parts.join('\n')
-  }
-  if (reasons && typeof reasons === 'object') {
-    const list = (reasons as MatchReasons)[kind]
-    if (Array.isArray(list)) {
-      return list.filter((r): r is string => typeof r === 'string').join('\n')
-    }
-  }
-  return ''
+// reasonsText renders the profile terms that produced one affinity as a
+// badge tooltip. Neutral terms appear with weight 0.
+export function reasonsText(reasons: MatchReasons | null | undefined, kind: 'title' | 'location'): string {
+  const list = reasons?.[kind] ?? []
+  return list
+    .map((r) => `${bucketLabel(r.bucket)} "${r.term}" (${r.weight >= 0 ? '+' : ''}${r.weight})`)
+    .join('\n')
 }

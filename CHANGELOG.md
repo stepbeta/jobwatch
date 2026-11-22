@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+### Classification profiles (OpenSpec change `classification-profiles`)
+
+#### Added
+- Migration 0015 adds `search_profiles`, `search_profile_terms` and
+  `search_profile_remote` and seeds one default profile from the former
+  hardcoded classifier tables: 35 title, 79 location and 15 description
+  terms with their exact weights, a five-bucket scale, and `remote` plus
+  `unknown` accepted. Additive: no offer row or legacy column is
+  rewritten.
+- `GET /api/search-profiles`, `GET /api/search-profiles/:id` and
+  `PUT /api/search-profiles/:id`, with validation that rejects empty or
+  duplicate terms, buckets outside the scale and neutral/weight
+  mismatches without changing the stored profile.
+- A **Search profile** page (`#/search-profile`): name and labels, 3/5
+  bucket scale, title/location term rows with numeric weights, an
+  advanced description-terms section and remote policy checkboxes, with
+  explanatory text for each signal.
+- Read-time title and location affinity on every offer response, with
+  structured `match_reasons` (term, weight, bucket) and
+  `remote_policy_accepted`. Offers can be filtered by
+  `min_title_affinity`, `min_location_affinity`, `remote_accepted` and
+  `profile_id`, and sorted by `title_affinity`/`location_affinity`.
+- `jobwatch list` now shows remote acceptance and title/location
+  affinity computed from the default profile.
+
+#### Changed
+- Classification is facts plus preferences plus read-time scores. The
+  scan stores title, location, description and the derived
+  `remote_policy` only; remote is a fixed-detector fact plus a profile
+  membership check, not a weighted score.
+- A profile edit applies to the next read; a manual location or
+  description edit re-derives the remote policy in the same transaction.
+- **Breaking API/CLI:** offer responses no longer expose
+  `title_confidence`, `location_confidence` or the old `match_reasons`
+  shape; score filters and sorts are renamed to the affinity names.
+
+#### Fixed
+- Title and location scores no longer go stale after a manual edit or a
+  profile change: they are computed from the current profile on every
+  read.
+
+#### Removed
+- The `reclassify` command, `scan.Reclassify` and the classifier's
+  hardcoded title/location/description term tables. The legacy score
+  columns remain in `job_offers`, unused and deprecated.
+
 ### Offer identity from source uid (OpenSpec change, task group 1)
 
 #### Added
