@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -54,6 +55,16 @@ func TestSearchProfileEndpoints(t *testing.T) {
 		"name": "Broken", "bucket_scale": "five",
 		"terms": []map[string]any{{"affinity": "title", "bucket": "positive", "term": "   ", "weight": 10}},
 	}), 400, "validation_failed")
+	// A non-numeric weight cannot be decoded; the 400 message names the
+	// offending field, and the stored profile stays unchanged.
+	rec = ts.do(t, "PUT", "/api/search-profiles/1", map[string]any{
+		"name": "Broken", "bucket_scale": "five",
+		"terms": []map[string]any{{"affinity": "title", "bucket": "positive", "term": "sre", "weight": "sixty"}},
+	})
+	wantErrorCode(t, rec, 400, "invalid_json")
+	if msg := decodeBody[errorBody](t, rec).Error.Message; !strings.Contains(msg, "weight") {
+		t.Errorf("invalid weight message = %q, want it to name the weight field", msg)
+	}
 	rec = ts.do(t, "GET", "/api/search-profiles/1", nil)
 	wantCode(t, rec, 200)
 	if got := decodeBody[profileResp](t, rec).Profile; got.Name != before.Name || len(got.Terms) != len(before.Terms) {

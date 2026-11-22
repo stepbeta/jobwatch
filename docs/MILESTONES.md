@@ -467,7 +467,7 @@ Done criteria (all met):
 | Deviation | Reason |
 |---|---|
 | An empty `description` string stores no description (NULL `raw_text`/`text_hash`) and appends an empty snapshot | the prompt only forbids `null`; an empty string is a legitimate edit and follows the existing scan/import convention for offers without text |
-| A manual description edit does not re-run the classifier | the prompt keeps the classifier unchanged; scores refresh on the next sighting or `jobwatch reclassify --all`, just like any other text change outside the scan loop |
+| ~~A manual description edit does not re-run the classifier~~ — superseded by `classification-profiles`: a manual location/description edit re-derives the remote policy, and title/location affinity is computed at read time, so no refresh command exists | the original 7b prompt kept the classifier unchanged; the later change moved scoring out of ingestion |
 | Provenance expansion persists per offer in `localStorage` instead of per session | the user usually revisits the same offer; remembering the choice per offer is the least noisy option and survives reloads |
 | The description editor lives inside the existing Description `<details>` block rather than a separate panel | keeps the diff, snapshot count and manual edit in one place without changing the established detail layout |
 

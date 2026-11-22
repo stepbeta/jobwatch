@@ -125,27 +125,17 @@ The title, location and description sections carry the concise explanatory text 
 
 ## Risks / Trade-offs
 
-- **Read-time scoring cost on long descriptions** → Load the profile once per request, normalize each description once, and keep the list's non-score filters narrow. For a personal database the dataset is small. If it grows, add a cache or a SQLite UDF rather than changing the API.
+- **Read-time scoring cost on long descriptions** → Load the profile once per request, normalize each description once, and keep the list's non-score filters narrow. Every read does work because no score is cached: that is the intended trade-off, and it removes the stale-score gap. For a personal database the dataset is small. If it grows, add a cache or a SQLite UDF rather than changing the API.
 - **Score filters and sorts cannot run in SQL** → Apply non-score filters in SQL, compute affinity in Go, then filter, sort and paginate. Document the total-count semantics. A future cache can restore SQL-level filtering.
 - **Seed drift from the hardcoded tables** → Generate the seed from the current tables and add a migration test that asserts term counts and weights. Use the seeded profile in classifier tests for the current examples. The seed is the only source after the change.
 - **Breaking API and CLI changes** → Update the SPA, CLI, docs and tests in the same change. The user is the only consumer. List the removed fields and command in `docs/API.md`, `README.md` and `CHANGELOG.md`.
 - **Profile edits can create invalid data** → Validate names, terms, weights and policies; reject empty terms and non-numeric weights; replace the profile in one transaction and keep it unchanged on failure.
-- **Description terms are easy to misunderstand** → Keep them in an advanced section with concise text that states they affect location affinity only and not remote detection.
+- **Description terms are easy to misunderstand** → Keep them in an advanced section with concise text that states they affect location affinity only and not remote detection. The seeded description terms are weaker and positive-only; the user can edit them without changing remote detection.
 - **Unknown remote policy default** → Accept `unknown` by default and explain it in the UI. The user can uncheck it for strict full-remote searches.
 - **Multiple profiles are only partially exposed** → Ship the schema and API with multiple-profile support; the initial UI edits the default profile. Document the deferred selector.
 - **Legacy columns remain** → Mark them deprecated in `docs/DATA-MODEL.md`, stop selecting and writing them, and keep them out of API responses. A future destructive migration can remove them.
+- **Remote detection is fixed and can misread negation** → The detector remains the existing deterministic phrase matcher; the change does not add negation handling. The user preference is the policy selection, not the detector.
 - **No new dependencies** → Use the existing Go, SQLite and React stack. No new packages.
-
-## Risks / Trade-offs
-
-- **Read-time scoring cost grows with the number of offers and description length** → Load the profile once per request, normalize each offer once, and keep score filters/sorts in Go only after the non-score filters. For a personal database this is acceptable; if it becomes slow, add a cache or a SQLite UDF without changing the API contract.
-- **Profile changes no longer need a reclassification pass, but every read does work** → This is the intended trade-off. The API response stays correct after every profile edit, and the stale-score gap disappears.
-- **Migration seed drift** → The seed is tested against the current hardcoded tables before the tables are removed. The seed is the only place the old decisions live, and a future product can replace it with a from-scratch migration.
-- **Breaking API and CLI changes** → Update the SPA, CLI, docs and tests in the same change. The API returns no legacy score fields, and the `reclassify` command is removed. The changelog calls out the break.
-- **Legacy score columns remain in the database** → The additive migration keeps them unused and marked deprecated. No query reads them. A future destructive migration can drop them.
-- **Remote detection is fixed and can misread negation** → The detector remains the existing deterministic phrase matcher. The change does not add negation handling; the user preference is the policy selection, not the detector.
-- **Description terms are weaker and positive-only in the seed** → The UI labels them as advanced and explains that they affect geography only. The user can edit them without changing remote detection.
-- **Multiple profiles are stored but only one is exposed** → The schema and API support multiple profiles; the SPA starts with the default profile. The multi-profile UI is deferred and does not require a schema change.
 
 ## Migration Plan
 

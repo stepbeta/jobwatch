@@ -7,8 +7,10 @@ import (
 )
 
 // testProfile is a representative subset of the seeded default profile
-// (migration 0015). Every weight and bucket matches the seed; the
-// migration tests assert the full table.
+// (migration 0015): its terms, weights and buckets match the seed, and it
+// adds one synthetic neutral term ("contract", weight 0, absent from the
+// seed) so the reason-list coverage includes a neutral match. The
+// migration tests assert the full seeded table.
 func testProfile() model.SearchProfile {
 	return model.SearchProfile{
 		ID:          1,
