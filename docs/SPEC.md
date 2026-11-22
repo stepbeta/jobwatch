@@ -499,3 +499,9 @@ plain React + a lightweight table component is fine.
   Section 6 is now a pointer; the schema, endpoints and profile
   procedure remain in `docs/DATA-MODEL.md`, `docs/API.md` and
   `docs/USAGE.md`.
+- 2026-11-22 (OpenSpec change `wttj-description-fallback`, archived): the
+  change is archived and its delta was synced to
+  `openspec/specs/wttj-source`. The WTTJ description fallback and the
+  detail-request rules are now owned by that capability; the section 7
+  pointer above remains, and operational details stay in
+  `docs/SOURCE-DECISIONS.md`.
