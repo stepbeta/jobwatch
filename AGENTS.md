@@ -51,7 +51,7 @@ company.
   setup, no heavyweight framework ceremony. Built output is embedded
   into the binary via `go:embed` under `web/dist`.
 - CLI: Cobra with subcommands (`serve`, `scan`, `add-source`,
-  `add-sources`, `list`, `import`, `backup`, `reclassify`).
+  `add-sources`, `list`, `import`, `backup`, `reattribute`).
 
 ## Repository layout (keep it tidy)
 

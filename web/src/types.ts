@@ -70,15 +70,16 @@ export interface Offer {
   title: string
   location: string | null
   remote_policy: RemotePolicy
+  remote_policy_accepted: boolean
+  title_affinity: number
+  location_affinity: number
+  match_reasons: MatchReasons
   url: string | null
   offer_state: OfferState
   application_state: ApplicationState
   first_seen_at: string
   last_seen_at: string
   updated_at: string
-  title_confidence: number | null
-  location_confidence: number | null
-  match_reasons: MatchReasons | null
   last_event_at: string | null
   saved_at: string | null
   raw_text?: string | null
@@ -95,9 +96,70 @@ export interface IncompleteRaw {
   external_uid?: string
 }
 
+export type TermAffinity = 'title' | 'location' | 'description'
+
+export type TermBucket =
+  | 'strong_positive'
+  | 'mild_positive'
+  | 'neutral'
+  | 'mild_negative'
+  | 'strong_negative'
+  | 'positive'
+  | 'negative'
+
+export type BucketScale = 'three' | 'five'
+
+export interface MatchReason {
+  term: string
+  weight: number
+  bucket: TermBucket
+}
+
 export interface MatchReasons {
-  title?: string[]
-  location?: string[]
+  title: MatchReason[]
+  location: MatchReason[]
+}
+
+export interface SearchProfileTerm {
+  id: number
+  profile_id: number
+  affinity: TermAffinity
+  bucket: TermBucket
+  term: string
+  weight: number
+  sort_order: number
+}
+
+export interface SearchProfileRemote {
+  policy: RemotePolicy
+  accepted: boolean
+}
+
+export interface SearchProfile {
+  id: number
+  name: string
+  title_label: string
+  location_label: string
+  bucket_scale: BucketScale
+  is_default: boolean
+  terms: SearchProfileTerm[]
+  remote: SearchProfileRemote[]
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface SearchProfileInput {
+  name: string
+  title_label: string
+  location_label: string
+  bucket_scale: BucketScale
+  terms: {
+    affinity: TermAffinity
+    bucket: TermBucket
+    term: string
+    weight: number
+  }[]
+  remote: SearchProfileRemote[]
 }
 
 export interface Provenance {

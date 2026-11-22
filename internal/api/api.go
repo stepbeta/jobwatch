@@ -50,6 +50,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/sources/{id}", s.deleteSource)
 	mux.HandleFunc("POST /api/sources/{id}/scan", s.scanSource)
 
+	mux.HandleFunc("GET /api/search-profiles", s.listSearchProfiles)
+	mux.HandleFunc("GET /api/search-profiles/{id}", s.getSearchProfile)
+	mux.HandleFunc("PUT /api/search-profiles/{id}", s.replaceSearchProfile)
+
 	mux.HandleFunc("GET /api/offers", s.listOffers)
 	mux.HandleFunc("POST /api/offers/import", s.importOffer)
 	mux.HandleFunc("GET /api/offers/{id}", s.getOffer)

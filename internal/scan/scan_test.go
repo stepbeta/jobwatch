@@ -584,6 +584,7 @@ func TestScanIncompleteItems(t *testing.T) {
 		repaired.IncompleteRaw == nil || repaired.CompanyID == nil {
 		t.Errorf("repaired offer = %+v", repaired)
 	}
+	assertNoStoredScores(t, sqlDB, repaired.ID)
 
 	// A later scan of the same (still unnormalized) item must not overwrite
 	// the repair.
@@ -911,7 +912,9 @@ func TestScanWithLeverFixture(t *testing.T) {
 	}
 }
 
-func TestScanClassifiesOffers(t *testing.T) {
+// TestScanStoresFactsOnly checks that a scan stores the offer facts and
+// the derived remote policy, and writes no title/location score.
+func TestScanStoresFactsOnly(t *testing.T) {
 	sqlDB, sc, ff, _ := setup(t)
 	src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
 	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform}
@@ -919,20 +922,64 @@ func TestScanClassifiesOffers(t *testing.T) {
 		t.Fatal(r.Err)
 	}
 	sre := offerByTitle(t, sqlDB, rawSRE.Title)
-	if sre.TitleConfidence == nil || *sre.TitleConfidence != 85 {
-		t.Errorf("SRE title_confidence = %v, want 85", sre.TitleConfidence)
+	if sre.Location == nil || *sre.Location != "Paris, France" {
+		t.Errorf("SRE location = %v", sre.Location)
 	}
-	if sre.LocationConfidence == nil || *sre.LocationConfidence != 60 {
-		t.Errorf("SRE location_confidence = %v, want 60", sre.LocationConfidence)
+	if sre.RemotePolicy != model.RemoteUnknown {
+		t.Errorf("SRE remote_policy = %q, want unknown", sre.RemotePolicy)
 	}
-	if sre.MatchReasonsJSON == nil || !strings.Contains(*sre.MatchReasonsJSON, "site reliability") {
-		t.Errorf("SRE reasons = %v", sre.MatchReasonsJSON)
+	if sre.RawText == nil || *sre.RawText != rawSRE.Description {
+		t.Errorf("SRE description = %v", sre.RawText)
 	}
 	platform := offerByTitle(t, sqlDB, rawPlatform.Title)
 	if platform.RemotePolicy != model.RemoteFull {
 		t.Errorf("platform remote_policy = %q, want remote", platform.RemotePolicy)
 	}
-	if platform.LocationConfidence == nil || *platform.LocationConfidence != 80 {
-		t.Errorf("platform location_confidence = %v, want 80", platform.LocationConfidence)
+	assertNoStoredScores(t, sqlDB, sre.ID)
+	assertNoStoredScores(t, sqlDB, platform.ID)
+}
+
+// TestScanRederivesRemotePolicyOnSightingUpdate checks that a later
+// sighting updates the location and re-derives the policy fact.
+func TestScanRederivesRemotePolicyOnSightingUpdate(t *testing.T) {
+	sqlDB, sc, ff, clk := setup(t)
+	src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
+	ff.offers[src.ID] = []sources.RawOffer{rawSRE}
+	ctx := context.Background()
+	if r := sc.ScanSource(ctx, src); r.Status != model.ScanOK {
+		t.Fatal(r.Err)
+	}
+	if got := offerByTitle(t, sqlDB, rawSRE.Title); got.RemotePolicy != model.RemoteUnknown {
+		t.Fatalf("first policy = %q, want unknown", got.RemotePolicy)
+	}
+
+	changed := rawSRE
+	changed.Location = "Remote - France"
+	ff.offers[src.ID] = []sources.RawOffer{changed}
+	clk.advance()
+	if r := sc.ScanSource(ctx, src); r.Status != model.ScanOK || r.Seen != 1 {
+		t.Fatalf("rescan = %+v", r)
+	}
+	got := offerByTitle(t, sqlDB, rawSRE.Title)
+	if got.RemotePolicy != model.RemoteFull {
+		t.Errorf("policy after location edit = %q, want remote", got.RemotePolicy)
+	}
+	assertNoStoredScores(t, sqlDB, got.ID)
+}
+
+// assertNoStoredScores fails when a scan or ingestion path wrote the
+// deprecated legacy score columns.
+func assertNoStoredScores(t *testing.T, sqlDB *sql.DB, offerID int64) {
+	t.Helper()
+	var titleConf, locConf sql.NullInt64
+	var reasons sql.NullString
+	if err := sqlDB.QueryRow(
+		`SELECT title_confidence, location_confidence, match_reasons_json FROM job_offers WHERE id = ?`,
+		offerID).Scan(&titleConf, &locConf, &reasons); err != nil {
+		t.Fatal(err)
+	}
+	if titleConf.Valid || locConf.Valid || reasons.Valid {
+		t.Errorf("offer %d stored legacy scores: title=%v location=%v reasons=%v",
+			offerID, titleConf, locConf, reasons)
 	}
 }

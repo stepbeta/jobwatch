@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/stepbeta/jobwatch/internal/classify"
 	"github.com/stepbeta/jobwatch/internal/db"
 	"github.com/stepbeta/jobwatch/internal/diff"
 	"github.com/stepbeta/jobwatch/internal/model"
@@ -19,83 +21,195 @@ const (
 	maxOfferLimit     = 200
 )
 
-// parseOfferQuery builds a db.OfferQuery from the request parameters.
-func parseOfferQuery(r *http.Request) (db.OfferQuery, error) {
-	var f db.OfferQuery
+// Affinity sort values are applied in Go because the score is computed
+// at read time, not stored in SQL.
+const (
+	sortTitleAffinity    = "title_affinity"
+	sortLocationAffinity = "location_affinity"
+)
+
+// offerListQuery is the full offers-list request. Fact filters, non-score
+// sorts and pagination go to SQL; the affinity filters and sorts are
+// applied in Go after the facts are loaded.
+type offerListQuery struct {
+	Filter              db.OfferQuery
+	ProfileID           *int64
+	MinTitleAffinity    *int
+	MinLocationAffinity *int
+	RemoteAccepted      *bool
+	Sort                string
+	Order               string
+	Limit               int
+	Offset              int
+}
+
+// hasScoreWork reports whether the request needs every matching fact row
+// loaded, so affinity can be computed before filtering, sorting and
+// paginating.
+func (q offerListQuery) hasScoreWork() bool {
+	return q.MinTitleAffinity != nil || q.MinLocationAffinity != nil ||
+		q.RemoteAccepted != nil || q.Sort == sortTitleAffinity || q.Sort == sortLocationAffinity
+}
+
+// parseOfferQuery builds an offerListQuery from the request parameters.
+func parseOfferQuery(r *http.Request) (offerListQuery, error) {
+	var q offerListQuery
+	f := &q.Filter
 	f.Search = strings.TrimSpace(r.URL.Query().Get("q"))
 
 	apps, err := queryEnumList(r, "application_state", model.ApplicationState.Valid)
 	if err != nil {
-		return f, err
+		return q, err
 	}
 	f.ApplicationStates = apps
 	offers, err := queryEnumList(r, "offer_state", model.OfferState.Valid)
 	if err != nil {
-		return f, err
+		return q, err
 	}
 	f.OfferStates = offers
 	remotes, err := queryEnumList(r, "remote_policy", model.RemotePolicy.Valid)
 	if err != nil {
-		return f, err
+		return q, err
 	}
 	f.RemotePolicies = remotes
-	if f.MinTitleConfidence, err = queryInt(r, "min_title_confidence", 0, 100); err != nil {
-		return f, err
+	if q.ProfileID, err = queryInt64(r, "profile_id"); err != nil {
+		return q, err
 	}
-	if f.MinLocationConfidence, err = queryInt(r, "min_location_confidence", 0, 100); err != nil {
-		return f, err
+	if q.MinTitleAffinity, err = queryInt(r, "min_title_affinity", 0, 100); err != nil {
+		return q, err
+	}
+	if q.MinLocationAffinity, err = queryInt(r, "min_location_affinity", 0, 100); err != nil {
+		return q, err
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("remote_accepted")); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return q, fmt.Errorf("remote_accepted must be true or false")
+		}
+		q.RemoteAccepted = &v
 	}
 	if f.CompanyID, err = queryInt64(r, "company_id"); err != nil {
-		return f, err
+		return q, err
 	}
 	f.HasApplication = queryBool(r, "has_application")
 	if raw := strings.TrimSpace(r.URL.Query().Get("saved")); raw != "" {
 		v, err := strconv.ParseBool(raw)
 		if err != nil {
-			return f, fmt.Errorf("saved must be true or false")
+			return q, fmt.Errorf("saved must be true or false")
 		}
 		f.Saved = &v
 	}
 	if raw := strings.TrimSpace(r.URL.Query().Get("incomplete")); raw != "" {
 		v, err := strconv.ParseBool(raw)
 		if err != nil {
-			return f, fmt.Errorf("incomplete must be true or false")
+			return q, fmt.Errorf("incomplete must be true or false")
 		}
 		f.IncompleteOnly = v
 	}
 
-	f.Sort = strings.TrimSpace(r.URL.Query().Get("sort"))
-	if f.Sort == "" {
+	q.Sort = strings.TrimSpace(r.URL.Query().Get("sort"))
+	if q.Sort == "" {
+		q.Sort = db.SortLastSeen
+	}
+	f.Sort = q.Sort
+	if q.Sort == sortTitleAffinity || q.Sort == sortLocationAffinity {
+		// The Go sort below is authoritative; SQL only needs a stable base.
 		f.Sort = db.SortLastSeen
+	} else if !db.ValidOfferSort(q.Sort) {
+		return q, fmt.Errorf("sort must be one of last_seen, first_seen, recent_event, title, company, location, title_affinity, location_affinity, saved")
 	}
-	if !db.ValidOfferSort(f.Sort) {
-		return f, fmt.Errorf("sort must be one of last_seen, first_seen, recent_event, title, company, location, title_confidence, location_confidence, saved")
+	q.Order = strings.ToLower(strings.TrimSpace(r.URL.Query().Get("order")))
+	if !db.ValidOfferOrder(q.Order) {
+		return q, fmt.Errorf("order must be asc or desc")
 	}
-	f.Order = strings.ToLower(strings.TrimSpace(r.URL.Query().Get("order")))
-	if !db.ValidOfferOrder(f.Order) {
-		return f, fmt.Errorf("order must be asc or desc")
-	}
-	f.Limit = defaultOfferLimit
+	f.Order = q.Order
+	q.Limit = defaultOfferLimit
 	if v, err := queryInt(r, "limit", 1, maxOfferLimit); err != nil {
-		return f, err
+		return q, err
 	} else if v != nil {
-		f.Limit = *v
+		q.Limit = *v
 	}
 	if v, err := queryInt(r, "offset", 0, 1_000_000); err != nil {
-		return f, err
+		return q, err
 	} else if v != nil {
-		f.Offset = *v
+		q.Offset = *v
 	}
-	return f, nil
+	f.Limit = q.Limit
+	f.Offset = q.Offset
+	return q, nil
+}
+
+// scoredOffer is one fact row with its read-time affinity.
+type scoredOffer struct {
+	item db.OfferListItem
+	res  classify.Result
+}
+
+// profile returns the profile named by id, or the default profile when id
+// is nil.
+func (s *Server) profile(ctx context.Context, id *int64) (model.SearchProfile, error) {
+	if id != nil {
+		return db.GetSearchProfile(ctx, s.DB, *id)
+	}
+	return db.DefaultSearchProfile(ctx, s.DB)
+}
+
+// writeProfileError maps a profile lookup failure to an API response.
+func (s *Server) writeProfileError(w http.ResponseWriter, id *int64, err error) {
+	if errors.Is(err, db.ErrNotFound) {
+		if id != nil {
+			writeError(w, http.StatusNotFound, "not_found", fmt.Sprintf("search profile %d not found", *id))
+			return
+		}
+		writeError(w, http.StatusNotFound, "not_found", "no default search profile")
+		return
+	}
+	writeError(w, http.StatusInternalServerError, "internal", err.Error())
 }
 
 func (s *Server) listOffers(w http.ResponseWriter, r *http.Request) {
-	f, err := parseOfferQuery(r)
+	q, err := parseOfferQuery(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
 		return
 	}
-	res, err := db.QueryOffers(r.Context(), s.DB, f)
+	ctx := r.Context()
+	profile, err := s.profile(ctx, q.ProfileID)
+	if err != nil {
+		s.writeProfileError(w, q.ProfileID, err)
+		return
+	}
+
+	// Fast path: no affinity filter or sort, so SQL filters, orders and
+	// paginates and the total is the SQL count.
+	if !q.hasScoreWork() {
+		res, err := db.QueryOffers(ctx, s.DB, q.Filter)
+		if errors.Is(err, db.ErrInvalidQuery) {
+			writeError(w, http.StatusBadRequest, "invalid_query", err.Error())
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		out := make([]offerJSON, 0, len(res.Offers))
+		for _, o := range res.Offers {
+			out = append(out, offerToJSON(o, profile))
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"offers": out,
+			"total":  res.Total,
+			"limit":  q.Limit,
+			"offset": q.Offset,
+		})
+		return
+	}
+
+	// Score path: load every fact row that passes the SQL filters, compute
+	// affinity once, then filter, sort and paginate in Go.
+	q.Filter.Limit = 0
+	q.Filter.Offset = 0
+	res, err := db.QueryOffers(ctx, s.DB, q.Filter)
 	if errors.Is(err, db.ErrInvalidQuery) {
 		writeError(w, http.StatusBadRequest, "invalid_query", err.Error())
 		return
@@ -104,15 +218,73 @@ func (s *Server) listOffers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	out := make([]offerJSON, 0, len(res.Offers))
+	scored := make([]scoredOffer, 0, len(res.Offers))
 	for _, o := range res.Offers {
-		out = append(out, offerToJSON(o))
+		scored = append(scored, scoredOffer{
+			item: o,
+			res:  classify.Score(o.Title, derefString(o.Location), derefString(o.RawText), profile),
+		})
+	}
+	filtered := scored[:0]
+	for _, o := range scored {
+		if q.MinTitleAffinity != nil && o.res.TitleAffinity.Score < *q.MinTitleAffinity {
+			continue
+		}
+		if q.MinLocationAffinity != nil && o.res.LocationAffinity.Score < *q.MinLocationAffinity {
+			continue
+		}
+		if q.RemoteAccepted != nil && profile.Accepts(o.item.RemotePolicy) != *q.RemoteAccepted {
+			continue
+		}
+		filtered = append(filtered, o)
+	}
+	scored = filtered
+	sortScoredOffers(scored, q.Sort, q.Order)
+
+	total := len(scored)
+	start := q.Offset
+	if start > total {
+		start = total
+	}
+	end := total
+	if q.Limit > 0 && start+q.Limit < end {
+		end = start + q.Limit
+	}
+	out := make([]offerJSON, 0, end-start)
+	for _, o := range scored[start:end] {
+		out = append(out, offerToJSON(o.item, profile))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"offers": out,
-		"total":  res.Total,
-		"limit":  f.Limit,
-		"offset": f.Offset,
+		"total":  total,
+		"limit":  q.Limit,
+		"offset": q.Offset,
+	})
+}
+
+// sortScoredOffers orders by the requested affinity. The default
+// direction is descending, like the other score sorts used to be. Ties
+// break on offer id in the same direction so paging is stable.
+func sortScoredOffers(out []scoredOffer, sortBy, order string) {
+	if sortBy != sortTitleAffinity && sortBy != sortLocationAffinity {
+		return
+	}
+	desc := order != db.OrderAsc
+	sort.SliceStable(out, func(i, j int) bool {
+		vi, vj := out[i].res.LocationAffinity.Score, out[j].res.LocationAffinity.Score
+		if sortBy == sortTitleAffinity {
+			vi, vj = out[i].res.TitleAffinity.Score, out[j].res.TitleAffinity.Score
+		}
+		if vi != vj {
+			if desc {
+				return vi > vj
+			}
+			return vi < vj
+		}
+		if desc {
+			return out[i].item.ID > out[j].item.ID
+		}
+		return out[i].item.ID < out[j].item.ID
 	})
 }
 
@@ -126,6 +298,16 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 	snapshotID, err := queryInt64(r, "snapshot_id")
 	if err != nil || (snapshotID != nil && *snapshotID <= 0) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "snapshot_id must be a positive integer")
+		return
+	}
+	profileID, err := queryInt64(r, "profile_id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
+		return
+	}
+	profile, err := s.profile(ctx, profileID)
+	if err != nil {
+		s.writeProfileError(w, profileID, err)
 		return
 	}
 	o, err := db.GetOffer(ctx, s.DB, id)
@@ -225,7 +407,7 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 	for _, n := range notes {
 		notesOut = append(notesOut, noteToJSON(n))
 	}
-	offerOut := offerModelToJSON(o, companyName)
+	offerOut := offerModelToJSON(o, companyName, profile)
 	offerOut.RawText = o.RawText
 	if len(events) > 0 {
 		offerOut.LastEventAt = timeString(events[len(events)-1].OccurredAt)
@@ -345,7 +527,12 @@ func (s *Server) patchOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	offerOut := offerModelToJSON(o, companyName)
+	profile, err := db.DefaultSearchProfile(ctx, s.DB)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	offerOut := offerModelToJSON(o, companyName, profile)
 	offerOut.RawText = o.RawText
 	writeJSON(w, http.StatusOK, map[string]any{"offer": offerOut})
 }
@@ -398,7 +585,12 @@ func (s *Server) repairOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"offer": offerModelToJSON(o, companyName)})
+	profile, err := db.DefaultSearchProfile(ctx, s.DB)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"offer": offerModelToJSON(o, companyName, profile)})
 }
 
 func diffToJSON(from, to model.Snapshot) snapshotDiffJSON {
@@ -509,8 +701,13 @@ func (s *Server) mergeOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	profile, err := db.DefaultSearchProfile(ctx, s.DB)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"offer":            offerModelToJSON(res.Offer, companyName),
+		"offer":            offerModelToJSON(res.Offer, companyName, profile),
 		"merged_offer_id":  res.MergedOfferID,
 		"moved_provenance": res.MovedProvenance,
 		"moved_events":     res.MovedEvents,
@@ -581,8 +778,13 @@ func (s *Server) splitOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	profile, err := db.DefaultSearchProfile(ctx, s.DB)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"offer":            offerModelToJSON(res.Offer, companyName),
+		"offer":            offerModelToJSON(res.Offer, companyName, profile),
 		"moved_provenance": res.MovedProvenance,
 	})
 }

@@ -41,7 +41,8 @@ the project overview is the [README](../README.md).
 | `offer_state` | `active` `disappeared` |
 | offer `incomplete_reason` | `missing_company` `missing_title` `missing_company_title`; `null` for a usable offer |
 | `application_state` | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
-| `remote_policy` | `remote` `hybrid` `onsite` `unknown` |
+| `remote_policy` | `remote` (labelled "Full remote" in the UI) `hybrid` `onsite` `unknown` |
+| profile `bucket_scale` | `three` (`positive` `neutral` `negative`) `five` (`strong_positive` `mild_positive` `neutral` `mild_negative` `strong_negative`) |
 | event `type` | `cv_sent` `message_received` `message_sent` `interview` `offer` `rejected` `ghosted` `other` |
 | snapshot `origin` | `scan` `manual` |
 | interview `answer_format` | `markdown` |
@@ -157,14 +158,16 @@ Query parameters (all optional):
 | `q` | FTS5 query over offer title and description. Invalid FTS syntax → `400 invalid_query` |
 | `application_state` | one value or comma-separated list |
 | `offer_state` | one value or comma-separated list |
-| `remote_policy` | one value or comma-separated list |
-| `min_title_confidence` | integer 0–100; offers with a NULL score are excluded |
-| `min_location_confidence` | integer 0–100; same |
+| `remote_policy` | one value or comma-separated list (offer fact filter) |
+| `remote_accepted` | `true`/`false`: only offers whose derived policy the selected profile accepts (or does not). Absent = no filter. Invalid values → `400 validation_failed` |
+| `profile_id` | score offers with this search profile instead of the default. Unknown id → `404 not_found` |
+| `min_title_affinity` | integer 0–100; only offers whose computed title affinity is at least this value |
+| `min_location_affinity` | integer 0–100; same for location affinity |
 | `company_id` | restrict to one company |
 | `has_application` | `true`/`1`: only `application_state != todo` |
 | `saved` | `true`/`false`: only bookmarked (`saved_at` set) or only unbookmarked offers. Absent = no filter. Invalid values → `400 validation_failed` |
 | `incomplete` | `true`: only incomplete offers (missing company and/or title). Absent or `false` excludes them. Invalid values → `400 validation_failed` |
-| `sort` | `last_seen` (default), `first_seen`, `recent_event`, `title`, `company`, `location`, `title_confidence`, `location_confidence`, `saved` |
+| `sort` | `last_seen` (default), `first_seen`, `recent_event`, `title`, `company`, `location`, `title_affinity`, `location_affinity`, `saved` |
 | `order` | `asc` or `desc`; absent keeps the sort's historical default. Invalid values → `400 validation_failed` |
 | `limit` | default 50, maximum 200 |
 | `offset` | default 0 |
@@ -178,25 +181,38 @@ this filter and its `total` for the item count.
 Applications section). `saved` orders by `saved_at DESC` and is used by
 the dashboard's Saved section. Text sorts (`title`, `company`,
 `location`) default to ascending; the other sorts default to descending.
-`location` sorts by `COALESCE(location, '')`, and the two confidence
-sorts by their score (NULL as -1). All sorts append the offer id as a
-stable tie-breaker.
+`location` sorts by `COALESCE(location, '')`. `title_affinity` and
+`location_affinity` are computed at read time from the selected profile
+and sorted in Go; all sorts break ties on offer id in the same direction.
+
+Fact filters, non-score sorts, pagination and the `total` run in SQL. Any
+affinity filter or affinity sort loads the matching fact rows, computes
+affinity once, then filters, sorts and paginates in Go; `total` is the
+count after those filters. This keeps profile edits effective on the next
+request without a reclassification pass.
 
 ```json
 {
   "offers": [ {
     "id": 7, "company_id": 2, "company_name": "Acme",
     "title": "Site Reliability Engineer", "location": "Paris, France",
-    "remote_policy": "remote", "url": "https://boards.greenhouse.io/acme/jobs/7",
+    "remote_policy": "remote", "remote_policy_accepted": true,
+    "url": "https://boards.greenhouse.io/acme/jobs/7",
+    "title_affinity": 85, "location_affinity": 60,
+    "match_reasons": {
+      "title": [
+        { "term": "site reliability", "weight": 60, "bucket": "strong_positive" },
+        { "term": "reliability", "weight": 25, "bucket": "mild_positive" }
+      ],
+      "location": [
+        { "term": "france", "weight": 35, "bucket": "strong_positive" },
+        { "term": "paris", "weight": 25, "bucket": "mild_positive" }
+      ]
+    },
     "offer_state": "active", "application_state": "applied",
     "first_seen_at": "2026-11-10T08:00:00Z",
     "last_seen_at": "2026-11-16T09:00:00Z",
     "updated_at": "2026-11-16T09:00:00Z",
-    "title_confidence": 85, "location_confidence": 85,
-    "match_reasons": {
-      "title": ["strong positive \"site reliability\" (+60)", "weak positive \"reliability\" (+25)"],
-      "location": ["description \"remote\" (+25)", "location \"france\" (+35)", "remote policy: remote"]
-    },
     "last_event_at": "2026-11-15T17:30:00Z",
     "saved_at": "2026-11-16T08:15:00Z"
   } ],
@@ -204,12 +220,13 @@ stable tie-breaker.
 }
 ```
 
-`match_reasons` is the classifier's stored JSON: an object with a
-`title` and a `location` array of human-readable matched terms (or `null`
-until classification runs). Scores are 0–100. Offers inserted before the
-classifier existed keep `null` scores until `jobwatch reclassify` or the
-next sighting; `min_title_confidence` / `min_location_confidence` exclude
-NULL scores.
+`remote_policy` is the offer fact derived by the fixed detector;
+`remote_policy_accepted` says whether the selected profile accepts it.
+`title_affinity` and `location_affinity` are computed from the current
+profile on every read (0–100) and are never stored. `match_reasons` lists
+the profile terms that matched, with weight and bucket; neutral terms
+appear with weight 0. The legacy `title_confidence`,
+`location_confidence` and stored reason JSON are gone from the response.
 
 An incomplete offer has `company_id: null` when the source reported no
 company, and adds `incomplete_reason` (`missing_company`,
@@ -269,7 +286,9 @@ Full detail: offer, company, every provenance link (with source name),
 the timeline, the offer's notes, the description version history, the
 latest snapshot and the snapshot count. Optional query parameter
 `snapshot_id=N` adds the full `raw_text` of that one version (the other
-history entries stay metadata-only).
+history entries stay metadata-only). Optional `profile_id=N` computes the
+offer's affinity with that profile instead of the default; an unknown id
+returns `404 not_found`.
 
 ```json
 {
@@ -457,6 +476,80 @@ later scans preserve the user's title and location.
 - `400 validation_failed` when `company_id`/`title` is missing or the
   offer is not incomplete.
 - `404 not_found` for an unknown offer or company.
+
+## Search profiles
+
+Profiles store the user's title, location and description terms with
+weights, the bucket scale and the accepted remote policies. Title and
+location affinity is computed from a profile at read time; changing a
+profile changes the next offer read with no reclassification. Offer
+queries use the default profile when `profile_id` is absent.
+
+### GET /api/search-profiles
+
+```json
+{
+  "profiles": [ {
+    "id": 1, "name": "Default",
+    "title_label": "Platform Engineer / SRE",
+    "location_label": "France / full remote",
+    "bucket_scale": "five", "is_default": true,
+    "terms": [
+      { "id": 1, "profile_id": 1, "affinity": "title", "bucket": "strong_positive",
+        "term": "platform engineer", "weight": 60, "sort_order": 0 }
+    ],
+    "remote": [
+      { "policy": "remote", "accepted": true },
+      { "policy": "hybrid", "accepted": false },
+      { "policy": "onsite", "accepted": false },
+      { "policy": "unknown", "accepted": true }
+    ],
+    "created_at": "2026-11-22T14:00:00Z",
+    "updated_at": "2026-11-22T14:00:00Z"
+  } ]
+}
+```
+
+Ordered default first, then by name. `affinity` is `title`, `location` or
+`description`; description terms add location affinity only and never
+change the remote policy.
+
+### GET /api/search-profiles/:id
+
+`200 { "profile": { … } }`, or `404 not_found` for an unknown id and
+`400 invalid_id` for a non-positive id.
+
+### PUT /api/search-profiles/:id
+
+Replaces the profile's name, labels, bucket scale, terms and remote
+selection in one transaction; `id`, `is_default` and timestamps are kept
+from the stored row. The body accepts the same profile object returned by
+`GET` (`id`, `profile_id`, `sort_order`, `is_default`, `created_at` and
+`updated_at` are ignored), so a read-modify-write round trip is valid.
+
+```json
+{
+  "name": "Platform / SRE", "title_label": "Platform", "location_label": "France",
+  "bucket_scale": "three",
+  "terms": [
+    { "affinity": "title", "bucket": "positive", "term": "platform engineer", "weight": 60 },
+    { "affinity": "location", "bucket": "positive", "term": "france", "weight": 35 }
+  ],
+  "remote": [
+    { "policy": "remote", "accepted": true },
+    { "policy": "hybrid", "accepted": false },
+    { "policy": "onsite", "accepted": false },
+    { "policy": "unknown", "accepted": true }
+  ]
+}
+```
+
+- `200 { "profile": { … } }` with the stored profile.
+- `400 validation_failed` for an empty name, an empty term, a duplicate
+  term after normalization, a bucket outside the selected scale, a neutral
+  term with a non-zero weight, a non-neutral term with weight 0, or an
+  unknown policy. The stored profile is unchanged.
+- `404 not_found` for an unknown id.
 
 ## Events (offer timeline)
 

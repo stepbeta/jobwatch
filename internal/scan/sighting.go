@@ -69,21 +69,16 @@ func applySighting(ctx context.Context, q db.Querier, in Sighting, now time.Time
 		if err != nil {
 			return 0, 0, err
 		}
-		scores := classify.Classify(title, location, desc).Scores()
-		titleConf, locConf := scores.TitleConfidence, scores.LocationConfidence
-		reasons := scores.MatchReasonsJSON
+		policy := classify.DeriveRemotePolicy(location, desc)
 		o := model.JobOffer{
-			CompanyID:          &company.ID,
-			Title:              title,
-			TitleNormalized:    titleNorm,
-			Location:           optStr(location),
-			RemotePolicy:       scores.RemotePolicy,
-			URL:                optStr(link),
-			Fingerprint:        model.Fingerprint(company.NameNormalized, titleNorm, ""),
-			RawText:            optStr(desc),
-			TitleConfidence:    &titleConf,
-			LocationConfidence: &locConf,
-			MatchReasonsJSON:   &reasons,
+			CompanyID:       &company.ID,
+			Title:           title,
+			TitleNormalized: titleNorm,
+			Location:        optStr(location),
+			RemotePolicy:    policy,
+			URL:             optStr(link),
+			Fingerprint:     model.Fingerprint(company.NameNormalized, titleNorm, ""),
+			RawText:         optStr(desc),
 		}
 		if desc != "" {
 			h := model.TextHash(desc)
@@ -143,8 +138,8 @@ func applySighting(ctx context.Context, q db.Querier, in Sighting, now time.Time
 			optStr(effectiveLocation), state, rawText, textHash, now); err != nil {
 			return 0, 0, err
 		}
-		scores := classify.Classify(updateTitle, effectiveLocation, strValue(rawText)).Scores()
-		if err := db.SetOfferClassification(ctx, q, offerID, scores); err != nil {
+		policy := classify.DeriveRemotePolicy(effectiveLocation, strValue(rawText))
+		if err := db.SetOfferRemotePolicy(ctx, q, offerID, policy); err != nil {
 			return 0, 0, err
 		}
 		if snapshot {

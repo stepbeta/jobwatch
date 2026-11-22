@@ -53,9 +53,10 @@ function makeDetail(overrides: Partial<OfferDetail> = {}): OfferDetail {
       first_seen_at: '2026-11-01T00:00:00Z',
       last_seen_at: '2026-11-01T00:00:00Z',
       updated_at: '2026-11-01T00:00:00Z',
-      title_confidence: 80,
-      location_confidence: 80,
-      match_reasons: null,
+      title_affinity: 80,
+      location_affinity: 80,
+      remote_policy_accepted: true,
+      match_reasons: { title: [], location: [] },
       last_event_at: null,
       saved_at: null,
     },
@@ -285,5 +286,40 @@ describe('OfferPage header and description editor', () => {
     await waitFor(() =>
       expect(api.patchOffer).toHaveBeenCalledWith(7, { description: 'new description' }),
     )
+  })
+})
+
+describe('OfferPage classification signals', () => {
+  it('shows title and location affinity with term reasons and the remote badge', async () => {
+    const base = makeDetail()
+    vi.mocked(api.getOffer).mockResolvedValue({
+      ...base,
+      offer: {
+        ...base.offer,
+        title_affinity: 85,
+        location_affinity: 60,
+        match_reasons: {
+          title: [{ term: 'site reliability', weight: 60, bucket: 'strong_positive' }],
+          location: [{ term: 'france', weight: 35, bucket: 'strong_positive' }],
+        },
+      },
+    })
+    renderPage()
+
+    expect(await screen.findByText('Title 85')).toBeTruthy()
+    expect(screen.getByText('Location 60')).toBeTruthy()
+    expect(screen.getByTitle(/Strong positive "site reliability" \(\+60\)/)).toBeTruthy()
+    expect(screen.getByTitle(/Full remote — accepted/)).toBeTruthy()
+  })
+
+  it('shows a not-accepted remote policy from the profile', async () => {
+    const base = makeDetail()
+    vi.mocked(api.getOffer).mockResolvedValue({
+      ...base,
+      offer: { ...base.offer, remote_policy: 'hybrid', remote_policy_accepted: false },
+    })
+    renderPage()
+
+    expect(await screen.findByTitle(/Hybrid — not accepted/)).toBeTruthy()
   })
 })

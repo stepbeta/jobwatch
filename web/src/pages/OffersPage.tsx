@@ -29,14 +29,21 @@ function savedValue(value: string): boolean | undefined {
   return undefined
 }
 
+function triState(value: string | null): boolean | undefined {
+  if (value === 'yes' || value === 'true') return true
+  if (value === 'no' || value === 'false') return false
+  return undefined
+}
+
 interface OffersView {
   q?: string
   application_state?: string
   offer_state?: string
   remote_policy?: string
   saved?: boolean
-  min_title_confidence?: number
-  min_location_confidence?: number
+  remote_accepted?: boolean
+  min_title_affinity?: number
+  min_location_affinity?: number
   company_id?: number
   sort: string
   order: SortOrder
@@ -86,8 +93,9 @@ export function readOffersView(initialSaved?: boolean): OffersView {
     offer_state: enumParam(params, 'offer_state', OFFER_STATES),
     remote_policy: enumParam(params, 'remote_policy', REMOTE_POLICIES),
     saved,
-    min_title_confidence: scoreParam(intParam(params, 'min_title_confidence')),
-    min_location_confidence: scoreParam(intParam(params, 'min_location_confidence')),
+    remote_accepted: triState(params.get('remote_accepted')),
+    min_title_affinity: scoreParam(intParam(params, 'min_title_affinity')),
+    min_location_affinity: scoreParam(intParam(params, 'min_location_affinity')),
     company_id: positiveID(intParam(params, 'company_id')),
     sort,
     order: rawOrder ?? defaultOfferSortOrder(sort),
@@ -103,8 +111,9 @@ function viewQuery(view: OffersView): OfferQuery {
     offer_state: view.offer_state,
     remote_policy: view.remote_policy,
     saved: view.saved,
-    min_title_confidence: view.min_title_confidence,
-    min_location_confidence: view.min_location_confidence,
+    remote_accepted: view.remote_accepted,
+    min_title_affinity: view.min_title_affinity,
+    min_location_affinity: view.min_location_affinity,
     company_id: view.company_id,
     sort: view.sort,
     order: view.order,
@@ -120,10 +129,12 @@ function writeURL(view: OffersView): void {
   if (view.offer_state) params.set('offer_state', view.offer_state)
   if (view.remote_policy) params.set('remote_policy', view.remote_policy)
   if (view.saved !== undefined) params.set('saved', view.saved ? 'true' : 'false')
-  if (view.min_title_confidence !== undefined)
-    params.set('min_title_confidence', String(view.min_title_confidence))
-  if (view.min_location_confidence !== undefined)
-    params.set('min_location_confidence', String(view.min_location_confidence))
+  if (view.remote_accepted !== undefined)
+    params.set('remote_accepted', view.remote_accepted ? 'true' : 'false')
+  if (view.min_title_affinity !== undefined)
+    params.set('min_title_affinity', String(view.min_title_affinity))
+  if (view.min_location_affinity !== undefined)
+    params.set('min_location_affinity', String(view.min_location_affinity))
   if (view.company_id !== undefined) params.set('company_id', String(view.company_id))
   if (view.sort !== DEFAULT_SORT || view.order !== defaultOfferSortOrder(DEFAULT_SORT)) {
     params.set('sort', view.sort)
@@ -260,8 +271,9 @@ export function OffersPage({
       view.application_state ||
       view.offer_state ||
       view.remote_policy ||
-      view.min_title_confidence !== undefined ||
-      view.min_location_confidence !== undefined ||
+      view.remote_accepted !== undefined ||
+      view.min_title_affinity !== undefined ||
+      view.min_location_affinity !== undefined ||
       view.company_id !== undefined ||
       view.saved !== undefined,
   )
@@ -345,25 +357,42 @@ export function OffersPage({
             </select>
           </label>
           <label>
-            Title ≥
+            Remote accepted
+            <select
+              value={
+                view.remote_accepted === true
+                  ? 'yes'
+                  : view.remote_accepted === false
+                    ? 'no'
+                    : ''
+              }
+              onChange={(e) => patchView({ remote_accepted: triState(e.target.value) })}
+            >
+              <option value="">Any</option>
+              <option value="yes">Accepted</option>
+              <option value="no">Not accepted</option>
+            </select>
+          </label>
+          <label>
+            Title affinity ≥
             <input
               type="number"
               min={0}
               max={100}
               placeholder="0-100"
-              value={view.min_title_confidence ?? ''}
-              onChange={(e) => patchView({ min_title_confidence: numberValue(e.target.value) })}
+              value={view.min_title_affinity ?? ''}
+              onChange={(e) => patchView({ min_title_affinity: numberValue(e.target.value) })}
             />
           </label>
           <label>
-            Location ≥
+            Location affinity ≥
             <input
               type="number"
               min={0}
               max={100}
               placeholder="0-100"
-              value={view.min_location_confidence ?? ''}
-              onChange={(e) => patchView({ min_location_confidence: numberValue(e.target.value) })}
+              value={view.min_location_affinity ?? ''}
+              onChange={(e) => patchView({ min_location_affinity: numberValue(e.target.value) })}
             />
           </label>
           <CompanyCombobox

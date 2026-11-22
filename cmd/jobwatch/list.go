@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/stepbeta/jobwatch/internal/classify"
 	"github.com/stepbeta/jobwatch/internal/db"
 	"github.com/stepbeta/jobwatch/internal/model"
 	"github.com/stepbeta/jobwatch/internal/sources"
@@ -56,6 +57,10 @@ func newListCmd(opts *rootOptions) *cobra.Command {
 				return nil
 			}
 
+			profile, err := db.DefaultSearchProfile(ctx, sqlDB)
+			if err != nil {
+				return err
+			}
 			offers, err := db.ListOffers(ctx, sqlDB, db.OfferFilter{
 				OfferState:       model.OfferState(offerState),
 				ApplicationState: model.ApplicationState(appState),
@@ -64,14 +69,20 @@ func newListCmd(opts *rootOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(tw, "ID\tCOMPANY\tTITLE\tLOCATION\tREMOTE\tT\tL\tOFFER\tAPPLICATION\tLAST SEEN")
+			fmt.Fprintln(tw, "ID\tCOMPANY\tTITLE\tLOCATION\tREMOTE\tOK\tTITLE AFF\tLOC AFF\tOFFER\tAPPLICATION\tLAST SEEN")
 			for _, o := range offers {
 				loc := ""
 				if o.Location != nil {
 					loc = *o.Location
 				}
-				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", o.ID, truncate(o.CompanyName, 22),
-					truncate(o.Title, 44), truncate(loc, 24), o.RemotePolicy, score(o.TitleConfidence), score(o.LocationConfidence),
+				desc := ""
+				if o.RawText != nil {
+					desc = *o.RawText
+				}
+				res := classify.Score(o.Title, loc, desc, profile)
+				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\n", o.ID, truncate(o.CompanyName, 22),
+					truncate(o.Title, 44), truncate(loc, 24), o.RemotePolicy, accepted(profile.Accepts(o.RemotePolicy)),
+					res.TitleAffinity.Score, res.LocationAffinity.Score,
 					o.OfferState, o.ApplicationState, model.FormatTime(o.LastSeenAt))
 			}
 			if len(offers) == 0 {
@@ -87,11 +98,11 @@ func newListCmd(opts *rootOptions) *cobra.Command {
 	return cmd
 }
 
-func score(v *int) string {
-	if v == nil {
-		return "-"
+func accepted(v bool) string {
+	if v {
+		return "yes"
 	}
-	return fmt.Sprintf("%d", *v)
+	return "no"
 }
 
 func truncate(s string, n int) string {

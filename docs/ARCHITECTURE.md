@@ -7,14 +7,14 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 
 | Package | Role |
 |---|---|
-| `cmd/jobwatch` | Cobra root + subcommands: `serve`, `scan`, `add-source`, `add-sources`, `list`, `import`, `backup`, `reclassify` |
+| `cmd/jobwatch` | Cobra root + subcommands: `serve`, `scan`, `add-source`, `add-sources`, `list`, `import`, `backup` |
 | `migrations` | Numbered `NNNN_name.sql` files embedded with `go:embed` |
 | `internal/db` | `Open` (DSN pragmas: WAL, foreign_keys, busy_timeout 5s, `_txlock=immediate`), migration runner, `Backup` (`VACUUM INTO`), queries over a `Querier` (`*sql.DB` or `*sql.Tx`) |
 | `internal/model` | Table structs, enum constants, `normalize.go` (company/title keyword normalization, location bucket, fingerprint, text hash), time helpers |
 | `internal/sources` | `Fetcher` interface, `RawOffer`, `Config` (config_json), `Registry`, polite HTTP `Client`, robots.txt parser, URL type detection, adapters |
-| `internal/scan` | Scan pipeline, manual import and classifier backfill; depends on `db`, `classify` and `sources`, shared by CLI and API |
+| `internal/scan` | Scan pipeline and manual import; depends on `db`, `classify` and `sources`, shared by CLI and API |
 | `internal/importmeta` | Lightweight metadata extraction from a job page (JSON-LD, Open Graph, meta tags, title) for URL imports |
-| `internal/classify` | Deterministic title/location scoring, remote-policy derivation and reason lists |
+| `internal/classify` | Pure read-time scoring: title affinity, location affinity, fixed remote-policy detector and term reasons, from a search-profile value |
 | `internal/diff` | Small line diff used for snapshot version comparisons |
 | `internal/api` | REST handlers under `/api`: sources, offers, events, notes, companies, import, health |
 | `web/` | React + TypeScript SPA source and its Go embedding (`Handler`) |
@@ -139,12 +139,15 @@ never stops on a failing one:
      confirmed global alias, and creates a company only when none
      matches. The source name is not a company fallback. Insert the
      offer (+ snapshot with `origin = scan`). On a hit, update the title
-     and a reported location, apply the offer_state machine
+     and a reported location, re-derive the remote policy when the
+     location or description changed, apply the offer_state machine
      (DATA-MODEL.md), keep a new description as a snapshot, and
      never rewrite the company or canonical URL from the sighting.
-     Classify the title/location/description, persist the scores and
-     remote policy, and upsert provenance by `(source, external_uid)`
-     first, then `(offer_id, url)`, with `last_seen_at = now`. A
+     Classify only the remote policy fact from the location and
+     description, store it with the other facts, and upsert provenance by
+     `(source, external_uid)` first, then `(offer_id, url)`, with
+     `last_seen_at = now`. Title and location affinity are not computed or
+     stored during ingestion; they are read-time values. A
      repaired offer is identified by `incomplete_raw` still being set
      after `incomplete_reason` was cleared: scans then keep the user's
      company, title and location instead of the sighting's values.
@@ -156,7 +159,7 @@ Incomplete offers are stored, not displayed: the offers list, dashboard
 and search exclude `incomplete_reason IS NOT NULL` by default
 (`OfferQuery.IncompleteOnly` lists them for the repair view), and the CLI
 `list` hides them. `POST /api/offers/:id/repair` assigns a company and
-title, re-runs the classifier, and clears `incomplete_reason` while
+title, re-derives the remote policy, and clears `incomplete_reason` while
 keeping `incomplete_raw` as the repair marker.
 
 ## Re-attribution (`jobwatch reattribute`)
@@ -169,7 +172,7 @@ adapter's current `RawOffer` by `(source, uid)`, and for each match:
 - resolves the target company with the scan order (attested key, source
   alias, confirmed global alias, create);
 - writes only `company_id`, `title`/`title_normalized` and `updated_at`,
-  then re-runs the classifier;
+  then re-derives the offer's remote policy;
 - leaves events, notes, snapshots, `application_state`, `offer_state`,
   `last_seen_at` and provenance untouched.
 
@@ -183,31 +186,80 @@ enabled sources; the CLI adds `--all` and `--source <id>`.
 
 ## Classification (`internal/classify`)
 
-The classifier is deterministic and pure: `Classify(title, location,
-description)`. It runs for every sighting (new, changed or unchanged) and
-during `jobwatch reclassify`, never in a background AI call.
+The classifier is deterministic and pure. It holds no term tables and has
+no I/O: the term weights are user preferences stored in
+`search_profile_terms`, and the caller passes a `model.SearchProfile`.
+The same facts and profile always produce the same result. Nothing is
+scored by an LLM or in the background.
 
-- **Title confidence**: additive keyword table over
-  `model.NormalizeTitle(title)`. Strong role terms ("platform engineer",
-  "site reliability", "sre", "devops", "infrastructure engineer", "cloud
-  engineer") score 60; weak domain terms ("kubernetes", "reliability",
-  "platform", "infrastructure", "terraform"…) score 15–25; strong
-  non-target roles (marketing, sales, recruiter, internship, account
-  executive, French `stage`/`alternance`…) subtract 120; management terms
-  subtract 20. Match is whole-token/phrase based. Result clamped 0–100.
-- **Location confidence**: remote/hybrid/onsite phrases in location and
-  description derive `remote_policy`; location text scores France and
-  French cities, EMEA / EU / Europe, time zones, and penalizes clearly
-  incompatible places; the description adds lower-weight remote/geography
-  evidence. Policy caps apply (onsite 50, hybrid 75, unknown 60), so only
-  remote roles in France can reach 100.
-- **Reasons**: `match_reasons_json` is
-  `{"title":["..."],"location":["..."]}`; each string names the matched
-  term and its weight. The SPA shows the matching list in the score-badge
-  tooltip.
-- **Backfill**: `jobwatch reclassify` classifies offers with missing
-  scores in one transaction; `--all` recomputes every offer after keyword
-  changes. `scan.Reclassify` is the shared implementation.
+The model separates three things:
+
+- **Facts** on `job_offers`: title, location, description and
+  `remote_policy`.
+- **Preferences** in a search profile: title, location and description
+  terms with weights, a 3/5 bucket display scale, and the accepted remote
+  policies.
+- **Scores** computed at read time: title affinity, location affinity and
+  remote policy acceptance. No affinity score is written to an offer.
+
+`classify.Score(title, location, description, profile)` returns the three
+signals:
+
+- **Title affinity** (`ScoreTitle`): the offer title is normalized with
+  `model.NormalizeTitle`, each `title` term of the profile is matched as a
+  whole-token phrase, and the matching weights are added and clamped to
+  0–100. Negative terms therefore lower the score and can bury an
+  otherwise good title, while neutral terms (weight 0) only appear in the
+  reasons.
+- **Location affinity** (`ScoreLocation`): the location is normalized with
+  `model.NormalizeKeywords` and matched against the profile's `location`
+  terms; the description is normalized separately and matched against its
+  `description` terms. Both sets add into one 0–100 score. Description
+  terms add weaker geographical evidence and never influence the remote
+  policy.
+- **Remote policy** (`DeriveRemotePolicy`): a fixed phrase detector over
+  the location and description produces `remote`, `hybrid`, `onsite` or
+  `unknown`. A hybrid phrase, or remote and onsite phrases together, is
+  hybrid. The user cannot edit the phrase lists. `RemoteAccepted` is a
+  profile membership check on the derived policy: remote is a fact plus a
+  checkbox preference, never a weighted score.
+
+Each affinity also returns its reasons as structured matches (term,
+weight, bucket). The API serializes them; the SPA only displays them.
+
+The removed pieces: the Go title/location/description term tables, the
+policy points and caps on the location score, the stored `title_confidence`
+/ `location_confidence` / `match_reasons_json` writes, and the
+`jobwatch reclassify` command. A profile edit changes the next read with
+no reclassification pass.
+
+## Search profiles
+
+User preferences are stored in three additive tables (migration 0015),
+separate from the offer facts in `job_offers`:
+
+| Table | Columns | Relationship |
+|---|---|---|
+| `search_profiles` | `id`, `name`, `title_label`, `location_label`, `bucket_scale`, `is_default`, `created_at`, `updated_at` | root |
+| `search_profile_terms` | `id`, `profile_id`, `affinity` (`title`/`location`/`description`), `bucket`, `term`, `weight`, `sort_order` | `profile_id → search_profiles` ON DELETE CASCADE |
+| `search_profile_remote` | `profile_id`, `policy`, `accepted` | `profile_id → search_profiles` ON DELETE CASCADE |
+
+A partial unique index enforces at most one `is_default = 1` profile;
+`search_profile_terms` is unique on `(profile_id, affinity, term)` and
+`search_profile_remote` is keyed on `(profile_id, policy)`. Migration 0015
+seeds one default profile, name `Default`, five-bucket scale, with the
+exact former classifier term tables: 35 title, 79 location and 15
+description terms; it accepts the `remote` and `unknown` policies and
+rejects `hybrid` and `onsite`. The `bucket` column is a display label
+(three- or five-bucket scale); the scorer adds `weight`.
+
+The legacy `job_offers.title_confidence`, `location_confidence` and
+`match_reasons_json` columns are deprecated and unused from 0015 on: the
+schema keeps them for rollback, no code path reads or writes them, and no
+API response exposes them. `internal/db/search_profiles.go` provides the
+default-profile lookup, list, get and the transactional replace used by
+the API; validation lives in `model.SearchProfile.Validate` so the API
+and the database reject the same input.
 
 ## Manual import and URL metadata (`scan.Import`, `importmeta`)
 
@@ -327,24 +379,35 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | Path | Content |
 |---|---|
 | `App.tsx` | top bar with navigation (including the incomplete count), source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
-| `router.ts` | hash routing (`#/`, `#/offers`, `#/offers?saved=true`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
+| `router.ts` | hash routing (`#/`, `#/offers`, `#/offers?saved=true`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/search-profile`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with a Refresh button that fans out over the enabled sources behind those applications, and a Saved section (bookmarks, `saved=true`, `sort=saved`) |
-| `pages/OffersPage.tsx` | full offers table: URL-restored filters (including saved/unsaved and a searchable company combobox), debounced FTS search, header-click server sorting, column picker, per-page selector and pagination, bookmark toggle per row, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
+| `pages/OffersPage.tsx` | full offers table: URL-restored filters (including saved/unsaved, remote acceptance, minimum title/location affinity and a searchable company combobox), debounced FTS search, header-click server sorting (including `title_affinity`/`location_affinity`), column picker, per-page selector and pagination, bookmark toggle per row, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
 | `pages/IncompletePage.tsx` | incomplete offers with the count, the source-reported company/title/location, the reason and source link; a repair modal reuses the manual import layout and company combobox and calls `POST /api/offers/:id/repair` |
 | `pages/SourcesPage.tsx` | source list with enabled/type/status/name filters, URL-restored client sorting and pagination, column picker, row selection with bulk refresh/delete, right-aligned enable switch, icon row actions, company links resolved from the local company list, header Refresh all, and an add/edit modal with type-dependent config fields (personio/workable/rss/html included) and explanatory notes on seeded sources |
-| `pages/OfferPage.tsx` | two-column header: identity (bookmark, editable states/location, score badges, merge/split actions, description version count) on the left and an always-visible compact provenance list on the right; timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save through the shared Edit/View editor) |
+| `pages/OfferPage.tsx` | two-column header: identity (bookmark, editable states/location, title/location affinity badges with term reasons, remote policy badge, merge/split actions, description version count) on the left and an always-visible compact provenance list on the right; timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save through the shared Edit/View editor) |
 | `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note, refresh) |
 | `pages/CompanyPage.tsx` | one two-column header block: company identity (including its attested keys), actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; a separate offers panel below with URL-restored FTS search, server-side sorting, per-page selector and pagination. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
+| `pages/SearchProfilePage.tsx` | edits the default search profile: name and labels, 3/5 bucket scale, title/location term rows (bucket plus numeric weight), an advanced description-terms section, and remote policy checkboxes; explanatory text states what each signal changes. It is a display/edit layer: the API computes affinity |
 | `pages/InterviewPrepPage.tsx` | personal interview FAQ grouped into category sections, with an empty-answer cue, native HTML5 drag-and-drop for entries and sections (persisting `display_order`/`category` through PATCH; section order in `localStorage`), per-entry Edit/Delete, and an Add/Edit modal with a category dropdown and the shared Edit/View answer editor |
 | `components/Markdown.tsx` | deliberately small markdown renderer for interview answers: headings, bold, italic, inline code, fenced code blocks and lists, emitted as React elements (never HTML) |
 | `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source(s)/event/note/company) |
 | `components/Modal.tsx` | shared dialog shell (fixed backdrop, titled head, Escape/backdrop close, wide variant) used by the source add/edit form, the offer import dialog and the incomplete repair dialog |
 | `components/BookmarkButton.tsx` | dependency-free star toggle used in offer rows and the offer detail header |
-| `components/OfferTable.tsx` | reusable offers table with optional/selectable columns, optional company/application columns, optional bookmark toggle, and clickable sortable headers driven by the caller's server sort key |
+| `components/OfferTable.tsx` | reusable offers table with optional/selectable columns, optional company/application columns, optional bookmark toggle, title/location affinity score badges, a remote policy badge with its profile acceptance, and clickable sortable headers driven by the caller's server sort key |
 | `components/TableControls.tsx` | shared column picker with localStorage persistence of hidden columns, `SortHeader`, per-page selector, debounced-value hook and sort toggle helper |
 | `components/CompanyCombobox.tsx` | searchable client-side company selector for the offers filter; keeps the `company_id` parameter unchanged |
 | `components/EditViewEditor.tsx` | shared Edit/View tabbed editor (textarea plus caller-rendered view), used by interview answers and offer descriptions |
+
+The Search profile page (`#/search-profile`) edits the default profile
+through `GET`/`PUT /api/search-profiles`. Choosing a bucket sets a
+default numeric weight and the number stays editable; switching the
+bucket scale maps existing buckets (strong/mild positives collapse to
+`positive`, strong/mild negatives to `negative`). Description terms live
+in an advanced disclosure and the copy states that they affect location
+affinity only, never remote detection. Saving a profile does not rewrite
+offers: the SPA reloads affinities from the API, which computes them
+from the current profile.
 
 The dashboard (`#/`) contains only Applications and Saved. The full
 filtered/paginated offers table and the manual import dialog live on

@@ -233,7 +233,7 @@ func DeleteSource(ctx context.Context, sqlDB *sql.DB, id int64) error {
 func offerColumns(prefix string) string {
 	cols := []string{"id", "company_id", "title", "title_normalized", "location", "remote_policy", "url", "fingerprint",
 		"first_seen_at", "last_seen_at", "offer_state", "application_state", "raw_text", "text_hash",
-		"title_confidence", "location_confidence", "match_reasons_json", "saved_at", "created_at", "updated_at",
+		"saved_at", "created_at", "updated_at",
 		"incomplete_reason", "incomplete_raw"}
 	for i, c := range cols {
 		cols[i] = prefix + c
@@ -244,13 +244,12 @@ func offerColumns(prefix string) string {
 func scanOffer(row interface{ Scan(...any) error }) (model.JobOffer, error) {
 	var o model.JobOffer
 	var companyID sql.NullInt64
-	var location, url, rawText, textHash, reasons, savedAt, created, updated sql.NullString
+	var location, url, rawText, textHash, savedAt, created, updated sql.NullString
 	var incompleteReason, incompleteRaw sql.NullString
 	var remote, firstSeen, lastSeen, offerState, appState string
-	var titleConf, locConf sql.NullInt64
 	if err := row.Scan(&o.ID, &companyID, &o.Title, &o.TitleNormalized, &location, &remote, &url, &o.Fingerprint,
 		&firstSeen, &lastSeen, &offerState, &appState, &rawText, &textHash,
-		&titleConf, &locConf, &reasons, &savedAt, &created, &updated,
+		&savedAt, &created, &updated,
 		&incompleteReason, &incompleteRaw); err != nil {
 		return model.JobOffer{}, err
 	}
@@ -264,9 +263,6 @@ func scanOffer(row interface{ Scan(...any) error }) (model.JobOffer, error) {
 	o.ApplicationState = model.ApplicationState(appState)
 	o.RawText = strPtr(rawText)
 	o.TextHash = strPtr(textHash)
-	o.TitleConfidence = intPtr(titleConf)
-	o.LocationConfidence = intPtr(locConf)
-	o.MatchReasonsJSON = strPtr(reasons)
 	if savedAt.Valid {
 		t := parseTime(savedAt.String)
 		o.SavedAt = &t
@@ -359,12 +355,10 @@ func InsertOffer(ctx context.Context, q Querier, o model.JobOffer, now time.Time
 	res, err := q.ExecContext(ctx, `INSERT INTO job_offers(
 		company_id, title, title_normalized, location, remote_policy, url, fingerprint,
 		first_seen_at, last_seen_at, offer_state, application_state, raw_text, text_hash,
-		title_confidence, location_confidence, match_reasons_json,
 		created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		nullInt(o.CompanyID), o.Title, o.TitleNormalized, nullStr(o.Location), string(o.RemotePolicy), nullStr(o.URL), o.Fingerprint,
 		firstSeen, lastSeen, string(o.OfferState), string(o.ApplicationState), nullStr(o.RawText), nullStr(o.TextHash),
-		nullIntFromInt(o.TitleConfidence), nullIntFromInt(o.LocationConfidence), nullStr(o.MatchReasonsJSON),
 		ts, ts)
 	if err != nil {
 		return model.JobOffer{}, fmt.Errorf("insert offer %q: %w", o.Title, err)
@@ -400,65 +394,22 @@ func UpdateOfferSighting(ctx context.Context, q Querier, id int64, title, titleN
 	return nil
 }
 
-// SetOfferClassification stores the deterministic classifier output on an
-// offer. It deliberately does not bump updated_at: reclassifying old offers
-// is maintenance, not job-search activity.
-func SetOfferClassification(ctx context.Context, q Querier, id int64, s model.OfferScores) error {
-	policy := s.RemotePolicy
+// SetOfferRemotePolicy stores the derived remote policy of an offer. It
+// deliberately does not bump updated_at: a re-derived fact is not
+// job-search activity. Title and location affinity are not stored; they
+// are computed from the current profile when the offer is read.
+func SetOfferRemotePolicy(ctx context.Context, q Querier, id int64, policy model.RemotePolicy) error {
 	if policy == "" {
 		policy = model.RemoteUnknown
 	}
-	reasons := s.MatchReasonsJSON
-	if reasons == "" {
-		reasons = `{"title":[],"location":[]}`
-	}
-	res, err := q.ExecContext(ctx, `UPDATE job_offers
-		SET remote_policy = ?, title_confidence = ?, location_confidence = ?, match_reasons_json = ?
-		WHERE id = ?`,
-		string(policy), s.TitleConfidence, s.LocationConfidence, reasons, id)
+	res, err := q.ExecContext(ctx, `UPDATE job_offers SET remote_policy = ? WHERE id = ?`, string(policy), id)
 	if err != nil {
-		return fmt.Errorf("set classification of offer %d: %w", id, err)
+		return fmt.Errorf("set remote policy of offer %d: %w", id, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
 	return nil
-}
-
-// OfferClassificationInput is the minimal offer row needed to re-run the
-// classifier.
-type OfferClassificationInput struct {
-	ID       int64
-	Title    string
-	Location *string
-	RawText  *string
-}
-
-// ListOffersForClassification returns offers in ID order. onlyMissing
-// restricts the result to offers that have no score yet.
-func ListOffersForClassification(ctx context.Context, q Querier, onlyMissing bool) ([]OfferClassificationInput, error) {
-	query := `SELECT id, title, location, raw_text FROM job_offers`
-	if onlyMissing {
-		query += ` WHERE title_confidence IS NULL OR location_confidence IS NULL`
-	}
-	query += ` ORDER BY id`
-	rows, err := q.QueryContext(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("list offers for classification: %w", err)
-	}
-	defer rows.Close()
-	out := []OfferClassificationInput{}
-	for rows.Next() {
-		var o OfferClassificationInput
-		var loc, raw sql.NullString
-		if err := rows.Scan(&o.ID, &o.Title, &loc, &raw); err != nil {
-			return nil, fmt.Errorf("list offers for classification: %w", err)
-		}
-		o.Location = strPtr(loc)
-		o.RawText = strPtr(raw)
-		out = append(out, o)
-	}
-	return out, rows.Err()
 }
 
 // TouchOfferLastSeen only bumps last_seen_at (manual re-import).

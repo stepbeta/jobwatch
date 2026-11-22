@@ -63,7 +63,7 @@ with a note. Add your own, then scan headlessly (or use the UI):
 ./jobwatch add-source https://www.welcometothejungle.com/en/companies/fabriq/jobs --name Fabriq
 
 ./jobwatch scan          # headless scan of all enabled sources
-./jobwatch list          # ID, company, title, location, remote, scores, states
+./jobwatch list          # ID, company, title, location, remote, acceptance, affinity, states
 ```
 
 To register a whole file of bookmarks, use
@@ -85,12 +85,14 @@ choose another file.
    stopping the others. An item missing a company or title is kept as an
    incomplete offer (reported in the scan summary) and hidden from the
    lists until it is repaired.
-3. **Classify and review.** Every sighting gets a title score, a location
-   score and a derived remote policy. Offers are identified by their
-   source link (external uid, then URL); a description edit keeps a new
-   snapshot, and offers that disappear are marked `disappeared`, never
-   deleted. The **Offers**
-   page filters and sorts by state, remote policy and both scores.
+3. **Classify and review.** A sighting stores offer facts and a derived
+   remote policy. Title and location affinity are computed when an offer
+   is read, from the editable **Search profile**, so a profile change
+   applies immediately. Offers are identified by their source link
+   (external uid, then URL); a description edit keeps a new snapshot, and
+   offers that disappear are marked `disappeared`, never deleted. The
+   **Offers** page filters and sorts by state, remote policy, remote
+   acceptance and both affinities.
 4. **Bookmark and apply.** The star is a personal bookmark, independent
    of application state. Set an application state on the offer, then keep
    its timeline events and notes on the offer detail page.
@@ -102,9 +104,9 @@ flowchart TD
     C -->|ok| D["Parse offers with the source adapter"]
     C -->|blocked or error| S["Mark the source blocked or error; other sources continue"]
     D --> E["Resolve the company and identify the offer by source link"]
-    E --> F["Deterministic classification: title score, location score, remote policy"]
+    E --> F["Store offer facts and the derived remote policy"]
     F --> G["New offers become active; description edits keep a snapshot; missing offers become disappeared"]
-    G --> H["Review in Offers: filter by state, remote policy and scores"]
+    G --> H["Review in Offers: read-time affinity from the search profile"]
     H --> I["Bookmark in Saved"]
     H --> J["Set application state"]
     J --> K["Timeline events and notes"]
@@ -119,9 +121,8 @@ flowchart TD
 | `scan [all\|<source-id>]` | Scan all enabled sources (default) or one source by ID |
 | `add-source <url>` | Register a source; ATS board URLs are detected automatically |
 | `add-sources <file>` | Register every recognized URL in a file |
-| `list` | Print offers and states; `--sources` lists sources instead |
+| `list` | Print offers, remote acceptance and affinity; `--sources` lists sources instead |
 | `import <url \| json \| file.json \| ->` | Add an offer seen elsewhere |
-| `reclassify [--all]` | Backfill or recompute classifier scores |
 | `reattribute [--all \| --source <id>]` | Re-fetch a source and move offers matched by `(source, uid)` to the company and title the adapter now reports, preserving history |
 | `backup <dest>` | Write and validate a consistent copy of the database |
 
@@ -134,25 +135,31 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
 - **Dashboard** (`#/`) — Applications (offers with an application state
   other than `todo`, most recent timeline activity first) and Saved
   (bookmarked offers).
-- **Offers** (`#/offers`) — the full filterable, sortable table with score
-  badges, a searchable company filter, persisted column picker, per-page
-  selector, URL-restored filters, a bookmark toggle on every row, and the
-  **Add offer** import dialog.
+- **Offers** (`#/offers`) — the full filterable, sortable table with title
+  and location affinity badges, a remote policy badge, a searchable
+  company filter, persisted column picker, per-page selector, URL-restored
+  filters (including minimum affinity and remote acceptance), a bookmark
+  toggle on every row, and the **Add offer** import dialog.
 - **Incomplete** (`#/incomplete`) — items a source could not normalize,
   with the item count, the reported values and a repair form that assigns
   a company and title while keeping the source link and history.
 - **Sources** — enable/disable switch, filters, scan status, selectable
   rows with bulk refresh/delete, icon row actions, Refresh all, and
   add/edit in a modal with type-dependent config fields.
-- **Offer detail** — two-column identity/provenance header, timeline,
-  notes and a single-version description browser with Scan/Manual origin
-  and diffs.
+- **Offer detail** — two-column identity/provenance header with title and
+  location affinity badges, the remote policy badge and its profile
+  acceptance, timeline, notes and a single-version description browser with
+  Scan/Manual origin and diffs.
 - **Company detail** — identity and company notes in one two-column
   header, a searchable/sortable/paginated offers panel below, and an
   explicit possible-duplicate merge prompt.
 - **Interview prep** (`#/interview-prep`) — a personal FAQ of anticipated
   interview questions grouped into draggable category sections, with
   markdown answers and an Edit/View editor.
+- **Search profile** (`#/search-profile`) — the target role, geography and
+  accepted remote policies: term weights in a 3/5 bucket scale, advanced
+  description terms, and explanatory text. Affinity is recomputed from
+  the profile on every read; no reclassification command exists.
 
 Page-by-page behavior and the bookmark semantics are in
 [docs/USAGE.md](docs/USAGE.md#web-ui).
@@ -164,9 +171,10 @@ Page-by-page behavior and the bookmark semantics are in
   source decisions: [docs/USAGE.md](docs/USAGE.md#sources).
 - **Manual import** — URL metadata extraction, JSON input and the
   aggregator workflow: [docs/USAGE.md](docs/USAGE.md#manual-import).
-- **States and classification** — offer and application states, and the
-  deterministic scoring rules: [docs/USAGE.md](docs/USAGE.md#offer-and-application-states)
-  and [docs/USAGE.md](docs/USAGE.md#classification).
+- **States, classification and search profiles** — offer and application
+  states, the facts/preferences/read-time-score model and the profile
+  editor: [docs/USAGE.md](docs/USAGE.md#offer-and-application-states) and
+  [docs/USAGE.md](docs/USAGE.md#classification-and-search-profiles).
 - **REST API** — endpoints, parameters, response shapes and error codes:
   [docs/API.md](docs/API.md). Errors use
   `{"error":{"code":"...","message":"..."}}`; `GET /api/health` is the

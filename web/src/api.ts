@@ -8,6 +8,8 @@ import type {
   OfferDetail,
   OfferList,
   ScanResponse,
+  SearchProfile,
+  SearchProfileInput,
   SnapshotDiff,
   Source,
   SourceType,
@@ -92,8 +94,10 @@ export interface OfferQuery {
   application_state?: string
   offer_state?: string
   remote_policy?: string
-  min_title_confidence?: number
-  min_location_confidence?: number
+  remote_accepted?: boolean
+  profile_id?: number
+  min_title_affinity?: number
+  min_location_affinity?: number
   company_id?: number
   has_application?: boolean
   saved?: boolean
@@ -120,6 +124,12 @@ export const api = {
     request<{ source: Source }>(`/sources/${id}`, body('PATCH', input)),
   deleteSource: (id: number) => request<void>(`/sources/${id}`, { method: 'DELETE' }),
   scanSource: (id: number) => request<ScanResponse>(`/sources/${id}/scan`, { method: 'POST' }),
+
+  // search profiles
+  listSearchProfiles: () => request<{ profiles: SearchProfile[] }>('/search-profiles'),
+  getSearchProfile: (id: number) => request<{ profile: SearchProfile }>(`/search-profiles/${id}`),
+  replaceSearchProfile: (id: number, input: SearchProfileInput) =>
+    request<{ profile: SearchProfile }>(`/search-profiles/${id}`, body('PUT', input)),
 
   // offers
   listOffers: (query: OfferQuery = {}) => request<OfferList>(`/offers${queryString({ ...query })}`),

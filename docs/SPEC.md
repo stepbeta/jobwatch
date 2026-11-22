@@ -175,29 +175,30 @@ Not yet captured as a capability: the UI must let the user manually
 merge two offers and manually split a wrongly merged one, and that merge
 or split moves provenance, snapshots, events and notes.
 
-## 6. Classification engine (deterministic, hardcoded)
+## 6. Classification engine (deterministic, read-time)
 
-Goal: for every scanned offer, produce two confidence scores (0–100) and
-human-readable reasons. No LLM in the scan loop.
+Goal: separate offer facts from user preferences and compute the scores
+when an offer is read. No LLM in the scan loop.
 
-- **Title confidence** (is it a Platform Eng / SRE / DevOps / Infra role?):
-  weighted keyword sets over the normalized title.
-  - strong positives: "platform engineer", "site reliability", "sre",
-    "devops", "infrastructure engineer", "cloud engineer"
-  - weak positives: "kubernetes", "reliability", "backend infrastructure"
-  - strong negatives: "marketing", "sales", "recruiter", "internship",
-    "account executive"
-  → produce 0–100.
-- **Location confidence** (full remote, France-compatible?): parse
-  location strings + description keywords ("remote", "France", "Paris",
-  "EMEA", "EU", time zones). Map to `remote_policy` and 0–100.
-- Store both scores separately so the UI can filter independently on
-  them ("show me everything with title ≥ 80 AND location ≥ 80").
-- `match_reasons_json` stores the matched keywords/locations so the UI
-  can explain any score. Hardcoded config lives in a single Go package
-  (`internal/classify`) with keyword tables as constants — easy to tweak.
-- No separate "needs review" queue. Scores are shown as small badges;
-  filtering happens on the two score fields.
+- **Facts** on the offer: title, location, description and the
+  `remote_policy` derived by a fixed phrase detector.
+- **Preferences** in a search profile (`search_profiles`,
+  `search_profile_terms`, `search_profile_remote`): title, location and
+  description terms with numeric weights, a 3/5 bucket display scale, and
+  the accepted remote policies. One seeded default profile replaces the
+  old hardcoded tables.
+- **Scores** computed at read time: title affinity (title terms) and
+  location affinity (location and description terms), each 0–100;
+  remote policy acceptance is a membership boolean, never a weighted
+  score. Reasons list the matched term, weight and bucket.
+- Offer lists filter and sort on the computed affinities
+  (`min_title_affinity`, `min_location_affinity`, `remote_accepted`,
+  `sort=title_affinity|location_affinity`). Changing the profile changes
+  the next read; there is no reclassification command and no stored
+  score.
+- The fixed remote phrase lists live in `internal/classify`; users
+  cannot edit them. No separate "needs review" queue: scores are shown as
+  small badges with their reasons.
 
 ## 7. Sources & fetching architecture
 

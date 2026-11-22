@@ -125,9 +125,10 @@ function makeOffer(overrides: Partial<Offer> = {}): Offer {
     first_seen_at: '2026-11-01T00:00:00Z',
     last_seen_at: '2026-11-02T00:00:00Z',
     updated_at: '2026-11-02T00:00:00Z',
-    title_confidence: 90,
-    location_confidence: 85,
-    match_reasons: null,
+    title_affinity: 90,
+    location_affinity: 85,
+    remote_policy_accepted: true,
+    match_reasons: { title: [], location: [] },
     last_event_at: null,
     saved_at: null,
     ...overrides,
@@ -239,8 +240,8 @@ describe('OffersPage table controls', () => {
     await user.click(within(menu).getByRole('checkbox', { name: 'Remote' }))
     await user.click(within(menu).getByRole('checkbox', { name: 'Offer' }))
     await user.click(within(menu).getByRole('checkbox', { name: 'Application' }))
-    await user.click(within(menu).getByRole('checkbox', { name: 'Title score' }))
-    await user.click(within(menu).getByRole('checkbox', { name: 'Location score' }))
+    await user.click(within(menu).getByRole('checkbox', { name: 'Title affinity' }))
+    await user.click(within(menu).getByRole('checkbox', { name: 'Location affinity' }))
     expect((within(menu).getByRole('checkbox', { name: 'Last seen' }) as HTMLInputElement).disabled).toBe(true)
 
     view.unmount()
@@ -275,6 +276,59 @@ describe('OffersPage table controls', () => {
     await user.click(screen.getByRole('option', { name: 'Acme' }))
     await waitFor(() => expect(lastOfferQuery().company_id).toBe(1))
     await waitFor(() => expect(window.location.hash).toContain('company_id=1'))
+  })
+
+  it('filters by title affinity, location affinity and remote acceptance', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.type(await screen.findByLabelText('Title affinity ≥'), '80')
+    await waitFor(() => expect(lastOfferQuery().min_title_affinity).toBe(80))
+    await waitFor(() => expect(window.location.hash).toContain('min_title_affinity=80'))
+
+    await user.type(screen.getByLabelText('Location affinity ≥'), '60')
+    await waitFor(() => expect(lastOfferQuery().min_location_affinity).toBe(60))
+
+    await user.selectOptions(screen.getByLabelText('Remote accepted'), 'no')
+    await waitFor(() => expect(lastOfferQuery().remote_accepted).toBe(false))
+    await waitFor(() => expect(window.location.hash).toContain('remote_accepted=false'))
+  })
+
+  it('sorts by affinity columns and defaults to descending', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Title affinity' }))
+    await waitFor(() =>
+      expect(lastOfferQuery()).toMatchObject({ sort: 'title_affinity', order: 'desc' }),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Location affinity' }))
+    await waitFor(() =>
+      expect(lastOfferQuery()).toMatchObject({ sort: 'location_affinity', order: 'desc' }),
+    )
+  })
+
+  it('renders affinities, term reasons and the remote policy badge', async () => {
+    vi.mocked(api.listOffers).mockResolvedValue({
+      offers: [
+        makeOffer({
+          match_reasons: {
+            title: [{ term: 'site reliability', weight: 60, bucket: 'strong_positive' }],
+            location: [{ term: 'paris', weight: 25, bucket: 'mild_positive' }],
+          },
+        }),
+      ],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    })
+    renderPage()
+
+    expect(await screen.findByText('T 90')).toBeTruthy()
+    expect(screen.getByText('L 85')).toBeTruthy()
+    expect(screen.getByTitle(/Full remote — accepted/)).toBeTruthy()
+    expect(screen.getByTitle(/Strong positive "site reliability" \(\+60\)/)).toBeTruthy()
   })
 
   it('changes the page size, sends it to the API and stores the personal default', async () => {
