@@ -55,7 +55,7 @@ func (s *Scanner) ReattributeSource(ctx context.Context, src model.Source) Reatt
 	res := ReattributeResult{SourceID: src.ID, SourceName: src.Name}
 	now := s.now()
 
-	raws, err := s.Fetcher.Fetch(ctx, src)
+	raws, err := s.fetchWithKnown(ctx, src)
 	if errors.Is(err, sources.ErrNotImplemented) {
 		res.Err = err
 		return res

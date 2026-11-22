@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### WTTJ description fallback and Joko → Ashby (OpenSpec change `wttj-description-fallback`)
+
+#### Added
+- The WTTJ adapter fills a hit whose `profile` and `summary` are both
+  blank from the public offer page's JSON-LD `JobPosting.description`,
+  converted to plain text, through the shared polite client. A failed or
+  WAF-challenged page leaves that offer's description empty and does not
+  fail the source.
+- `sources.FindJobPosting`, a shared JSON-LD `JobPosting` finder used by
+  both manual import and the WTTJ adapter, so the two paths no longer
+  maintain separate parsers.
+- Ashby source `https://jobs.ashbyhq.com/joko` (name `Joko`) with the 46
+  Joko roles and their full descriptions, linked to the existing Joko
+  company (id 115) instead of creating a duplicate.
+
+#### Changed
+- WTTJ detail-page requests use the single browser User-Agent the adapter
+  already sends to WTTJ's API endpoints, because the site's WAF answers
+  the identifying JobWatch UA on HTML pages with a 202 challenge. There
+  is no per-request UA rotation; robots.txt and the per-source interval
+  still apply. Partoo's `rate_limit_ms` is 90 s to stay under the WAF's
+  burst threshold.
+- A scan skips the detail request for a WTTJ offer whose description is
+  already stored, so the WAF allowance is spent only on missing text and
+  a later text-less sighting never erases the stored description.
+- The Joko bookmark from the retired WTTJ offer was restored on its Ashby
+  homologue (`b83d7f0f-a0d0-4dc6-b305-7d9336e4d389`,
+  `saved_at = 2026-11-22T17:09:35Z`).
+
+#### Fixed
+- Partoo's 15 offers now carry descriptions, backfilled from their public
+  pages after the WTTJ index returned empty `profile`/`summary` fields.
+
+#### Removed
+- WTTJ source 87 (Joko) and its 46 description-less offers, after a
+  verified database backup. This was an explicit, user-confirmed one-off
+  data migration; scans still never delete offers.
+
 ### Classification profiles (OpenSpec change `classification-profiles`)
 
 #### Added

@@ -701,6 +701,126 @@ func TestWTTJFetch(t *testing.T) {
 	}
 }
 
+// TestWTTJDescriptionFallback covers the JSON-LD detail fallback: only a
+// hit whose profile and summary are both blank fetches the offer page,
+// and a failed page leaves the description empty without failing the
+// source.
+func TestWTTJDescriptionFallback(t *testing.T) {
+	jobPage := readFixture(t, "wttj_job_page.html")
+	page := readFixture(t, "wttj_page_fabriq.json")
+	blankHit := `{"reference":"A","name":"Platform Software Engineer","slug":"platform-software-engineer_paris","organization":{"name":"Fabriq","slug":"fabriq"}}`
+	tests := []struct {
+		name            string
+		hit             string
+		known           map[string]string
+		detailStatus    int
+		detailBody      []byte
+		wantDescription string
+		wantDetailReqs  int
+	}{
+		{
+			name:            "blank profile and summary fetch the page once",
+			hit:             blankHit,
+			detailBody:      jobPage,
+			wantDescription: "About the role\n\nBuild and run the platform.\n\n- Kubernetes\n- Terraform",
+			wantDetailReqs:  1,
+		},
+		{
+			name:            "a stored description skips the page",
+			hit:             blankHit,
+			known:           map[string]string{"A": "Already stored."},
+			wantDescription: "",
+			wantDetailReqs:  0,
+		},
+		{
+			name:            "non-blank profile never fetches",
+			hit:             `{"reference":"A","name":"SRE","slug":"sre","profile":"### Profile","organization":{"name":"Fabriq","slug":"fabriq"}}`,
+			wantDescription: "### Profile",
+			wantDetailReqs:  0,
+		},
+		{
+			name:            "non-blank summary never fetches",
+			hit:             `{"reference":"A","name":"SRE","slug":"sre","profile":"  \n ","summary":"Join us.","organization":{"name":"Fabriq","slug":"fabriq"}}`,
+			wantDescription: "Join us.",
+			wantDetailReqs:  0,
+		},
+		{
+			name:            "page without JSON-LD keeps the description empty",
+			hit:             blankHit,
+			detailBody:      []byte(`<html><body><h1>Platform Software Engineer</h1></body></html>`),
+			wantDescription: "",
+			wantDetailReqs:  1,
+		},
+		{
+			name:            "detail 404 keeps the source ok",
+			hit:             blankHit,
+			detailStatus:    http.StatusNotFound,
+			wantDescription: "",
+			wantDetailReqs:  1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var detailReqs int
+			var detailUA, detailAccept string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/robots.txt":
+					w.Write([]byte("User-agent: *\nAllow: /\n"))
+				case r.URL.Path == "/api/v1/pages":
+					w.Write(page)
+				case r.URL.Path == "/1/indexes/*/queries":
+					w.Write([]byte(`{"results":[{"hits":[` + tt.hit + `],"nbHits":1,"nbPages":1}]}`))
+				case strings.Contains(r.URL.Path, "/jobs/"):
+					detailReqs++
+					detailUA = r.Header.Get("User-Agent")
+					detailAccept = r.Header.Get("Accept")
+					if tt.detailStatus != 0 {
+						http.Error(w, "not found", tt.detailStatus)
+						return
+					}
+					w.Write(tt.detailBody)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			c, _ := testClient()
+			wttj := &WTTJ{
+				Client:         c,
+				PagesURL:       srv.URL + "/api/v1/pages",
+				AlgoliaBaseURL: srv.URL,
+				SiteURL:        srv.URL,
+			}
+			offers, err := wttj.Fetch(WithKnownDescriptions(context.Background(), tt.known), model.Source{
+				ID: 1, Type: model.SourceWTTJ,
+				URL: "https://www.welcometothejungle.com/en/companies/fabriq/jobs",
+			})
+			if err != nil {
+				t.Fatalf("Fetch: %v", err)
+			}
+			if len(offers) != 1 {
+				t.Fatalf("offers = %d, want 1: %+v", len(offers), offers)
+			}
+			if got := offers[0].Description; got != tt.wantDescription {
+				t.Errorf("description = %q, want %q", got, tt.wantDescription)
+			}
+			if detailReqs != tt.wantDetailReqs {
+				t.Errorf("detail requests = %d, want %d", detailReqs, tt.wantDetailReqs)
+			}
+			if detailReqs > 0 {
+				if detailUA != wttjBrowserUA {
+					t.Errorf("detail User-Agent = %q, want the WTTJ browser UA", detailUA)
+				}
+				if detailAccept != "text/html,application/xhtml+xml" {
+					t.Errorf("detail Accept = %q, want the HTML accept header", detailAccept)
+				}
+			}
+		})
+	}
+}
+
 func TestWTTJFetchConfigOverrides(t *testing.T) {
 	ts := newWTTJTestServer(t)
 	c, _ := testClient()
@@ -893,6 +1013,7 @@ func TestWTTJRetryMultiOrgAlias(t *testing.T) {
 		PagesURL:         srv.URL + "/api/v1/pages",
 		OrganizationsURL: srv.URL + "/api/v1/organizations",
 		AlgoliaBaseURL:   srv.URL,
+		SiteURL:          srv.URL,
 	}
 	offers, err := wttj.Fetch(context.Background(), model.Source{
 		ID: 1, Type: model.SourceWTTJ,
@@ -1053,7 +1174,7 @@ func TestWTTJDiscoverFallbacks(t *testing.T) {
 		bootstrap string
 		hit       string
 		sourceURL string
-		wantURL   string
+		wantPath  string
 		wantKey   string
 	}{
 		{
@@ -1065,7 +1186,7 @@ func TestWTTJDiscoverFallbacks(t *testing.T) {
 					"website_organization":{"slug":"acme"}}}]}]}]}}`,
 			hit:       `{"reference":"A","name":"SRE","slug":"sre","organization":{"name":"Acme","slug":"acme"}}`,
 			sourceURL: "https://www.welcometothejungle.com/fr/companies/acme/jobs",
-			wantURL:   "https://www.welcometothejungle.com/fr/companies/acme/jobs/sre",
+			wantPath:  "/fr/companies/acme/jobs/sre",
 			wantKey:   companyKey(model.SourceWTTJ, "acme"),
 		},
 		{
@@ -1076,7 +1197,7 @@ func TestWTTJDiscoverFallbacks(t *testing.T) {
 					"filters":{"website.reference":"wttj_fr"}}}]}]}]}}`,
 			hit:       `{"reference":"A","name":"SRE","slug":"sre","organization":{"name":"Acme"}}`,
 			sourceURL: "https://www.welcometothejungle.com/fr/companies/acme/jobs",
-			wantURL:   "https://www.welcometothejungle.com/fr/companies/acme/jobs/sre",
+			wantPath:  "/fr/companies/acme/jobs/sre",
 			wantKey:   companyKey(model.SourceWTTJ, "acme"),
 		},
 	}
@@ -1097,7 +1218,7 @@ func TestWTTJDiscoverFallbacks(t *testing.T) {
 			defer srv.Close()
 
 			c, _ := testClient()
-			wttj := &WTTJ{Client: c, PagesURL: srv.URL + "/api/v1/pages", AlgoliaBaseURL: srv.URL}
+			wttj := &WTTJ{Client: c, PagesURL: srv.URL + "/api/v1/pages", AlgoliaBaseURL: srv.URL, SiteURL: srv.URL}
 			offers, err := wttj.Fetch(context.Background(), model.Source{
 				ID: 1, Type: model.SourceWTTJ, URL: tt.sourceURL,
 			})
@@ -1108,8 +1229,8 @@ func TestWTTJDiscoverFallbacks(t *testing.T) {
 				t.Fatalf("offers = %d, want 1: %+v", len(offers), offers)
 			}
 			got := offers[0]
-			if got.URL != tt.wantURL || got.CompanyKey != tt.wantKey {
-				t.Errorf("offer = %+v, want URL %q and key %q", got, tt.wantURL, tt.wantKey)
+			if !strings.HasSuffix(got.URL, tt.wantPath) || got.CompanyKey != tt.wantKey {
+				t.Errorf("offer = %+v, want URL ending in %q and key %q", got, tt.wantPath, tt.wantKey)
 			}
 		})
 	}
@@ -1166,7 +1287,7 @@ func TestWTTJPageLimit(t *testing.T) {
 	defer srv.Close()
 
 	c, _ := testClient()
-	wttj := &WTTJ{Client: c, PagesURL: srv.URL + "/api/v1/pages", AlgoliaBaseURL: srv.URL}
+	wttj := &WTTJ{Client: c, PagesURL: srv.URL + "/api/v1/pages", AlgoliaBaseURL: srv.URL, SiteURL: srv.URL}
 	_, err := wttj.Fetch(context.Background(), model.Source{
 		ID: 1, Type: model.SourceWTTJ,
 		URL: "https://www.welcometothejungle.com/en/companies/fabriq/jobs",

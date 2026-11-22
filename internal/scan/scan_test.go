@@ -19,12 +19,18 @@ import (
 )
 
 // fakeFetcher returns, per source ID, the configured offers or error.
+// It records the known-description map the scanner passed in.
 type fakeFetcher struct {
 	offers map[int64][]sources.RawOffer
 	errs   map[int64]error
+	known  map[int64]map[string]string
 }
 
-func (f *fakeFetcher) Fetch(_ context.Context, src model.Source) ([]sources.RawOffer, error) {
+func (f *fakeFetcher) Fetch(ctx context.Context, src model.Source) ([]sources.RawOffer, error) {
+	if f.known == nil {
+		f.known = map[int64]map[string]string{}
+	}
+	f.known[src.ID] = sources.KnownDescriptions(ctx)
 	if err := f.errs[src.ID]; err != nil {
 		return nil, err
 	}
@@ -981,5 +987,38 @@ func assertNoStoredScores(t *testing.T, sqlDB *sql.DB, offerID int64) {
 	if titleConf.Valid || locConf.Valid || reasons.Valid {
 		t.Errorf("offer %d stored legacy scores: title=%v location=%v reasons=%v",
 			offerID, titleConf, locConf, reasons)
+	}
+}
+
+// TestScanPassesKnownDescriptions verifies the pipeline gives the adapter
+// the descriptions already stored for the source, and that a later
+// sighting without text does not erase them.
+func TestScanPassesKnownDescriptions(t *testing.T) {
+	sqlDB, sc, ff, _ := setup(t)
+	src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
+	ctx := context.Background()
+
+	ff.offers[src.ID] = []sources.RawOffer{rawSRE}
+	if r := sc.ScanSource(ctx, src); r.Err != nil || r.New != 1 {
+		t.Fatalf("first scan = %+v, want one new offer", r)
+	}
+
+	// The adapter now reports the same uid without a description, as a
+	// WTTJ hit whose index text is blank would.
+	noText := rawSRE
+	noText.Description = ""
+	ff.offers[src.ID] = []sources.RawOffer{noText}
+	if r := sc.ScanSource(ctx, src); r.Err != nil || r.Seen != 1 {
+		t.Fatalf("second scan = %+v, want one seen offer", r)
+	}
+	if got := ff.known[src.ID]["1"]; got != "Run Kubernetes." {
+		t.Fatalf("known description = %q, want the stored text", got)
+	}
+	var raw string
+	if err := sqlDB.QueryRow(`SELECT raw_text FROM job_offers WHERE title = ?`, rawSRE.Title).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw != "Run Kubernetes." {
+		t.Errorf("stored description = %q, want it preserved", raw)
 	}
 }

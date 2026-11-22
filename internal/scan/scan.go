@@ -72,7 +72,7 @@ func (s *Scanner) ScanSource(ctx context.Context, src model.Source) Result {
 	res := Result{SourceID: src.ID, SourceName: src.Name}
 	now := s.now()
 
-	raws, err := s.Fetcher.Fetch(ctx, src)
+	raws, err := s.fetchWithKnown(ctx, src)
 	if errors.Is(err, sources.ErrNotImplemented) {
 		res.Err = err
 		return res
@@ -99,6 +99,17 @@ func (s *Scanner) ScanSource(ctx context.Context, src model.Source) Result {
 	}
 	res.Status = model.ScanOK
 	return res
+}
+
+// fetchWithKnown loads the descriptions already stored for src's offers
+// and passes them to the adapter, so a detail-page fallback can skip
+// items whose text is known.
+func (s *Scanner) fetchWithKnown(ctx context.Context, src model.Source) ([]sources.RawOffer, error) {
+	known, err := db.KnownDescriptions(ctx, s.DB, src.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.Fetcher.Fetch(sources.WithKnownDescriptions(ctx, known), src)
 }
 
 func (s *Scanner) apply(ctx context.Context, src model.Source, raws []sources.RawOffer, now time.Time, res *Result) error {

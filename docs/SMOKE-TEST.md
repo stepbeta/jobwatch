@@ -87,7 +87,13 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
   `blocked`, never crashes the scan.
 - Requests to one host are spaced by `rate_limit_ms` (default 2 s) or the
   robots `Crawl-delay`, whichever is larger. HTML sources never poll
-  faster than every 5 s. Only the configured listing page is fetched.
+  faster than every 5 s and fetch only the configured listing page. A
+  `wttj` source fetches one offer page per hit whose index `profile` and
+  `summary` are both blank and which has no stored description, through
+  the same rate limit, to read its JSON-LD description. Those detail
+  requests use the adapter's single browser User-Agent (WTTJ's WAF
+  challenges the JobWatch UA); a challenged page leaves the description
+  empty.
 - A failing source never blocks the others. Failed scans change no offer.
 
 ### Seeded rows
@@ -101,4 +107,6 @@ present only as reminders: no adapter reads them (the `wttj` adapter only
 reads `/companies/` pages). Do not enable them expecting a scan; use
 manual import or an RSS/HTML source instead.
 Deleting `jobwatch.db` and reopening it recreates the same 71 rows
-without re-running `add-sources`.
+without re-running `add-sources`. User-added sources are not part of the
+seed: the live instance also tracks Partoo (WTTJ, id 82) and Joko (Ashby,
+id 88, added when Joko's WTTJ source was retired).

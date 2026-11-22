@@ -34,6 +34,27 @@ type Fetcher interface {
 	Fetch(ctx context.Context, src model.Source) ([]RawOffer, error)
 }
 
+type knownDescriptionsKey struct{}
+
+// WithKnownDescriptions attaches the descriptions already stored for a
+// source's offers, keyed by external UID. Adapters that would otherwise
+// fetch a detail page per item use it to skip items whose text is
+// already known, so a scan spends its requests on genuinely missing
+// descriptions.
+func WithKnownDescriptions(ctx context.Context, known map[string]string) context.Context {
+	if len(known) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, knownDescriptionsKey{}, known)
+}
+
+// KnownDescriptions returns the map attached by WithKnownDescriptions,
+// or nil when the caller has no stored descriptions.
+func KnownDescriptions(ctx context.Context) map[string]string {
+	known, _ := ctx.Value(knownDescriptionsKey{}).(map[string]string)
+	return known
+}
+
 // ErrBlocked is wrapped by errors caused by the source refusing access
 // (robots.txt disallow, HTTP 401/403/429). Such sources are marked
 // "blocked" rather than "error".

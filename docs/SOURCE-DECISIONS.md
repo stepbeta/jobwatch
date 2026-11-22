@@ -217,7 +217,12 @@ sequenceDiagram
         Algolia-->>Adapter: results[0].hits[], nbPages
     end
     Note over Adapter: if page 0 is empty but items_count > 0,<br/>resolve the canonical organization slug<br/>and retry page 0 once
-    Note over Adapter: hits become RawOffer; no offer page is fetched
+    Note over Adapter: hits become RawOffer
+    loop each hit whose profile and summary are blank
+        Adapter->>Site: GET /{lang}/companies/{org}/jobs/{slug}
+        Site-->>Adapter: 200 HTML with JSON-LD JobPosting
+    end
+    Note over Adapter: description = JSON-LD description as plain text;<br/>a failed page leaves it empty and does not fail the source
 ```
 
 1. **Discovery** — `GET https://api.welcometothejungle.com/api/v1/pages?path=<careers path>`
@@ -245,6 +250,25 @@ sequenceDiagram
    lookup failure is a retryable error; a page with `items_count` 0 never
    triggers the lookup, and a mismatch without a rename returns the
    received hits.
+4. **Description fallback** — some organizations publish neither `profile`
+   nor `summary` in the index (observed on Joko and Partoo). For each such
+   hit the adapter fetches the offer's public page through the shared
+   client (robots.txt and the per-source interval apply), reads the
+   JSON-LD `JobPosting.description`, and converts it with
+   `sources.HTMLToText`. The page is fetched only while the index text
+   stays blank and the offer has no stored description; once text is
+   stored, later scans skip that offer, so the WAF allowance goes to the
+   offers that still need it. A failed request, a non-2xx response,
+   malformed HTML or a missing `JobPosting` leaves that offer's
+   description empty and keeps the source `ok`: the listing itself
+   succeeded.
+
+   WTTJ's CloudFront WAF answers the identifying JobWatch UA on HTML
+   pages with HTTP 202 and an empty body, so detail requests use the same
+   single browser User-Agent the adapter already sends to the site's API
+   endpoints. There is no per-request UA rotation. A source with many
+   description-less hits needs a slower `rate_limit_ms` to stay under the
+   WAF's burst threshold; Partoo uses 90 s.
 
 Request quirks, all verified against the live site (2026-11) and
 deliberately replicated:
@@ -255,7 +279,7 @@ deliberately replicated:
 | `Content-Type: application/x-www-form-urlencoded` with a JSON body | this is what the site's Algolia JS client 4.x sends; changing it to `application/json` is unnecessary and untested against the site |
 | `params` carries `facetFilters=` | Algolia parses `params` as a query string; the discovered filter groups are serialized as URL-encoded JSON, e.g. `facetFilters=%5B%5B%22organization.slug%3Afabriq%22%5D%5D&hitsPerPage=50&page=N`. Space-joining `attribute:value` pairs would AND a multi-value group and select nothing |
 | The page's filters are sent explicitly | the secured key only embeds `website.reference:wttj_fr`; without `facetFilters` the query returns the whole site (~60k hits instead of the page's own offers). The adapter never decodes the key and does not repeat the embedded filter |
-| A browser User-Agent for these API calls | the bootstrap endpoint and Algolia reject the identifying JobWatch UA; every other adapter keeps it |
+| A browser User-Agent for these API calls and for offer pages | the bootstrap endpoint, Algolia and HTML offer pages reject or challenge the identifying JobWatch UA; every other adapter keeps it. One fixed browser UA is used, never per-request rotation |
 | Pagination is `hitsPerPage=50`, `page=0..nbPages-1` | same page size as the site; the loop stops at `nbPages` or the first empty page |
 | An empty first page can trigger one organization lookup | the CMS filters can lag behind a rename (Swile: filters `swile`, index `lunchr`); page 0's `nbHits` is compared with `items_count`, every `organization.slug` value is canonicalized only on a mismatch, and a lookup failure is retryable |
 
@@ -267,7 +291,7 @@ Hit mapping (both index shapes observed in the wild are tolerated):
 | Title | `hit.name` |
 | Company | `hit.organization.name` |
 | Location | `offices[]` joined as `City, Country` (`; ` between offices); fallback `office.*` |
-| Description | `hit.profile` (markdown) verbatim; fallback `hit.summary` |
+| Description | `hit.profile` (markdown) verbatim; fallback `hit.summary`; when both are blank, the JSON-LD `JobPosting.description` of the public offer page, converted from HTML to plain text |
 | URL | `https://www.welcometothejungle.com/{language}/companies/{organization.slug}/jobs/{hit.slug}` with the discovery `language`. The organization slug is the hit's own, because a page may list jobs of linked organizations; the discovered page slug is used only when the hit omits it. The hit language is only used when discovery has none |
 | PublishedAt | `hit.published_at` (RFC3339 with `Z` or a numeric offset); parsed and validated but not stored — `job_offers` has no publication-date column and 10a adds none |
 
@@ -333,6 +357,16 @@ GET per scan per source).
    called once per distinct slug only on a count mismatch; if WTTJ changes
    its response shape, the retry fails as a retryable error rather than
    silently reporting a partial list.
+8. **The description fallback depends on the page's JSON-LD.** When the
+   index text is blank, the adapter reads `JobPosting.description` from the
+   offer page. If WTTJ drops that block (or renders the page client-side),
+   descriptions stay empty while the scan still succeeds. A systemic
+   failure of detail pages is therefore silent: the source is `ok`, but
+   its offers have no text. The smoke test checks Partoo's descriptions
+   after a scan; a dedicated warning field would be needed to surface this
+   in the UI. The same applies to a WAF challenge: the adapter sends one
+   fixed browser UA and a conservative interval, but a burst can still be
+   challenged, leaving that offer's text empty.
 
 A further gap: offers are identified by `(source, external_uid)`, where
 the uid is `reference` (or the `objectID` fallback). The two observed
@@ -388,3 +422,26 @@ create new offers; the previous ones would disappear on that scan.
   `nbHits != items_count` and canonicalizing every slug, the scans were
   repeated: Swile 15 fetched (0 new, 15 seen), Fabriq 7 (0 new) and
   Partoo 15 (0 new), all `ok`.
+
+### Joko moved from WTTJ to Ashby (2026-11-22)
+
+Joko published the same 46 roles on both surfaces, but the WTTJ index
+carried neither `profile` nor `summary` for any of them while the Ashby
+board includes the full descriptions. The WTTJ source (id 87) and its 46
+description-less offers were therefore removed after a database backup,
+and `https://jobs.ashbyhq.com/joko` was added as an `ashby` source (named
+`Joko`, `{"company":"Joko"}`).
+
+To avoid a duplicate company, `ashby:joko` was inserted into
+`company_keys` for the existing company `Joko` (id 115) before the first
+scan; the scan reused company 115 instead of creating a second `Joko`,
+and added the source-scoped `joko` alias. The one bookmark on old offer
+2869 was restored on the Ashby homologue
+`b83d7f0f-a0d0-4dc6-b305-7d9336e4d389` (`saved_at =
+2026-11-22T17:09:35Z`).
+
+This was a one-off, user-confirmed data operation; it does not change the
+rule that scans never delete offers. The 46 old offers had no events or
+notes, and their snapshots were empty. The WTTJ adapter still serves
+companies whose index does carry text (Fabriq, Partoo, Swile); Joko is
+simply no longer one of them.

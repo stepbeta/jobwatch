@@ -7,7 +7,6 @@ package importmeta
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"html"
 	"net/url"
@@ -105,83 +104,25 @@ func extractHTML(doc *xhtml.Node) Metadata {
 }
 
 func applyJSONLD(doc *xhtml.Node, out *Metadata) {
-	for _, n := range allNodes(doc) {
-		if n.Type != xhtml.ElementNode || !strings.EqualFold(n.Data, "script") {
-			continue
-		}
-		if !strings.Contains(strings.ToLower(attr(n, "type")), "ld+json") {
-			continue
-		}
-		raw := strings.TrimSpace(textContent(n))
-		if raw == "" {
-			continue
-		}
-		var v any
-		if err := json.Unmarshal([]byte(raw), &v); err != nil {
-			continue
-		}
-		var posting map[string]any
-		findJobPosting(v, &posting)
-		if posting == nil {
-			continue
-		}
-		if out.Title == "" {
-			out.Title = asString(posting["title"])
-		}
-		if out.Company == "" {
-			out.Company = organizationName(posting["hiringOrganization"])
-		}
-		if out.Location == "" {
-			out.Location = jobLocation(posting["jobLocation"])
-		}
-		if out.Description == "" {
-			out.Description = sources.HTMLToText(asString(posting["description"]))
-		}
-		if out.URL == "" {
-			out.URL = asString(posting["url"])
-		}
+	posting := sources.FindJobPosting(doc)
+	if posting == nil {
+		return
 	}
-}
-
-// findJobPosting walks decoded JSON-LD (objects, arrays, @graph) until a
-// node whose @type contains JobPosting is found.
-func findJobPosting(v any, out *map[string]any) {
-	switch t := v.(type) {
-	case map[string]any:
-		if typeContains(t["@type"], "JobPosting") {
-			*out = t
-			return
-		}
-		for _, key := range []string{"@graph", "itemListElement", "mainEntity"} {
-			if child, ok := t[key]; ok {
-				findJobPosting(child, out)
-				if *out != nil {
-					return
-				}
-			}
-		}
-	case []any:
-		for _, child := range t {
-			findJobPosting(child, out)
-			if *out != nil {
-				return
-			}
-		}
+	if out.Title == "" {
+		out.Title = asString(posting["title"])
 	}
-}
-
-func typeContains(v any, want string) bool {
-	switch t := v.(type) {
-	case string:
-		return strings.EqualFold(t, want)
-	case []any:
-		for _, x := range t {
-			if typeContains(x, want) {
-				return true
-			}
-		}
+	if out.Company == "" {
+		out.Company = organizationName(posting["hiringOrganization"])
 	}
-	return false
+	if out.Location == "" {
+		out.Location = jobLocation(posting["jobLocation"])
+	}
+	if out.Description == "" {
+		out.Description = sources.HTMLToText(asString(posting["description"]))
+	}
+	if out.URL == "" {
+		out.URL = asString(posting["url"])
+	}
 }
 
 func organizationName(v any) string {

@@ -423,3 +423,30 @@ func ListProvenanceDetailed(ctx context.Context, q Querier, offerID int64) ([]Pr
 	}
 	return out, rows.Err()
 }
+
+// KnownDescriptions returns the stored non-empty descriptions of the
+// offers linked to sourceID, keyed by provenance external_uid. Scanners
+// pass it to adapters so a detail-page fallback can skip offers whose
+// text is already stored.
+func KnownDescriptions(ctx context.Context, q Querier, sourceID int64) (map[string]string, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT p.external_uid, o.raw_text
+		   FROM job_offer_provenance p
+		   JOIN job_offers o ON o.id = p.offer_id
+		  WHERE p.source_id = ?
+		    AND p.external_uid IS NOT NULL AND p.external_uid <> ''
+		    AND o.raw_text IS NOT NULL AND TRIM(o.raw_text) <> ''`, sourceID)
+	if err != nil {
+		return nil, fmt.Errorf("known descriptions for source %d: %w", sourceID, err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var uid, text string
+		if err := rows.Scan(&uid, &text); err != nil {
+			return nil, fmt.Errorf("known descriptions for source %d: %w", sourceID, err)
+		}
+		out[uid] = text
+	}
+	return out, rows.Err()
+}

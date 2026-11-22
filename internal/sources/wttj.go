@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/net/html"
+
 	"github.com/stepbeta/jobwatch/internal/model"
 )
 
@@ -45,7 +47,9 @@ var ErrNotCareersPage = errors.New("URL is not a WTTJ careers page")
 
 // WTTJ fetches the offers of a Welcome to the Jungle company careers
 // page. Every scan performs one in-memory discovery call (bootstrap
-// page tree) and then one Algolia multi-query per result page.
+// page tree) and then one Algolia multi-query per result page. Hits
+// whose index text is blank and that have no stored description trigger
+// one extra request to the public job page for its JSON-LD description.
 type WTTJ struct {
 	Client *Client
 	// PagesURL, OrganizationsURL and AlgoliaBaseURL override the public
@@ -54,6 +58,11 @@ type WTTJ struct {
 	PagesURL         string
 	OrganizationsURL string
 	AlgoliaBaseURL   string
+	// SiteURL overrides the public site origin used to build offer URLs
+	// (and therefore the detail-page request). Empty means
+	// https://www.welcometothejungle.com; tests point it at an httptest
+	// server so no description-less hit reaches the real site.
+	SiteURL string
 }
 
 // wttjFilterGroup is one discovered filter attribute and its values.
@@ -69,6 +78,7 @@ type wttjSearch struct {
 	AppID, APIKey, Index string
 	Language             string
 	OrgSlug              string // organization.slug: WTTJ job URL segment
+	SiteURL              string // public site origin for offer URLs
 	ExpectedItems        int    // page.path[0].items_count, the jobs the page claims
 	Filters              []wttjFilterGroup
 }
@@ -145,8 +155,10 @@ func (w *WTTJ) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 	if err != nil {
 		return nil, err
 	}
+	search.SiteURL = w.siteURL()
 
 	out := make([]RawOffer, 0, wttjHitsPerPage)
+	known := KnownDescriptions(ctx)
 	for page := 0; page < wttjMaxPages; page++ {
 		res, err := w.query(ctx, src, search, page)
 		if err != nil {
@@ -159,9 +171,18 @@ func (w *WTTJ) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 			}
 		}
 		for _, hit := range res.Hits {
-			if offer, ok := mapWTTJHit(hit, search); ok {
-				out = append(out, finalizeOffer(offer, cfg.Company))
+			offer, ok := mapWTTJHit(hit, search)
+			if !ok {
+				continue
 			}
+			// The index text is blank for some organizations. Fetch the
+			// page only when the offer has no stored description yet:
+			// re-fetching known text would burn the WAF allowance before
+			// the scan reaches the offers that still need it.
+			if strings.TrimSpace(offer.Description) == "" && known[offer.ExternalUID] == "" {
+				offer.Description = w.detailDescription(ctx, src, offer.URL)
+			}
+			out = append(out, finalizeOffer(offer, cfg.Company))
 		}
 		// Algolia reports nbPages once per query; stop after the last
 		// page or an empty one, whichever comes first. Exceeding the
@@ -555,7 +576,7 @@ func mapWTTJHit(h wttjHit, search wttjSearch) (RawOffer, bool) {
 	}
 	// The page locale from discovery builds every URL (verified to
 	// resolve); the hit language is only a fallback.
-	link := wttjOfferURL(firstNonEmpty(search.Language, h.Language, "en"), org, slug)
+	link := wttjOfferURL(search.SiteURL, firstNonEmpty(search.Language, h.Language, "en"), org, slug)
 	if link == "" {
 		return RawOffer{}, false
 	}
@@ -581,12 +602,55 @@ func mapWTTJHit(h wttjHit, search wttjSearch) (RawOffer, bool) {
 
 // wttjOfferURL builds the public job page URL, e.g.
 // https://www.welcometothejungle.com/en/companies/fabriq/jobs/<slug>.
-func wttjOfferURL(language, org, slug string) string {
+// siteURL is the resolved SiteURL override; empty means the real site.
+func wttjOfferURL(siteURL, language, org, slug string) string {
 	if org == "" || slug == "" {
 		return ""
 	}
-	return wttjSiteURL + "/" + url.PathEscape(language) +
+	if siteURL == "" {
+		siteURL = wttjSiteURL
+	}
+	return siteURL + "/" + url.PathEscape(language) +
 		"/companies/" + url.PathEscape(org) + "/jobs/" + url.PathEscape(slug)
+}
+
+// siteURL resolves the public site origin for offer URLs.
+func (w *WTTJ) siteURL() string {
+	if s := strings.TrimRight(strings.TrimSpace(w.SiteURL), "/"); s != "" {
+		return s
+	}
+	return wttjSiteURL
+}
+
+// detailDescription fetches the public offer page and returns its
+// JSON-LD JobPosting.description as plain text. The index text is blank
+// for some organizations, so this is the only source of their
+// description. Any failure returns an empty string: the listing itself
+// succeeded, and one unavailable page must not fail the source.
+//
+// The request goes through the shared client (robots.txt and the
+// per-source interval apply), but with the same browser User-Agent the
+// adapter already sends to WTTJ's API endpoints: the site's WAF answers
+// 202 to the identifying JobWatch UA on HTML pages. This is a recorded,
+// single-UA exception, not per-request rotation.
+func (w *WTTJ) detailDescription(ctx context.Context, src model.Source, offerURL string) string {
+	body, err := w.Client.fetch(ctx, src, http.MethodGet, offerURL, map[string]string{
+		"Accept":     "text/html,application/xhtml+xml",
+		"User-Agent": wttjBrowserUA,
+	}, nil)
+	if err != nil {
+		return ""
+	}
+	doc, err := html.Parse(bytes.NewReader(body))
+	if err != nil {
+		return ""
+	}
+	posting := FindJobPosting(doc)
+	if posting == nil {
+		return ""
+	}
+	desc, _ := posting["description"].(string)
+	return HTMLToText(desc)
 }
 
 // wttjLocation joins offices as "City, Country" ("; " between several
