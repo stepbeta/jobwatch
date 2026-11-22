@@ -177,28 +177,13 @@ or split moves provenance, snapshots, events and notes.
 
 ## 6. Classification engine (deterministic, read-time)
 
-Goal: separate offer facts from user preferences and compute the scores
-when an offer is read. No LLM in the scan loop.
-
-- **Facts** on the offer: title, location, description and the
-  `remote_policy` derived by a fixed phrase detector.
-- **Preferences** in a search profile (`search_profiles`,
-  `search_profile_terms`, `search_profile_remote`): title, location and
-  description terms with numeric weights, a 3/5 bucket display scale, and
-  the accepted remote policies. One seeded default profile replaces the
-  old hardcoded tables.
-- **Scores** computed at read time: title affinity (title terms) and
-  location affinity (location and description terms), each 0–100;
-  remote policy acceptance is a membership boolean, never a weighted
-  score. Reasons list the matched term, weight and bucket.
-- Offer lists filter and sort on the computed affinities
-  (`min_title_affinity`, `min_location_affinity`, `remote_accepted`,
-  `sort=title_affinity|location_affinity`). Changing the profile changes
-  the next read; there is no reclassification command and no stored
-  score.
-- The fixed remote phrase lists live in `internal/classify`; users
-  cannot edit them. No separate "needs review" queue: scores are shown as
-  small badges with their reasons.
+Classification and search profiles are specified by the `classification`
+and `search-profiles` capabilities
+([openspec/specs/classification/spec.md](../openspec/specs/classification/spec.md),
+[openspec/specs/search-profiles/spec.md](../openspec/specs/search-profiles/spec.md)):
+offer facts separate from user preferences, read-time title and location
+affinity, remote policy as a fact plus a profile membership check, and
+the profile terms, buckets, validation and default seed.
 
 ## 7. Sources & fetching architecture
 
@@ -508,3 +493,9 @@ plain React + a lightweight table component is fine.
   `openspec/specs/wttj-source`. The WTTJ note in section 7 is now a
   pointer; the two-call flow, request quirks, alias resolution and known
   gaps remain in `docs/SOURCE-DECISIONS.md`.
+- 2026-11-22 (OpenSpec change `classification-profiles`, archived): the
+  change is archived and its deltas were synced to
+  `openspec/specs/classification` and `openspec/specs/search-profiles`.
+  Section 6 is now a pointer; the schema, endpoints and profile
+  procedure remain in `docs/DATA-MODEL.md`, `docs/API.md` and
+  `docs/USAGE.md`.
