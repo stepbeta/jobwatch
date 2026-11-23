@@ -507,11 +507,11 @@ plain React + a lightweight table component is fine.
   detail-request rules are now owned by that capability; the section 7
   pointer above remains, and operational details stay in
   `docs/SOURCE-DECISIONS.md`.
-- 2026-11-23 (OpenSpec change `html-detail-descriptions`): the HTML
-  adapter's behavior now belongs to `openspec/specs/html-source`: listing
-  selectors, the opt-in `detail_description_selector` fetch, the
-  stored-text skip and one-time summary upgrade, per-item failure
-  isolation, the fail-fast on a blocked detail page, and the polite
-  request budget. The section 7 `html` entry is now a pointer; the
-  capability file is created when the change is archived. The config key
-  and schema notes remain in `docs/DATA-MODEL.md` and `docs/USAGE.md`.
+- 2026-11-23 (OpenSpec change `html-detail-descriptions`, archived):
+  the HTML adapter's behavior now belongs to
+  `openspec/specs/html-source`: listing selectors, the opt-in
+  `detail_description_selector` fetch, the stored-text skip and one-time
+  summary upgrade, per-item failure isolation, the fail-fast on a blocked
+  detail page, and the polite request budget. The section 7 `html` entry
+  is now a pointer. The config key and schema notes remain in
+  `docs/DATA-MODEL.md` and `docs/USAGE.md`.
