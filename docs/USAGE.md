@@ -110,7 +110,8 @@ Optional `--config` keys:
 | `algolia_app_id`, `algolia_api_key` | WTTJ debug-only overrides of the credentials discovered from the page bootstrap |
 | `item`, `title_field`, `link_field`, `description_field`, `location_field`, `company_field`, `uid_field` | RSS/Atom mapping. Paths are child element local names joined with `/` (e.g. `locations/location/name`); `@name` reads an attribute and `#text` reads text. Defaults cover RSS `<item>` and Atom `<entry>` |
 | `employer` | Declarative employer rule for RSS/HTML sources that list several employers. `{"separator":":"}` splits `Employer: Role`; `field` (RSS) or `selector` (HTML) reads the employer from a separate element and strips the repeated prefix from the title |
-| `item_selector`, `title_selector`, `link_selector`, `link_attr`, `location_selector`, `description_selector`, `company_selector`, `uid_selector`, `uid_attr` | HTML listing page CSS selectors. `item_selector` and `title_selector` are required; only the listing page is fetched, at most every 5 s. Selectors use cascadia's CSS support, including `:has()` and `:haschild()` for item containers |
+| `item_selector`, `title_selector`, `link_selector`, `link_attr`, `location_selector`, `description_selector`, `company_selector`, `uid_selector`, `uid_attr` | HTML listing page CSS selectors. `item_selector` and `title_selector` are required; the listing is fetched at most every 5 s. Selectors use cascadia's CSS support, including `:has()` and `:haschild()` for item containers |
+| `detail_description_selector` | Optional HTML detail-page selector. When set, an item's link is fetched (through the same 5 s minimum and robots.txt) only if its description is missing or still equals the listing text; the selected element becomes the description. Offers with a stored different text make no request. A blocked response (robots disallow, 401/403/429) stops detail requests for the rest of the scan without failing the source. Requires a stable `uid_selector`/`uid_attr` to skip later scans |
 
 ### Examples
 
@@ -139,6 +140,14 @@ RSS/Atom and HTML sources need `--type`:
   --config '{"item_selector":"li:haschild(a[href^=\"/jobs/\"])",
              "title_selector":"a[href^=\"/jobs/\"] h2",
              "link_selector":"a[href^=\"/jobs/\"]"}'
+
+# Summary listings whose detail page holds the full text: a stable uid
+# lets later scans reuse the stored description instead of re-fetching.
+./jobwatch add-source https://careers.example.com/jobs \
+  --type html --name "Example careers" \
+  --config '{"item_selector":"li.job","title_selector":"h2 a",
+             "description_selector":".summary","uid_attr":"data-id",
+             "detail_description_selector":".job-description"}'
 ```
 
 A fresh database also contains disabled rows for Datadog/Cisco

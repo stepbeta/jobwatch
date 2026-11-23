@@ -452,6 +452,84 @@ func TestSeedWTTJSource(t *testing.T) {
 	}
 }
 
+const murenaURL = "https://murena.com/jobs/"
+
+// TestSeedMurenaDetailDescription verifies migration 0016 adds the detail
+// selector to the seeded Murena row without disturbing the other keys, is
+// idempotent, and never overwrites a user-edited selector.
+func TestSeedMurenaDetailDescription(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTest(t)
+
+	var recorded int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 16 AND name = 'murena_detail_description'`).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Fatalf("migration 0016 recorded %d times, want 1", recorded)
+	}
+
+	readConfig := func() string {
+		t.Helper()
+		var cfg string
+		if err := sqlDB.QueryRowContext(ctx,
+			`SELECT config_json FROM sources WHERE url = ?`, murenaURL).Scan(&cfg); err != nil {
+			t.Fatalf("read Murena config: %v", err)
+		}
+		return cfg
+	}
+
+	var selector string
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT json_extract(config_json, '$.detail_description_selector') FROM sources WHERE url = ?`,
+		murenaURL).Scan(&selector); err != nil {
+		t.Fatal(err)
+	}
+	if selector != "section.entry-content" {
+		t.Errorf("detail_description_selector = %q, want section.entry-content", selector)
+	}
+	cfg := readConfig()
+	for _, want := range []string{`"item_selector"`, `"description_selector"`, `"uid_attr"`} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("Murena config lost %s: %s", want, cfg)
+		}
+	}
+
+	body, err := migrations.FS.ReadFile("0016_murena_detail_description.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Re-applying the file is a no-op.
+	for i := 0; i < 2; i++ {
+		if _, err := sqlDB.ExecContext(ctx, string(body)); err != nil {
+			t.Fatalf("re-apply 0016: %v", err)
+		}
+	}
+	if after := readConfig(); after != cfg {
+		t.Errorf("re-applying 0016 changed the config:\n got %s\nwant %s", after, cfg)
+	}
+
+	// A user-edited selector is preserved.
+	if _, err := sqlDB.ExecContext(ctx,
+		`UPDATE sources SET config_json = json_set(config_json, '$.detail_description_selector', '.custom') WHERE url = ?`,
+		murenaURL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, string(body)); err != nil {
+		t.Fatalf("re-apply 0016 after edit: %v", err)
+	}
+	var edited string
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT json_extract(config_json, '$.detail_description_selector') FROM sources WHERE url = ?`,
+		murenaURL).Scan(&edited); err != nil {
+		t.Fatal(err)
+	}
+	if edited != ".custom" {
+		t.Errorf("re-applying 0016 overwrote a user edit: %q", edited)
+	}
+}
+
 // TestMigrationRenamesReplyReceived applies the first five migrations,
 // seeds an event with the old type and then upgrades with the real
 // embedded set, proving the data-only 0006 rename fixes existing

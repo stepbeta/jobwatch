@@ -87,7 +87,11 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
   `blocked`, never crashes the scan.
 - Requests to one host are spaced by `rate_limit_ms` (default 2 s) or the
   robots `Crawl-delay`, whichever is larger. HTML sources never poll
-  faster than every 5 s and fetch only the configured listing page. A
+  faster than every 5 s and fetch the configured listing page; when
+  `detail_description_selector` is set, an offer page is fetched only for
+  an offer with no stored description or whose stored text still equals
+  the listing summary, and a blocked detail page stops the remaining
+  detail requests for that scan. A
   `wttj` source fetches one offer page per hit whose index `profile` and
   `summary` are both blank and which has no stored description, through
   the same rate limit, to read its JSON-LD description. Those detail

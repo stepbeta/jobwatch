@@ -59,7 +59,7 @@ Actions:
 | https://careers.cisco.com/global/en/search-results | Cisco | not-trackable | Runs on Workday; the jobs API is a POST/JSON surface. Manual import only. |
 | https://recrutement.tiime.fr/jobs?query=&remote_status_id=fully&employment_type=contract | Tiime | rss | Teamtailor feed `https://recrutement.tiime.fr/jobs.rss`; `location_field: locations/location/name` (22 offers). |
 | https://elevenlabs.io/careers/positions?department=Engineering+%26+Product&location=France | ElevenLabs | html | Server-rendered `/careers/<uuid>/<slug>` links; `li.tw-group:has(article h4 a[href^="/careers/"])` (118 offers). |
-| https://murena.com/jobs/ | Murena | html | Server-rendered `table#jobs_table`; `tr:has(td:nth-child(3))` (5 engineering offers; the separate "Other positions" table is not tracked). |
+| https://murena.com/jobs/ | Murena | html | Server-rendered `table#jobs_table`; `tr:has(td:nth-child(3))` (5 engineering offers; the separate "Other positions" table is not tracked). Migration 0016 adds `detail_description_selector: section.entry-content`, so each existing offer is upgraded once from the listing summary to the full posting; later scans reuse the stored text. |
 | https://circleci.com/careers/jobs/ | CircleCI | underlying-board | Greenhouse board `circleci`; registered `https://job-boards.greenhouse.io/circleci` (15 offers). |
 | https://canonical.com/careers/all?filter=Engineering&location=emea | Canonical | underlying-board | Greenhouse board `canonical`; registered `https://job-boards.greenhouse.io/canonical` (316 offers). |
 | https://www.pulumi.com/careers/ | Pulumi | underlying-board | Greenhouse board `pulumicorporation`; registered `https://job-boards.greenhouse.io/pulumicorporation` (4 offers). |
@@ -445,3 +445,28 @@ rule that scans never delete offers. The 46 old offers had no events or
 notes, and their snapshots were empty. The WTTJ adapter still serves
 companies whose index does carry text (Fabriq, Partoo, Swile); Joko is
 simply no longer one of them.
+
+### HTML detail descriptions and the Wazuh source (2026-11-23)
+
+OpenSpec change `html-detail-descriptions` added the opt-in
+`detail_description_selector` to the HTML adapter. A source that sets it
+fetches an offer page only when the offer has no stored description or
+its stored text still equals the listing summary; later scans reuse the
+stored text (one listing request, no detail requests). A blocked detail
+response stops the detail phase for that scan while the source stays
+`ok`.
+
+- Murena (source 41): migration 0016 adds
+  `detail_description_selector: section.entry-content`. The scan
+  upgraded all five offers once from the 241–313 character listing
+  summaries to 4433–5459 character full postings, kept one description
+  snapshot per offer, and the "Read full job description." marker is
+  gone.
+- Wazuh (`https://wazuh.com/careers/`, source 89, local row): the
+  listing's `#careers-open` cards are tracked with
+  `title_selector: h3`, `link_selector: a.job-card`, `uid_attr: data-id`,
+  `company: Wazuh` and
+  `detail_description_selector: .job-content-description`. The
+  "Upcoming positions" table is excluded because it is not open for
+  applications. The first scan stored the full description; a second
+  scan kept the same offer and description without a detail request.

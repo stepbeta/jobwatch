@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### HTML detail descriptions (OpenSpec change `html-detail-descriptions`)
+
+#### Added
+- Optional HTML config key `detail_description_selector`: the adapter
+  fetches an offer's detail page through the shared polite client,
+  extracts the selected element as plain text, and stores it as the
+  offer description. Without the key the adapter still makes one listing
+  request and no per-offer requests.
+- Wazuh source `https://wazuh.com/careers/` (local row, `html`), tracking
+  only the `#careers-open` cards with `uid_attr: data-id` and reading the
+  full posting from `.job-content-description`; the "Upcoming positions"
+  table is excluded.
+- Migration `0016_murena_detail_description.sql`: data-only, idempotent
+  `json_set` that adds `detail_description_selector:
+  "section.entry-content"` to the seeded Murena config without touching
+  other keys or a user edit.
+
+#### Changed
+- An HTML detail page is fetched only when the offer has no stored
+  description or its stored text still equals the listing description
+  after whitespace normalization. Otherwise the adapter emits the stored
+  text and makes no request, so routine scans stay at one listing
+  request; sources without a uid cannot skip and fetch every scan.
+- A blocked detail response (robots disallow, 401/403/429) stops the
+  detail phase for the rest of the scan while the listing offers are
+  still returned and the source stays `ok`. A per-item 5xx, selector
+  miss or empty text falls back to the listing or stored text without
+  failing the source.
+- Murena's five offers were upgraded once from their listing summaries to
+  4433–5459 character full postings, with a description snapshot per
+  offer; later scans reuse the full text.
+
+#### Fixed
+- Murena no longer stores the listing summary plus "Read full job
+  description." as the offer description.
+
 ### WTTJ description fallback and Joko → Ashby (OpenSpec change `wttj-description-fallback`)
 
 #### Added
