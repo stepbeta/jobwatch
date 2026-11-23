@@ -188,8 +188,12 @@ HTML selector keys: `item_selector` and `title_selector` are required;
 `href`), `location_selector`, `description_selector`,
 `company_selector`, `uid_selector`, `uid_attr`. The optional `employer`
 rule uses `separator` and/or `selector` to rewrite company and title.
-Standard CSS syntax is supported by cascadia; only the listing page is
-fetched, once per scan.
+Standard CSS syntax is supported by cascadia; the listing page is fetched
+once per scan. `detail_description_selector` optionally names the
+element holding the full text on an offer page: the adapter fetches that
+page only when the offer has no stored description or the stored text
+still equals the listing description, emits the stored text otherwise,
+and stops detail fetches for the scan after a blocked response.
 
 Seeded source rows from migration 0002 are disabled and carry a `note`.
 They exist so the known-hard Workday/SuccessFactors links and the WTTJ

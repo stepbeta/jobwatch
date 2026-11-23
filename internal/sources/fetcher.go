@@ -117,9 +117,15 @@ type Config struct {
 	LinkAttr            string `json:"link_attr,omitempty"`
 	LocationSelector    string `json:"location_selector,omitempty"`
 	DescriptionSelector string `json:"description_selector,omitempty"`
-	CompanySelector     string `json:"company_selector,omitempty"`
-	UIDSelector         string `json:"uid_selector,omitempty"`
-	UIDAttr             string `json:"uid_attr,omitempty"`
+	// DetailDescriptionSelector optionally points at the element holding
+	// the full description on an offer's detail page. When set, the
+	// adapter fetches an item's link only if its description is missing
+	// or still equals the listing text; otherwise it reuses the stored
+	// text. See HTML.Fetch.
+	DetailDescriptionSelector string `json:"detail_description_selector,omitempty"`
+	CompanySelector           string `json:"company_selector,omitempty"`
+	UIDSelector               string `json:"uid_selector,omitempty"`
+	UIDAttr                   string `json:"uid_attr,omitempty"`
 }
 
 // ParseConfig decodes src.ConfigJSON. An empty string is an empty config.

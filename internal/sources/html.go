@@ -3,6 +3,7 @@ package sources
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -14,8 +15,11 @@ import (
 
 // HTML is the last-resort adapter: it parses one listing page with CSS
 // selectors configured per source. Selectors are documented in Config.
-// Only the listing page is fetched (never one request per offer), and the
-// shared client enforces the HTML minimum interval of 5 seconds.
+// The listing page is fetched once; an offer's detail page is fetched
+// only when detail_description_selector is set and the offer still needs
+// its description (no stored text, or stored text equal to the listing
+// summary). The shared client enforces the HTML minimum interval of 5
+// seconds and robots.txt for every request.
 type HTML struct {
 	Client *Client
 }
@@ -45,7 +49,7 @@ func (h *HTML) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 			return nil, fmt.Errorf("html: invalid link_selector %q: %w", s, err)
 		}
 	}
-	var locSel, descSel, companySel, uidSel, employerSel cascadia.Selector
+	var locSel, descSel, detailSel, companySel, uidSel, employerSel cascadia.Selector
 	if s := strings.TrimSpace(cfg.LocationSelector); s != "" {
 		if locSel, err = cascadia.Compile(s); err != nil {
 			return nil, fmt.Errorf("html: invalid location_selector %q: %w", s, err)
@@ -54,6 +58,11 @@ func (h *HTML) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 	if s := strings.TrimSpace(cfg.DescriptionSelector); s != "" {
 		if descSel, err = cascadia.Compile(s); err != nil {
 			return nil, fmt.Errorf("html: invalid description_selector %q: %w", s, err)
+		}
+	}
+	if s := strings.TrimSpace(cfg.DetailDescriptionSelector); s != "" {
+		if detailSel, err = cascadia.Compile(s); err != nil {
+			return nil, fmt.Errorf("html: invalid detail_description_selector %q: %w", s, err)
 		}
 	}
 	if s := strings.TrimSpace(cfg.CompanySelector); s != "" {
@@ -89,6 +98,8 @@ func (h *HTML) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 
 	nodes := cascadia.QueryAll(doc, itemSel)
 	out := make([]RawOffer, 0, len(nodes))
+	known := KnownDescriptions(ctx)
+	detailBlocked := false
 	for _, node := range nodes {
 		title := nodeText(queryOne(node, titleSel))
 		linkNode := queryOne(node, linkSel)
@@ -131,16 +142,73 @@ func (h *HTML) Fetch(ctx context.Context, src model.Source) ([]RawOffer, error) 
 			employerValue = nodeText(queryOne(node, employerSel))
 		}
 		title, company = cfg.Employer.apply(title, company, employerValue)
+		description := nodeDescription(queryOne(node, descSel))
+		if detailSel != nil {
+			// Sources without a uid cannot be matched against stored text,
+			// so they request the detail page on every scan.
+			stored := ""
+			if uid != "" {
+				stored = known[uid]
+			}
+			switch {
+			case stored != "" && !sameDescription(stored, description):
+				// The detail text is already stored: emit it instead of
+				// the listing summary so the scan cannot overwrite it.
+				description = stored
+			case !detailBlocked:
+				detail, err := h.detailDescription(ctx, src, detailSel, link)
+				switch {
+				case err != nil:
+					// A blocked response ends the detail phase, but the
+					// listing offers are still returned and the source
+					// stays ok. Other failures are per-item misses.
+					if errors.Is(err, ErrBlocked) {
+						detailBlocked = true
+					}
+					if stored != "" {
+						description = stored
+					}
+				case strings.TrimSpace(detail) != "":
+					description = detail
+				case stored != "":
+					description = stored
+				}
+			case stored != "":
+				// A block earlier in this scan must not let the listing
+				// text overwrite a description already stored.
+				description = stored
+			}
+		}
 		out = append(out, finalizeOffer(RawOffer{
 			ExternalUID: uid,
 			Title:       title,
 			Location:    nodeText(queryOne(node, locSel)),
 			URL:         link,
-			Description: nodeDescription(queryOne(node, descSel)),
+			Description: description,
 			Company:     company,
 		}, cfg.Company))
 	}
 	return out, nil
+}
+
+// detailDescription fetches an offer page and returns the plain text of
+// the element selected by sel. An empty result means "no detail text".
+func (h *HTML) detailDescription(ctx context.Context, src model.Source, sel cascadia.Selector, link string) (string, error) {
+	body, err := h.Client.Get(ctx, src, link, "text/html,application/xhtml+xml")
+	if err != nil {
+		return "", err
+	}
+	doc, err := html.Parse(bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("html: parse %s: %w", link, err)
+	}
+	return nodeDescription(cascadia.Query(doc, sel)), nil
+}
+
+// sameDescription reports whether two texts are equal ignoring whitespace
+// differences (the stored raw_text may keep line breaks).
+func sameDescription(a, b string) bool {
+	return strings.Join(strings.Fields(a), " ") == strings.Join(strings.Fields(b), " ")
 }
 
 // queryOne is cascadia.Query with a nil selector treated as "no match".
