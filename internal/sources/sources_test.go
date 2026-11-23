@@ -1060,9 +1060,13 @@ func TestHTMLDetailDescriptions(t *testing.T) {
 	// detailServer serves the listing and detail pages: A holds the full
 	// text, B returns 500, C lacks the selected element. With blocked, A
 	// returns 403 and the other pages still hold text (so a bug that keeps
-	// requesting them is visible in the offer descriptions).
-	detailServer := func(blocked bool) (*httptest.Server, func(string) int) {
+	// requesting them is visible in the offer descriptions). robots is the
+	// robots.txt body; empty means allow all.
+	detailServer := func(blocked bool, robots string) (*httptest.Server, func(string) int) {
 		t.Helper()
+		if robots == "" {
+			robots = "User-agent: *\nAllow: /\n"
+		}
 		var mu sync.Mutex
 		hits := map[string]int{}
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1071,7 +1075,7 @@ func TestHTMLDetailDescriptions(t *testing.T) {
 			mu.Unlock()
 			switch r.URL.Path {
 			case "/robots.txt":
-				w.Write([]byte("User-agent: *\nAllow: /\n"))
+				w.Write([]byte(robots))
 			case "/careers":
 				w.Write([]byte(listing))
 			case "/jobs/a":
@@ -1113,8 +1117,8 @@ func TestHTMLDetailDescriptions(t *testing.T) {
 	}
 
 	t.Run("detail text replaces listing summary", func(t *testing.T) {
-		srv, count := detailServer(false)
-		c, _ := testClient()
+		srv, count := detailServer(false, "")
+		c, fc := testClient()
 		got, err := (&HTML{Client: c}).Fetch(context.Background(), source(srv.URL, `,"uid_attr":"data-id"`))
 		if err != nil {
 			t.Fatalf("Fetch: %v", err)
@@ -1139,10 +1143,20 @@ func TestHTMLDetailDescriptions(t *testing.T) {
 				t.Errorf("%s requested %d times, want 1", path, n)
 			}
 		}
+		// Robots and the listing are the first two requests; each detail
+		// request must wait the HTML minimum interval.
+		if len(fc.sleeps) < 5 {
+			t.Fatalf("recorded %d sleeps, want at least 5", len(fc.sleeps))
+		}
+		for i, d := range fc.sleeps[2:] {
+			if d != HTMLMinInterval {
+				t.Errorf("detail sleep %d = %v, want %v", i, d, HTMLMinInterval)
+			}
+		}
 	})
 
 	t.Run("stored detail text is reused", func(t *testing.T) {
-		srv, count := detailServer(false)
+		srv, count := detailServer(false, "")
 		c, _ := testClient()
 		known := map[string]string{
 			"a": "Full A text.\n\nRequirements here.",
@@ -1165,7 +1179,7 @@ func TestHTMLDetailDescriptions(t *testing.T) {
 	})
 
 	t.Run("stored listing summary is upgraded once", func(t *testing.T) {
-		srv, count := detailServer(false)
+		srv, count := detailServer(false, "")
 		c, _ := testClient()
 		// Stored summaries differ from the listing only by whitespace.
 		known := map[string]string{"a": "Summary\nA", "b": "Summary B", "c": "Summary   C"}
@@ -1189,7 +1203,7 @@ func TestHTMLDetailDescriptions(t *testing.T) {
 	})
 
 	t.Run("no uid fetches every scan", func(t *testing.T) {
-		srv, count := detailServer(false)
+		srv, count := detailServer(false, "")
 		c, _ := testClient()
 		src := source(srv.URL, "")
 		// Even a map keyed by the empty uid must not suppress the fetch.
@@ -1209,7 +1223,7 @@ func TestHTMLDetailDescriptions(t *testing.T) {
 	})
 
 	t.Run("blocked detail stops the detail phase", func(t *testing.T) {
-		srv, count := detailServer(true)
+		srv, count := detailServer(true, "")
 		c, _ := testClient()
 		got, err := (&HTML{Client: c}).Fetch(context.Background(), source(srv.URL, `,"uid_attr":"data-id"`))
 		if err != nil {
@@ -1232,7 +1246,7 @@ func TestHTMLDetailDescriptions(t *testing.T) {
 	})
 
 	t.Run("blocked detail keeps later stored text", func(t *testing.T) {
-		srv, count := detailServer(true)
+		srv, count := detailServer(true, "")
 		c, _ := testClient()
 		known := map[string]string{"a": "Summary A", "b": "Stored B text.", "c": "Stored C text."}
 		ctx := WithKnownDescriptions(context.Background(), known)
@@ -1247,6 +1261,95 @@ func TestHTMLDetailDescriptions(t *testing.T) {
 			if n := count(path); n != 0 {
 				t.Errorf("%s requested %d times, want 0", path, n)
 			}
+		}
+	})
+
+	t.Run("no detail selector makes no offer requests", func(t *testing.T) {
+		srv, count := detailServer(false, "")
+		c, _ := testClient()
+		src := model.Source{
+			ID: 1, Type: model.SourceHTML, URL: srv.URL + "/careers",
+			ConfigJSON: `{"item_selector":"li.card","title_selector":"h2 a",` +
+				`"description_selector":".summary","uid_attr":"data-id"}`,
+		}
+		got, err := (&HTML{Client: c}).Fetch(context.Background(), src)
+		if err != nil {
+			t.Fatalf("Fetch: %v", err)
+		}
+		if len(got) != 3 {
+			t.Fatalf("got %d offers, want 3", len(got))
+		}
+		for _, path := range []string{"/jobs/a", "/jobs/b", "/jobs/c"} {
+			if n := count(path); n != 0 {
+				t.Errorf("%s requested %d times without a detail selector, want 0", path, n)
+			}
+		}
+	})
+
+	t.Run("robots disallows detail pages", func(t *testing.T) {
+		srv, count := detailServer(false, "User-agent: *\nDisallow: /jobs/\n")
+		c, _ := testClient()
+		got, err := (&HTML{Client: c}).Fetch(context.Background(), source(srv.URL, `,"uid_attr":"data-id"`))
+		if err != nil {
+			t.Fatalf("Fetch: %v (a robots-blocked detail must not fail the source)", err)
+		}
+		if len(got) != 3 {
+			t.Fatalf("got %d offers, want 3", len(got))
+		}
+		if got[0].Description != "Summary A" || got[1].Description != "Summary B" || got[2].Description != "Summary C" {
+			t.Errorf("descriptions = %q / %q / %q", got[0].Description, got[1].Description, got[2].Description)
+		}
+		for _, path := range []string{"/jobs/a", "/jobs/b", "/jobs/c"} {
+			if n := count(path); n != 0 {
+				t.Errorf("%s requested %d times despite robots.txt, want 0", path, n)
+			}
+		}
+	})
+
+	t.Run("no listing description either", func(t *testing.T) {
+		srv, _ := detailServer(false, "")
+		c, _ := testClient()
+		src := model.Source{
+			ID: 1, Type: model.SourceHTML, URL: srv.URL + "/careers",
+			ConfigJSON: `{"item_selector":"li.card","title_selector":"h2 a",` +
+				`"description_selector":".missing","detail_description_selector":"section.detail","uid_attr":"data-id"}`,
+		}
+		got, err := (&HTML{Client: c}).Fetch(context.Background(), src)
+		if err != nil {
+			t.Fatalf("Fetch: %v", err)
+		}
+		if !strings.Contains(got[0].Description, "Full A text.") {
+			t.Errorf("A description = %q, want the detail text", got[0].Description)
+		}
+		// B's server error and C's selector miss leave an empty description.
+		if got[1].Description != "" || got[2].Description != "" {
+			t.Errorf("descriptions = %q / %q, want empty", got[1].Description, got[2].Description)
+		}
+	})
+
+	t.Run("the block clears later", func(t *testing.T) {
+		blockedSrv, _ := detailServer(true, "")
+		openSrv, count := detailServer(false, "")
+		c, _ := testClient()
+		first, err := (&HTML{Client: c}).Fetch(context.Background(), source(blockedSrv.URL, `,"uid_attr":"data-id"`))
+		if err != nil {
+			t.Fatalf("first Fetch: %v", err)
+		}
+		known := map[string]string{}
+		for _, o := range first {
+			known[o.ExternalUID] = o.Description
+		}
+		second, err := (&HTML{Client: c}).Fetch(
+			WithKnownDescriptions(context.Background(), known),
+			source(openSrv.URL, `,"uid_attr":"data-id"`))
+		if err != nil {
+			t.Fatalf("second Fetch: %v", err)
+		}
+		if !strings.Contains(second[0].Description, "Full A text.") {
+			t.Errorf("A was not upgraded after the block cleared: %q", second[0].Description)
+		}
+		if n := count("/jobs/a"); n != 1 {
+			t.Errorf("/jobs/a requested %d times, want 1", n)
 		}
 	})
 }
