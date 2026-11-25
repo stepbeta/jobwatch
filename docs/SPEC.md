@@ -101,6 +101,7 @@ job_offers (
   title_confidence INTEGER,       -- 0..100, probability it's a platform/SRE role (from classifier)
   location_confidence INTEGER,    -- 0..100, probability it matches "full remote in France"
   match_reasons_json TEXT,        -- human-readable list explaining the scores
+  saved_at TEXT,                  -- set iff application_state = 'saved'; UTC time it entered saved
   incomplete_reason TEXT,         -- NULL, or missing_company | missing_title | missing_company_title
   incomplete_raw TEXT,            -- JSON of the values the source reported, kept for repair
   created_at TEXT, updated_at TEXT

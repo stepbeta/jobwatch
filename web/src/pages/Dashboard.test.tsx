@@ -163,6 +163,11 @@ describe('Dashboard', () => {
     expect((screen.getByLabelText('Application filter') as HTMLSelectElement).value).toBe(
       'hide_negative',
     )
+    // The Saved count comes from the filtered query, so the link keeps the
+    // same listing filter.
+    expect(screen.getByRole('link', { name: /Show all/ }).getAttribute('href')).toContain(
+      'offer_state=active',
+    )
   })
 
   it('persists filter changes in the dashboard URL', async () => {

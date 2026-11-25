@@ -316,7 +316,9 @@ robots.txt and the per-host interval.
 Offer listing is `db.QueryOffers`: a shared WHERE builder for the count
 and page queries, FTS5 `MATCH` against `job_offers_fts` (validated up
 front so a syntax error is a 400), enum lists, score minima,
-`has_application`, company filter, five sort orders, `limit`/`offset`.
+`has_application`, company filter, the supported sort orders (`last_seen`,
+`first_seen`, `recent_event`, `title`, `company`, `location`, `saved`,
+`title_affinity`, `location_affinity`), `limit`/`offset`.
 `recent_event` sorts by `MAX(events.occurred_at)` with `updated_at` as
 fallback. Detail responses join provenance with source names, events,
 offer notes, the snapshot version history (metadata only), the latest
@@ -331,6 +333,15 @@ edit recomputes `text_hash`
 and appends a snapshot with `origin = manual`. Scan and manual-import snapshots use
 `origin = scan`. Event types are validated in Go; `message_received`
 replaced `reply_received` (migration 0006) and `message_sent` was added.
+
+Creating an event applies its application-state transition atomically with
+the insert (`cv_sent`, `rejected`, `ghosted`; see
+`DATA-MODEL.md#application_state`) and returns `application_state` and
+`state_changed`; event edits and deletions never recompute the state (see
+`API.md`). The scan summary includes a `ghosted` count: a scan that
+transitions an `applied` or `interview` offer to `disappeared` inserts one
+`ghosted` event and sets `negative` in the same transaction, and the count
+is always a subset of `disappeared`.
 
 ## Offer merge and split (`internal/db`)
 

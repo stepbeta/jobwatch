@@ -47,7 +47,7 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
    board key are detected; leave the form's defaults otherwise. Save.
 2. Click **Refresh** on that row. Wait for the scan to finish (the
    button shows “Scanning…”). A toast reports `N new, M incomplete, D
-   disappeared`. The row's status becomes `OK`; failures show `Error`
+   disappeared, G ghosted`. The row's status becomes `OK`; failures show `Error`
    or `Blocked` with the reason in the last-result column.
 3. **Offers.** New offers appear. Hover the `T`/`L` badges to see the
    classifier's matched terms. Filter by `Title ≥ 80` and `Location ≥
@@ -70,14 +70,20 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
    recent activity. Its **Refresh** button scans only the enabled sources
    behind applications. The **Company** link opens the company page
    (notes above offers, possible duplicate companies).
-7. **Sources** → edit the source and disable it. The header “Refresh all”
+7. **Ghosting.** Use a throwaway source you control (or a local test
+   board): set one of its offers to **Application → Applied**, remove that
+   posting from the source, and rescan. The toast reports `1 disappeared,
+   1 ghosted`; the offer is `negative`, and its timeline shows one
+   **Ghosted** event. Scan again: the ghosted count stays `0` and no
+   second event appears.
+8. **Sources** → edit the source and disable it. The header “Refresh all”
    now skips it. Re-enable it before deleting if you want to test
    deletion; the confirm dialog explains that offers and links are kept.
-8. Import: open **Offers → Import an offer seen elsewhere**, paste a
+9. Import: open **Offers → Import an offer seen elsewhere**, paste a
    job URL, click **Fetch & import**. If metadata is incomplete the form
    is prefilled and asks for the missing company/title. Alternatively
    fill company+title yourself (no page fetch).
-9. `Ctrl-C` stops the server. Run
+10. `Ctrl-C` stops the server. Run
    `/tmp/jobwatch-smoke --db /tmp/jobwatch-smoke.db backup /tmp/jobwatch-smoke-backup.db`;
    the command prints “integrity check ok”.
 

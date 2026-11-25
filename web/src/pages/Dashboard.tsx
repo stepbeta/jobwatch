@@ -259,7 +259,13 @@ export function Dashboard({
               Offers shortlisted before applying — the Saved application state
             </span>
           </div>
-          <a href="#/offers?application_state=saved&sort=saved">Show all ({savedTotal})</a>
+          <a
+            href={`#/offers?application_state=saved&sort=saved${
+              filters.listing === 'active' ? '&offer_state=active' : ''
+            }`}
+          >
+            Show all ({savedTotal})
+          </a>
         </div>
         <div className="filters">{listingSelect('Saved listing')}</div>
         {saved.length === 0 ? (

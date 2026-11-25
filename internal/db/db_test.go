@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -840,6 +841,206 @@ func TestMigrationAddsOfferSavedAt(t *testing.T) {
 	}
 	if got.SavedAt != nil {
 		t.Errorf("saved_at after clearing = %v, want NULL", got.SavedAt)
+	}
+}
+
+// TestMigrationApplicationLifecycle upgrades a pre-0017 database: the old
+// application vocabulary is mapped, bookmarked pre-application rows become
+// saved, later-stage rows lose a stale bookmark, the default becomes none,
+// and every offer ID and child row survives with a rebuilt FTS index.
+func TestMigrationApplicationLifecycle(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "lifecycle.db")
+	sqlDB, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+
+	base := fstest.MapFS{}
+	for _, name := range []string{
+		"0001_init.sql",
+		"0002_known_hard_sources.sql",
+		"0003_seed_remote_sources.sql",
+		"0004_seed_5c_sources.sql",
+		"0005_seed_bamboohr_sources.sql",
+		"0006_event_message_types.sql",
+		"0007_snapshot_origin.sql",
+		"0008_offer_saved_at.sql",
+		"0009_interview_entries.sql",
+		"0010_interview_entry_category.sql",
+		"0011_seed_wttj_sources.sql",
+		"0012_company_identity.sql",
+		"0013_company_resolution.sql",
+		"0014_wwr_employer_rule.sql",
+		"0015_search_profiles.sql",
+		"0016_murena_detail_description.sql",
+	} {
+		body, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base[name] = &fstest.MapFile{Data: body}
+	}
+	if err := Migrate(ctx, sqlDB, base); err != nil {
+		t.Fatalf("apply migrations 0001-0016: %v", err)
+	}
+
+	now := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+	company, err := CreateCompany(ctx, sqlDB, "Acme", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seeds := []struct {
+		state    string
+		bookmark bool
+		want     model.ApplicationState
+		wantSaved bool
+	}{
+		{"todo", false, model.AppNone, false},
+		{"maybe", false, model.AppNone, false},
+		{"todo", true, model.AppSaved, true},
+		{"maybe", true, model.AppSaved, true},
+		{"responded", false, model.AppApplied, false},
+		{"positive", false, model.AppAccepted, false},
+		{"applied", true, model.AppApplied, false},
+		{"interview", false, model.AppInterview, false},
+		{"offer", false, model.AppOffer, false},
+		{"negative", false, model.AppNegative, false},
+	}
+	ids := make([]int64, len(seeds))
+	for i, s := range seeds {
+		title := fmt.Sprintf("Role %d", i)
+		o, err := InsertOffer(ctx, sqlDB, model.JobOffer{
+			CompanyID:        &company.ID,
+			Title:            title,
+			TitleNormalized:  model.NormalizeTitle(title),
+			ApplicationState: model.ApplicationState(s.state),
+			Fingerprint:      fmt.Sprintf("fp-%d", i),
+		}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = o.ID
+		if s.bookmark {
+			if _, err := sqlDB.ExecContext(ctx,
+				`UPDATE job_offers SET saved_at = ? WHERE id = ?`, model.FormatTime(now), o.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	// Child rows on the first offer, plus searchable text for the FTS check.
+	childID := ids[0]
+	if _, err := UpsertProvenance(ctx, sqlDB, childID, nil, nil, "https://ex.com/child", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InsertEvent(ctx, sqlDB, model.Event{
+		OfferID: childID, Type: model.EventCVSent, OccurredAt: now,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InsertNote(ctx, sqlDB, model.Note{
+		EntityType: model.EntityOffer, EntityID: childID, Body: "keep me",
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := InsertSnapshot(ctx, sqlDB, childID, "child description", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx,
+		`UPDATE job_offers SET raw_text = ? WHERE id = ?`, "searchable child description", childID); err != nil {
+		t.Fatal(err)
+	}
+
+	counts := func() map[string]int {
+		out := map[string]int{}
+		for _, q := range []struct{ name, sql string }{
+			{"offers", "SELECT COUNT(*) FROM job_offers"},
+			{"events", "SELECT COUNT(*) FROM events"},
+			{"notes", "SELECT COUNT(*) FROM notes"},
+			{"snapshots", "SELECT COUNT(*) FROM snapshots"},
+			{"provenance", "SELECT COUNT(*) FROM job_offer_provenance"},
+		} {
+			var n int
+			if err := sqlDB.QueryRowContext(ctx, q.sql).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			out[q.name] = n
+		}
+		return out
+	}
+	before := counts()
+
+	if err := Migrate(ctx, sqlDB, migrations.FS); err != nil {
+		t.Fatalf("upgrade with embedded migrations: %v", err)
+	}
+
+	var recorded int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = 17 AND name = 'application_lifecycle'`).
+		Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Errorf("migration 0017 recorded %d times, want 1", recorded)
+	}
+
+	for i, s := range seeds {
+		got, err := GetOffer(ctx, sqlDB, ids[i])
+		if err != nil {
+			t.Fatalf("offer %d after migration: %v", ids[i], err)
+		}
+		if got.ApplicationState != s.want {
+			t.Errorf("offer %d state = %q, want %q", ids[i], got.ApplicationState, s.want)
+		}
+		switch {
+		case s.wantSaved && (got.SavedAt == nil || !got.SavedAt.Equal(now)):
+			t.Errorf("offer %d saved_at = %v, want %v", ids[i], got.SavedAt, now)
+		case !s.wantSaved && got.SavedAt != nil:
+			t.Errorf("offer %d saved_at = %v, want nil", ids[i], got.SavedAt)
+		}
+	}
+
+	after := counts()
+	for name, want := range before {
+		if after[name] != want {
+			t.Errorf("%s rows = %d, want %d", name, after[name], want)
+		}
+	}
+
+	var fts int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM job_offers_fts WHERE job_offers_fts MATCH 'searchable'`).Scan(&fts); err != nil {
+		t.Fatal(err)
+	}
+	if fts == 0 {
+		t.Error("FTS index did not return the migrated description")
+	}
+
+	rows, err := sqlDB.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		t.Error("foreign_key_check reported a violation after migration")
+	}
+
+	// The column default is now none.
+	if _, err := sqlDB.ExecContext(ctx,
+		`INSERT INTO job_offers(title, title_normalized, first_seen_at, last_seen_at)
+		 VALUES ('Default role', 'default role', ?, ?)`, model.FormatTime(now), model.FormatTime(now)); err != nil {
+		t.Fatal(err)
+	}
+	var def string
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT application_state FROM job_offers WHERE title = 'Default role'`).Scan(&def); err != nil {
+		t.Fatal(err)
+	}
+	if def != "none" {
+		t.Errorf("default application_state = %q, want none", def)
 	}
 }
 

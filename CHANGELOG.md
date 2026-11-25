@@ -30,7 +30,8 @@
   `application=hide_negative`) and survive a reload. The dashboard
   Refresh now pages through the same filtered query, so hidden
   applications and their sources are not scanned, and the empty state and
-  notice name the active filter.
+  notice name the active filter. The Saved "Show all" link keeps the
+  active listing filter so its count matches the link target.
 - Migration `0017_application_lifecycle.sql`: rebuilds `job_offers` with
   `application_state DEFAULT 'none'`, maps `todo`/`maybe` to `none`,
   `responded` to `applied` and `positive` to `accepted`, turns bookmarked

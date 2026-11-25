@@ -546,9 +546,8 @@ state unchanged. The rule uses the state at creation time, not
 `occurred_at`. Event edits and deletions never recompute the state. A
 successful scan also ghosts an `applied` or `interview` offer when its
 listing disappears: it inserts one `ghosted` event and sets `negative` in
-the scan transaction. Event edits and deletions never recompute the
-state. `saved` maintains `saved_at` as described above; `none` and
-`saved` are not applications.
+the scan transaction. `saved` maintains `saved_at` as described above;
+`none` and `saved` are not applications.
 
 ### last_scan_status
 `ok` after a committed scan; `blocked` when robots.txt disallows the URL

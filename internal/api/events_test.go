@@ -269,6 +269,34 @@ func TestEventApplicationTransitions(t *testing.T) {
 			t.Errorf("state after DELETE = %q, want applied", s)
 		}
 	})
+
+	t.Run("editing a message into a rejection does not close", func(t *testing.T) {
+		setState(model.AppNone)
+		created := create(model.EventMessageReceived)
+		if s := state(); s != model.AppNone {
+			t.Fatalf("message_received stored state = %q, want none", s)
+		}
+		eventURL := fmt.Sprintf("%s/events/%d", base, created.Event.ID)
+		rec := ts.do(t, "PATCH", eventURL, map[string]any{"type": "rejected"})
+		wantCode(t, rec, 200)
+		if s := state(); s != model.AppNone {
+			t.Errorf("state after editing message into rejected = %q, want none", s)
+		}
+	})
+
+	t.Run("deleting the rejection keeps the offer negative", func(t *testing.T) {
+		setState(model.AppApplied)
+		created := create(model.EventRejected)
+		if s := state(); s != model.AppNegative {
+			t.Fatalf("rejected stored state = %q, want negative", s)
+		}
+		eventURL := fmt.Sprintf("%s/events/%d", base, created.Event.ID)
+		rec := ts.do(t, "DELETE", eventURL, nil)
+		wantCode(t, rec, 204)
+		if s := state(); s != model.AppNegative {
+			t.Errorf("state after deleting the rejection = %q, want negative", s)
+		}
+	})
 }
 
 func TestEventValidation(t *testing.T) {

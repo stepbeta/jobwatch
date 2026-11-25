@@ -19,8 +19,8 @@ through task group 8 and archived; its four capabilities now live under
 The OpenSpec change `harden-wttj-discovery-and-query` is implemented and
 archived; its `wttj-source` capability lives under `openspec/specs/` and
 the WTTJ note in `docs/SPEC.md` is a pointer.
-End to end, a user can add sources, scan, filter and bookmark offers, set
-application states, keep a timeline and notes, browse description
+End to end, a user can add sources, scan, filter and save offers (the
+`saved` application state), set application states, keep a timeline and notes, browse description
 versions, merge or split records after explicit confirmation, and build a
 personal interview-prep FAQ with categorized markdown answers and
 drag-and-drop ordering.
@@ -974,7 +974,7 @@ Done criteria (all met):
 | No FTS search over companies in the UI | §9 | Open. `GET /api/companies?q=` matches the name; no full-text company search |
 | Pre-7c snapshot origins are all `scan` | §9 | By design after 7c. The old schema had no reliable manual marker; only snapshots written from 7c onward carry an exact origin |
 | ~~Manual description edits do not refresh classifier scores~~ — closed by OpenSpec change `classification-profiles`: affinity is computed at read time from the current search profile, and the remote policy is re-derived on every location/description edit | §6 | the stored score columns are deprecated and unused; a profile edit applies on the next read |
-| Offer merge does not carry the absorbed offer's bookmark | §9 | Open. The kept offer keeps its own `saved_at`; the absorbed bookmark is not copied. Merge semantics were left unchanged in 7e |
+| ~~Offer merge does not carry the absorbed offer's bookmark~~ — closed by OpenSpec change `simplify-application-lifecycle`: `saved` is a state, so merge promotes a `saved` target to a real application carried by the absorbed offer and carries the source `saved_at` when the target is `none`; `saved_at` follows the resulting state | §9 | the bookmark is no longer independent |
 | Frontend component tests cover the offer timeline/notes, add-source modal, Dashboard sections/refresh, offers import modal, offers table controls (columns, sort requests, URL round-trip, debounced search, page size, company combobox), incomplete list/repair, sources filters/bulk/switch/icons/company links, company two-column layout, company keys and offers-table controls, offer header/provenance layout and description Edit/View save, hash routing and interview prep (sections, cue, drag-and-drop payloads, Edit/View, new category, accordion, add/edit/delete, escaped markdown) | §9 | Open. Vitest + jsdom + Testing Library run with a mocked API (`npm test`); real-browser drag-and-drop, company note mutations and the company merge flow still rely on `tsc`/`vite build` and backend tests |
 | Source names link by override/source name only, not the board-reported company | §9 | Open. The sources payload has no board-reported company and Milestone 11 avoided a display-only endpoint; a source whose offers use a different company stays unlinked unless `config.company` is set |
 | Company notes can be pinned through the API but the UI only pins offer notes | §4, §9 | Open. The company page supports add/delete, not edit/pin |
@@ -985,3 +985,4 @@ Done criteria (all met):
 | Teamtailor offers created before the mapping fix have no location | §7 | Open data artifact. The `locations/location/name` mapping is correct and fixture-tested; scans do not update the location of an existing offer, so only new offers carry it |
 | Murena "Other positions" table is not tracked | §7 | By design. The second table has a different column layout; the engineering table is tracked |
 | No scheduled scans or notifications | §10 | Out of scope for v1 |
+| Empty-but-`ok` scan can ghost real applications | §5, §9 | Open risk. A parser regression that returns an empty successful scan marks offers `disappeared` and now also ghosts `applied`/`interview` ones (one `ghosted` event + `negative`). Mitigation: only successful scans trigger it and the user can restore the state; the event records what happened. No consecutive-empty-scan guard (explicitly out of scope) |

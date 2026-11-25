@@ -214,6 +214,51 @@ func TestPatchOffer(t *testing.T) {
 	wantErrorCode(t, ts.do(t, "PATCH", "/api/offers/1", map[string]any{"bogus": 1}), 400, "invalid_json")
 }
 
+func TestManualApplicationStateChangesCreateNoEvent(t *testing.T) {
+	ts := newTestServer(t)
+	acme := ts.seedCompany(t, "Acme")
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppNone, model.RemoteUnknown)
+	ctx := context.Background()
+	eventCount := func() int {
+		t.Helper()
+		var n int
+		if err := ts.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM events WHERE offer_id = ?`, o.ID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	url := fmt.Sprintf("/api/offers/%d", o.ID)
+
+	cases := []struct {
+		name string
+		from model.ApplicationState
+		to   model.ApplicationState
+	}{
+		{"interview to offer", model.AppInterview, model.AppOffer},
+		{"negative to applied", model.AppNegative, model.AppApplied},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := ts.do(t, "PATCH", url, map[string]any{"application_state": string(tc.from)})
+			wantCode(t, rec, 200)
+			before := eventCount()
+
+			rec = ts.do(t, "PATCH", url, map[string]any{"application_state": string(tc.to)})
+			wantCode(t, rec, 200)
+			got := decodeBody[struct {
+				Offer offerJSON `json:"offer"`
+			}](t, rec).Offer
+			if got.ApplicationState != string(tc.to) {
+				t.Errorf("state = %q, want %q", got.ApplicationState, tc.to)
+			}
+			if after := eventCount(); after != before {
+				t.Errorf("event count changed from %d to %d on a manual state change", before, after)
+			}
+		})
+	}
+}
+
 func TestOfferSavedState(t *testing.T) {
 	ts := newTestServer(t)
 	seedOfferSet(t, ts)
