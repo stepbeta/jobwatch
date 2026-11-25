@@ -23,9 +23,9 @@
 
 ## 4. Automatic ghosting on disappearance
 
-- [ ] 4.1 Extend the disappearance path to return the transitioned offers and their current application states, then insert one `ghosted` event and set `negative` inside the scan transaction for `applied` and `interview` only. Add scan tests for `applied`, `interview`, `offer`, `none`, `saved`, an already-disappeared offer, a repeat scan, and an offer still listed by another source.
-- [ ] 4.2 Add a `Ghosted` count to `scan.Result`, the scan summary API and the CLI output; verify with scan/API tests that the count matches the number of created ghosted events and does not double-count plain disappearances.
-- [ ] 4.3 Verify and document that existing disappeared offers are not backfilled and that a ghosted event is not recreated on later scans; update `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/API.md` and `CHANGELOG.md`.
+- [x] 4.1 Extend the disappearance path to return the transitioned offers and their current application states, then insert one `ghosted` event and set `negative` inside the scan transaction for `applied` and `interview` only. Add scan tests for `applied`, `interview`, `offer`, `none`, `saved`, an already-disappeared offer, a repeat scan, and an offer still listed by another source. (Done: `db.DisappearedOffer`, `db.GhostDisappearedOffer`, three scan tests.)
+- [x] 4.2 Add a `Ghosted` count to `scan.Result`, the scan summary API and the CLI output; verify with scan/API tests that the count matches the number of created ghosted events and does not double-count plain disappearances. (Done: `ghosted` JSON field, GHOSTED CLI column, dashboard summary, `TestSourceScanGhostedCount`.)
+- [x] 4.3 Verify and document that existing disappeared offers are not backfilled and that a ghosted event is not recreated on later scans; update `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/API.md` and `CHANGELOG.md`. (Repeat-scan test covers idempotency; migration 0017 inserts no events. Also updated `docs/USAGE.md`.)
 
 ## 5. Dashboard filters and refresh scope
 

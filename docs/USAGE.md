@@ -386,8 +386,11 @@ transitions are free-form from the UI or `PATCH /api/offers/:id` and
 create no timeline event. Creating a timeline event also applies its
 transition: `cv_sent` sets `applied` from `none`, `saved` or `negative`;
 `rejected` sets `negative` from any state; `ghosted` sets `negative` from
-`applied` or `interview`. Editing or deleting an event never recomputes
-the state. `saved` maintains `saved_at`; `none` and `saved` are not
+`applied` or `interview`. A successful scan also ghosts an `applied` or
+`interview` offer whose listing disappears: it records one `ghosted`
+event and closes the application. Offers that disappeared before this
+behavior existed are not backfilled, and a repeat scan does not recreate
+the event. Editing or deleting an event never recomputes the state. `saved` maintains `saved_at`; `none` and `saved` are not
 applications. See
 [DATA-MODEL.md](DATA-MODEL.md#application_state).
 

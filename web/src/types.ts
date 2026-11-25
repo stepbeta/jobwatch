@@ -281,6 +281,7 @@ export interface ScanResult {
   seen: number
   reappeared: number
   disappeared: number
+  ghosted: number
   incomplete: number
   error?: string
 }

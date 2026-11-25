@@ -17,6 +17,13 @@
 - "This is a rejection" shortcut on the inbound-message form: it records
   one `rejected` event with the same description and time instead of a
   `message_received`, and the toast names the resulting state.
+- Automatic ghosting: a successful scan that transitions an `applied` or
+  `interview` offer to `disappeared` records one `ghosted` event and sets
+  `negative` in the same transaction. Other states and
+  already-disappeared offers are untouched, and no history is backfilled.
+- A `ghosted` count in the scan result, the scan summary API, the CLI
+  `scan` table and the dashboard refresh summary. It is always a subset
+  of the disappeared count.
 - Migration `0017_application_lifecycle.sql`: rebuilds `job_offers` with
   `application_state DEFAULT 'none'`, maps `todo`/`maybe` to `none`,
   `responded` to `applied` and `positive` to `accepted`, turns bookmarked

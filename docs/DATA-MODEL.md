@@ -521,6 +521,13 @@ as a snapshot.
 - The classifier re-runs on every sighting using the stored title,
   location and latest description; score columns and `remote_policy` are
   updated even when the offer state does not change.
+- When a scan transitions an `applied` or `interview` offer to
+  `disappeared`, it also records one `ghosted` event and sets
+  `application_state = negative` in the same transaction. `offer`,
+  `none`, `saved`, `accepted`, `turned_down` and `negative` are left
+  untouched. The `offer_state != 'disappeared'` predicate makes this
+  idempotent, and no migration backfills offers that disappeared before
+  this behavior existed.
 - Failed or blocked scans change no offer.
 - Offers are never deleted by scans or imports.
 - When several postings of one scan map to the same offer, only the
@@ -536,9 +543,12 @@ the same transaction: `cv_sent` sets `applied` from `none`, `saved` or
 `negative`; `rejected` sets `negative` from any state; `ghosted` sets
 `negative` from `applied` or `interview`; every other event leaves the
 state unchanged. The rule uses the state at creation time, not
-`occurred_at`. Event edits and deletions never recompute the state.
-`saved` maintains `saved_at` as described above; `none` and `saved` are
-not applications.
+`occurred_at`. Event edits and deletions never recompute the state. A
+successful scan also ghosts an `applied` or `interview` offer when its
+listing disappears: it inserts one `ghosted` event and sets `negative` in
+the scan transaction. Event edits and deletions never recompute the
+state. `saved` maintains `saved_at` as described above; `none` and
+`saved` are not applications.
 
 ### last_scan_status
 `ok` after a committed scan; `blocked` when robots.txt disallows the URL

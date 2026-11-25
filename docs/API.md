@@ -135,7 +135,7 @@ type without an adapter is `skipped` and its status is left untouched.
   "result": {
     "source_id": 1, "source_name": "Acme", "status": "ok",
     "fetched": 12, "skipped": 0, "new": 2, "seen": 9,
-    "reappeared": 0, "disappeared": 1, "incomplete": 1,
+    "reappeared": 0, "disappeared": 1, "ghosted": 1, "incomplete": 1,
     "error": ""
   },
   "source": { "id": 1, "last_scan_status": "ok", "...": "..." }
@@ -144,7 +144,12 @@ type without an adapter is `skipped` and its status is left untouched.
 
 `status` is `ok`, `error`, `blocked` or `skipped`. `incomplete` counts
 items stored as incomplete offers (missing company and/or title) rather
-than skipped. `error` is omitted when empty. `404 not_found` for an
+than skipped. `ghosted` counts offers that were both transitioned to
+`disappeared` and automatically closed: an `applied` or `interview`
+offer gets one `ghosted` event and `application_state = negative` in the
+scan transaction. It is always a subset of `disappeared`; other states
+and already-disappeared offers are not ghosted, and no history is
+backfilled. `error` is omitted when empty. `404 not_found` for an
 unknown source.
 
 ## Offers

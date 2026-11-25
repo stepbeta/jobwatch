@@ -151,7 +151,13 @@ never stops on a failing one:
      repaired offer is identified by `incomplete_raw` still being set
      after `incomplete_reason` was cleared: scans then keep the user's
      company, title and location instead of the sighting's values.
-   - `MarkDisappeared(source, now)`.
+   - `MarkDisappeared(source, now)` returns the offers it transitioned
+     with their application state. For each `applied` or `interview`
+     offer, insert one `ghosted` event and set `negative` in the same
+     transaction; other states are left untouched. The
+     `offer_state != 'disappeared'` predicate makes this idempotent, and
+     no backfill runs for offers that disappeared before this behavior
+     existed.
    - `last_scan_status = ok`, `last_scan_at = now`; commit.
 4. A failure inside the transaction rolls back and marks the source `error`.
 
