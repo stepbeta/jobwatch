@@ -391,7 +391,7 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `App.tsx` | top bar with navigation (including the incomplete count), source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
 | `router.ts` | hash routing (`#/`, `#/offers`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/search-profile`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
 | `api.ts` | typed fetch wrapper and API error mapping |
-| `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with a Refresh button that fans out over the enabled sources behind those applications, and a Saved section (`application_state=saved`, `sort=saved`) |
+| `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with listing (`all`/`active only`) and application (`all`/`hide negative`) filters persisted in the hash query, a Refresh button that fans out over the enabled sources behind the visible applications, and a Saved section (`application_state=saved`, `sort=saved`) with the listing filter |
 | `pages/OffersPage.tsx` | full offers table: URL-restored filters (including remote acceptance, minimum title/location affinity and a searchable company combobox), debounced FTS search, header-click server sorting (including `title_affinity`/`location_affinity`), column picker, per-page selector and pagination, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
 | `pages/IncompletePage.tsx` | incomplete offers with the count, the source-reported company/title/location, the reason and source link; a repair modal reuses the manual import layout and company combobox and calls `POST /api/offers/:id/repair` |
 | `pages/SourcesPage.tsx` | source list with enabled/type/status/name filters, URL-restored client sorting and pagination, column picker, row selection with bulk refresh/delete, right-aligned enable switch, icon row actions, company links resolved from the local company list, header Refresh all, and an add/edit modal with type-dependent config fields (personio/workable/rss/html included) and explanatory notes on seeded sources |
@@ -491,8 +491,10 @@ shared `ConfirmDialog`.
 
 The Sources header owns "Refresh all"; the top bar only navigates. The
 Dashboard's Applications Refresh is a client-side fan-out over
-`POST /api/sources/:id/scan`: it reads every offer with
-`application_state` not in (`none`, `saved`), resolves their provenance `source_id`s via
+`POST /api/sources/:id/scan`: it pages through the same filtered query as
+the visible Applications section (`has_application`, the listing filter as
+`offer_state=active`, and the application filter as the explicit
+non-negative state list), resolves their provenance `source_id`s via
 the offer detail endpoint, keeps the enabled sources, and scans them
 sequentially (one request at a time) so the per-host rate limiter is
 respected. Manual provenance rows (`source_id` NULL) contribute no

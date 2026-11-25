@@ -29,9 +29,9 @@
 
 ## 5. Dashboard filters and refresh scope
 
-- [ ] 5.1 Add the listing `all`/`active only` and application `all`/`hide negative` filters to the Applications section and the listing filter to the Saved section; persist them in the dashboard hash query and verify with Vitest tests for filtering, URL round-trip and reload.
-- [ ] 5.2 Make the refresh action page through and scan only the sources behind the currently visible applications; verify through tests that a hidden negative application's source is not scanned and that the empty state and notice match the filter.
-- [ ] 5.3 Update `docs/USAGE.md`, `docs/SPEC.md`, dashboard copy and `CHANGELOG.md` for the filters and refresh scope.
+- [x] 5.1 Add the listing `all`/`active only` and application `all`/`hide negative` filters to the Applications section and the listing filter to the Saved section; persist them in the dashboard hash query and verify with Vitest tests for filtering, URL round-trip and reload. (Done: URL-restored filters, 69 Vitest tests pass.)
+- [x] 5.2 Make the refresh action page through and scan only the sources behind the currently visible applications; verify through tests that a hidden negative application's source is not scanned and that the empty state and notice match the filter. (Done: `fetchAllApplications(filters)` + filter-aware empty state/notice.)
+- [x] 5.3 Update `docs/USAGE.md`, `docs/SPEC.md`, dashboard copy and `CHANGELOG.md` for the filters and refresh scope. (Also updated `docs/ARCHITECTURE.md`.)
 
 ## 6. Integration verification
 

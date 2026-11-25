@@ -270,9 +270,13 @@ Local-only dashboard. Sections:
 - **Dashboard** (`#/`): the Applications section — all offers whose
   application state is neither `none` nor `saved`, sorted by most recent
   timeline activity ("where did I send my CV") — with a Refresh button
-  scoped to the enabled sources behind those applications; and the Saved
-  section — every offer in the `saved` application state, sorted by most
-  recent save.
+  scoped to the enabled sources behind the currently visible
+  applications; and the Saved section — every offer in the `saved`
+  application state, sorted by most recent save. Both sections offer a
+  listing filter (`all` / `active only`); Applications also offers an
+  application filter (`all` / `hide negative`). The choices persist in the
+  dashboard hash query as `listing=active` and
+  `application=hide_negative`.
 - **Offers** (`#/offers`): filterable/sortable table. Filters on
   `application_state`, `offer_state`, `remote_policy`,
   `title_confidence`, `location_confidence`, a searchable company

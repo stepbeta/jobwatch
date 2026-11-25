@@ -24,6 +24,13 @@
 - A `ghosted` count in the scan result, the scan summary API, the CLI
   `scan` table and the dashboard refresh summary. It is always a subset
   of the disappeared count.
+- Dashboard filters: a listing filter (`all` / `active only`) on both
+  sections and an application filter (`all` / `hide negative`) on
+  Applications. They persist in the hash query (`listing=active`,
+  `application=hide_negative`) and survive a reload. The dashboard
+  Refresh now pages through the same filtered query, so hidden
+  applications and their sources are not scanned, and the empty state and
+  notice name the active filter.
 - Migration `0017_application_lifecycle.sql`: rebuilds `job_offers` with
   `application_state DEFAULT 'none'`, maps `todo`/`maybe` to `none`,
   `responded` to `applied` and `positive` to `accepted`, turns bookmarked

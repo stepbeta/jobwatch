@@ -5,9 +5,47 @@ import { Link } from '../components/Link'
 import { OfferTable } from '../components/OfferTable'
 import { StatePill } from '../components/StatePill'
 import { appLabel, fmtDateTime, relativeTime } from '../format'
+import { currentRouteQuery, replaceRouteQuery } from '../router'
 import type { Offer, Source } from '../types'
 
 const applicationPageSize = 200
+
+// The API has no "not in" filter, so hiding negative applications uses the
+// explicit set of states that remain visible.
+const HIDE_NEGATIVE_STATES = 'applied,interview,offer,accepted,turned_down'
+
+type ListingFilter = 'all' | 'active'
+type ApplicationFilter = 'all' | 'hide_negative'
+
+interface DashboardFilters {
+  listing: ListingFilter
+  application: ApplicationFilter
+}
+
+function readFilters(): DashboardFilters {
+  const params = currentRouteQuery()
+  return {
+    listing: params.get('listing') === 'active' ? 'active' : 'all',
+    application: params.get('application') === 'hide_negative' ? 'hide_negative' : 'all',
+  }
+}
+
+function writeFilters(filters: DashboardFilters): void {
+  const params = new URLSearchParams()
+  if (filters.listing === 'active') params.set('listing', 'active')
+  if (filters.application === 'hide_negative') params.set('application', 'hide_negative')
+  replaceRouteQuery(params)
+}
+
+function queryFor(filters: DashboardFilters): {
+  application_state?: string
+  offer_state?: string
+} {
+  return {
+    application_state: filters.application === 'hide_negative' ? HIDE_NEGATIVE_STATES : undefined,
+    offer_state: filters.listing === 'active' ? 'active' : undefined,
+  }
+}
 
 export function Dashboard({
   refreshToken,
@@ -22,16 +60,28 @@ export function Dashboard({
   onScanBatch: (targets: Source[]) => Promise<BatchScanOutcome[]>
   scanning: boolean
 }) {
+  const [filters, setFilters] = useState<DashboardFilters>(readFilters)
   const [applications, setApplications] = useState<Offer[]>([])
   const [saved, setSaved] = useState<Offer[]>([])
   const [savedTotal, setSavedTotal] = useState(0)
   const [error, setError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
 
+  const filtersActive = filters.listing !== 'all' || filters.application !== 'all'
+
+  useEffect(() => {
+    writeFilters(filters)
+  }, [filters])
+
   useEffect(() => {
     let cancelled = false
     api
-      .listOffers({ has_application: true, sort: 'recent_event', limit: 20 })
+      .listOffers({
+        has_application: true,
+        ...queryFor(filters),
+        sort: 'recent_event',
+        limit: 20,
+      })
       .then((r) => {
         if (!cancelled) setApplications(r.offers)
       })
@@ -41,12 +91,17 @@ export function Dashboard({
     return () => {
       cancelled = true
     }
-  }, [refreshToken])
+  }, [refreshToken, filters])
 
   useEffect(() => {
     let cancelled = false
     api
-      .listOffers({ application_state: 'saved', sort: 'saved', limit: 200 })
+      .listOffers({
+        application_state: 'saved',
+        offer_state: filters.listing === 'active' ? 'active' : undefined,
+        sort: 'saved',
+        limit: 200,
+      })
       .then((r) => {
         if (!cancelled) {
           setSaved(r.offers)
@@ -59,15 +114,14 @@ export function Dashboard({
     return () => {
       cancelled = true
     }
-  }, [refreshToken])
+  }, [refreshToken, filters.listing])
 
   // refreshApplications fans out over the existing per-source scan endpoint
-  // for every enabled source that owns at least one non-none, non-saved
-  // application.
+  // for every enabled source that owns at least one visible application.
   async function refreshApplications() {
     setRefreshing(true)
     try {
-      const all = await fetchAllApplications()
+      const all = await fetchAllApplications(filters)
       const sourceIDs = new Set<number>()
       let manualLinks = 0
       await Promise.all(
@@ -84,7 +138,9 @@ export function Dashboard({
         onNotice(
           'info',
           all.length === 0
-            ? 'No applications to refresh yet.'
+            ? filtersActive
+              ? 'No applications match these filters.'
+              : 'No applications to refresh yet.'
             : 'No enabled source is behind these applications; manual imports have no fetchable source.',
         )
         return
@@ -96,6 +152,22 @@ export function Dashboard({
     } finally {
       setRefreshing(false)
     }
+  }
+
+  function listingSelect(ariaLabel: string) {
+    return (
+      <label>
+        Listing
+        <select
+          aria-label={ariaLabel}
+          value={filters.listing}
+          onChange={(e) => setFilters((f) => ({ ...f, listing: e.target.value as ListingFilter }))}
+        >
+          <option value="all">All</option>
+          <option value="active">Active only</option>
+        </select>
+      </label>
+    )
   }
 
   return (
@@ -112,15 +184,35 @@ export function Dashboard({
             type="button"
             className="primary"
             disabled={scanning || refreshing}
-            title="Scans every enabled source behind your applications (application state not None or Saved). Sources with only None or Saved offers are not scanned."
+            title="Scans every enabled source behind the applications currently visible. Hidden applications and sources with only None or Saved offers are not scanned."
             onClick={() => void refreshApplications()}
           >
             {refreshing || scanning ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
+        <div className="filters">
+          {listingSelect('Applications listing')}
+          <label>
+            Application
+            <select
+              aria-label="Application filter"
+              value={filters.application}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, application: e.target.value as ApplicationFilter }))
+              }
+            >
+              <option value="all">All</option>
+              <option value="hide_negative">Hide negative</option>
+            </select>
+          </label>
+        </div>
         {error && <div className="error-box">{error}</div>}
         {applications.length === 0 ? (
-          <p className="empty">No applications yet. Set an offer's application state to track it here.</p>
+          <p className="empty">
+            {filtersActive
+              ? 'No applications match these filters.'
+              : "No applications yet. Set an offer's application state to track it here."}
+          </p>
         ) : (
           <div className="table-wrap">
             <table className="grid">
@@ -169,9 +261,12 @@ export function Dashboard({
           </div>
           <a href="#/offers?application_state=saved&sort=saved">Show all ({savedTotal})</a>
         </div>
+        <div className="filters">{listingSelect('Saved listing')}</div>
         {saved.length === 0 ? (
           <p className="empty">
-            No saved offers yet. Set an offer's application state to Saved to shortlist it.
+            {filters.listing === 'active'
+              ? 'No saved offers match this filter.'
+              : "No saved offers yet. Set an offer's application state to Saved to shortlist it."}
           </p>
         ) : (
           <div className="saved-list">
@@ -183,14 +278,15 @@ export function Dashboard({
   )
 }
 
-// fetchAllApplications pages through GET /api/offers?has_application=true so
-// the refresh scope is complete even beyond the first page.
-async function fetchAllApplications(): Promise<Offer[]> {
+// fetchAllApplications pages through the same filtered query as the visible
+// Applications section, so the refresh scope follows the filters.
+async function fetchAllApplications(filters: DashboardFilters): Promise<Offer[]> {
   const out: Offer[] = []
   let offset = 0
   for (;;) {
     const page = await api.listOffers({
       has_application: true,
+      ...queryFor(filters),
       sort: 'recent_event',
       limit: applicationPageSize,
       offset,
