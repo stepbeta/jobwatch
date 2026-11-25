@@ -30,7 +30,7 @@ func InsertIncompleteOffer(ctx context.Context, q Querier, o model.JobOffer,
 		o.OfferState = model.OfferActive
 	}
 	if o.ApplicationState == "" {
-		o.ApplicationState = model.AppTodo
+		o.ApplicationState = model.AppNone
 	}
 	if o.RemotePolicy == "" {
 		o.RemotePolicy = model.RemoteUnknown

@@ -209,22 +209,21 @@ Neither stops the scan of the other sources. A successful scan sets
 Built with React + TypeScript (Vite). The pages are:
 
 - **Dashboard** (`#/`) — the Applications section (offers whose
-  application state is not `todo`, most recent timeline activity first)
-  and the Saved section (bookmarked offers, most recently saved first).
-  Applications has a Refresh button that scans only the enabled sources
-  behind those applications: sources with only `todo` offers are not
-  scanned, and manual imports (`source_id` NULL) contribute no source.
-  The button fans out over the existing per-source scan endpoint
-  sequentially and reports per-source failures plus an aggregate summary.
-  Saved shows every bookmarked offer regardless of application state;
-  its "Show all" link opens the offers page with the saved filter preset.
+  application state is neither `none` nor `saved`, most recent timeline
+  activity first) and the Saved section (offers in the `saved` application
+  state, most recently saved first). Applications has a Refresh button
+  that scans only the enabled sources behind those applications: sources
+  with only `none` or `saved` offers are not scanned, and manual imports
+  (`source_id` NULL) contribute no source. The button fans out over the
+  existing per-source scan endpoint sequentially and reports per-source
+  failures plus an aggregate summary. The Saved "Show all" link opens the
+  offers page filtered to `application_state=saved`, sorted by save time.
 - **Offers** (`#/offers`) — the full table with filters (application/offer
   state, remote policy, remote acceptance, minimum title/location affinity,
-  saved/unsaved, a searchable company combobox, and debounced full-text
-  search), a column picker, header-click sorting (including the affinity
-  sorts), a per-page selector and pagination. Every row has a star
-  bookmark toggle, and the header **Add offer** button opens a modal import
-  form (URL fetch-and-prefill or manual fields). A successful import closes
+  a searchable company combobox, and debounced full-text search), a column
+  picker, header-click sorting (including the affinity sorts), a per-page
+  selector and pagination. The header **Add offer** button opens a modal
+  import form (URL fetch-and-prefill or manual fields). A successful import closes
   the modal, shows the success toast, refreshes the data and opens the new
   or matched offer's detail page. Title and location affinity badges show
   0–100 from the current profile; hover one to see the matched terms,
@@ -253,7 +252,7 @@ Built with React + TypeScript (Vite). The pages are:
   company page is enabled and scannable.
 - **Offer detail** — a two-column header panel: identity (company, title,
   editable application/offer state and location, title/location affinity
-  badges, remote policy badge with profile acceptance, bookmark,
+  badges, remote policy badge with profile acceptance,
   description version count, Merge/Split actions) on the left and an
   always-visible compact provenance list (links, source names, external
   UID, first/last seen) on the right.
@@ -299,9 +298,10 @@ The table pages keep their view in the hash-route query string.
 search, `sort`, `order`, `page` and `per_page` on load and rewrite the
 URL as the user changes them. Unknown or invalid values fall back to the
 defaults, and clearing filters removes their parameters. Examples:
-`#/offers?q=sre&remote_policy=remote&saved=true&sort=title&order=asc&page=2&per_page=20`
-and `#/sources?enabled=disabled&status=error&q=board`. The existing
-`#/offers?saved=true` preset still works. Page-size defaults are 50 for
+`#/offers?q=sre&remote_policy=remote&application_state=saved&sort=saved&order=desc&page=2&per_page=20`
+and `#/sources?enabled=disabled&status=error&q=board`. The old
+`#/offers?saved=true` preset is gone; use `application_state=saved`.
+Page-size defaults are 50 for
 the Offers page, 20 for the Sources page and 20 for the company-page
 offers panel; the choice is also remembered in `localStorage`
 (`offers.perPage`, `sources.perPage`, `companyOffers.perPage`). Column
@@ -309,9 +309,11 @@ pickers store the hidden column names in `offers.columns` and
 `sources.columns`, so newly added columns stay visible for existing
 users, and the last visible column cannot be hidden.
 
-The bookmark is personal interest, not an application state. Saving an
-offer never changes its application or offer state, and if a saved offer
-later becomes an application it stays in Saved until you un-bookmark it.
+Saving is the `saved` application state, not a separate bookmark. Setting
+an offer to `saved` records the save time in `saved_at`; moving it to any
+other state clears that timestamp. A saved offer is not an application,
+so it stays out of the Applications section and its refresh scope until
+you move it to `applied` (or another real stage).
 
 Success/error toasts, loading indicators and confirmation dialogs are
 shared across the pages; every destructive action asks first. The top bar
@@ -374,10 +376,11 @@ behavior, is in [DATA-MODEL.md](DATA-MODEL.md#offer_state-written-by-scans-and-i
 
 ### Application states
 
-`todo` is the default. The other values are `applied`, `responded`,
-`interview`, `offer`, `negative`, `maybe` and `positive`. Transitions are
-user-driven from the UI or `PATCH /api/offers/:id`; no automatic
-transition is derived from timeline events. See
+`none` is the default. The other values are `saved`, `applied`,
+`interview`, `offer`, `accepted`, `turned_down` and `negative`. Manual
+transitions are free-form from the UI or `PATCH /api/offers/:id` and
+create no timeline event. `saved` maintains `saved_at`; `none` and
+`saved` are not applications. See
 [DATA-MODEL.md](DATA-MODEL.md#application_state).
 
 ## Classification and search profiles

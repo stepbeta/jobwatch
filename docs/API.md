@@ -40,7 +40,7 @@ the project overview is the [README](../README.md).
 | `last_scan_status` | `ok` `error` `blocked`; `null` = never scanned |
 | `offer_state` | `active` `disappeared` |
 | offer `incomplete_reason` | `missing_company` `missing_title` `missing_company_title`; `null` for a usable offer |
-| `application_state` | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
+| `application_state` | `none` `saved` `applied` `interview` `offer` `accepted` `turned_down` `negative` |
 | `remote_policy` | `remote` (labelled "Full remote" in the UI) `hybrid` `onsite` `unknown` |
 | profile `bucket_scale` | `three` (`positive` `neutral` `negative`) `five` (`strong_positive` `mild_positive` `neutral` `mild_negative` `strong_negative`) |
 | event `type` | `cv_sent` `message_received` `message_sent` `interview` `offer` `rejected` `ghosted` `other` |
@@ -164,8 +164,7 @@ Query parameters (all optional):
 | `min_title_affinity` | integer 0–100; only offers whose computed title affinity is at least this value |
 | `min_location_affinity` | integer 0–100; same for location affinity |
 | `company_id` | restrict to one company |
-| `has_application` | `true`/`1`: only `application_state != todo` |
-| `saved` | `true`/`false`: only bookmarked (`saved_at` set) or only unbookmarked offers. Absent = no filter. Invalid values → `400 validation_failed` |
+| `has_application` | `true`/`1`: only `application_state` not in (`none`, `saved`) |
 | `incomplete` | `true`: only incomplete offers (missing company and/or title). Absent or `false` excludes them. Invalid values → `400 validation_failed` |
 | `sort` | `last_seen` (default), `first_seen`, `recent_event`, `title`, `company`, `location`, `title_affinity`, `location_affinity`, `saved` |
 | `order` | `asc` or `desc`; absent keeps the sort's historical default. Invalid values → `400 validation_failed` |
@@ -179,7 +178,9 @@ this filter and its `total` for the item count.
 `recent_event` orders by the latest timeline event, falling back to
 `updated_at` when an offer has no events (used by the dashboard's
 Applications section). `saved` orders by `saved_at DESC` and is used by
-the dashboard's Saved section. Text sorts (`title`, `company`,
+the dashboard's Saved section, which filters with
+`application_state=saved`. The old `saved=true|false` filter is removed;
+an unknown `saved` parameter is ignored. Text sorts (`title`, `company`,
 `location`) default to ascending; the other sorts default to descending.
 `location` sorts by `COALESCE(location, '')`. `title_affinity` and
 `location_affinity` are computed at read time from the selected profile
@@ -364,14 +365,13 @@ Body may contain any of:
 
 ```json
 { "application_state": "interview", "offer_state": "active",
-  "location": "Remote - France", "description": "manual description",
-  "saved": true }
+  "location": "Remote - France", "description": "manual description" }
 ```
 
-- `application_state`, `offer_state`: validated enum values.
-- `saved`: `true` sets `saved_at` to the server's current UTC time,
-  `false` clears it (NULL). The bookmark is independent of both states;
-  the response returns the current `saved_at`.
+- `application_state`, `offer_state`: validated enum values. Setting
+  `application_state` to `saved` records the server's current UTC time in
+  `saved_at`; setting any other state clears it. The old `saved` body
+  field is removed and is rejected as unknown JSON.
 - `location`: string to set, `null` to clear.
 - `description`: string that replaces `raw_text`. The server recomputes
   `text_hash` and appends a `snapshots` row with `origin = "manual"` in
@@ -383,7 +383,7 @@ Body may contain any of:
 - Fingerprints are not recomputed on a location correction.
 - `200 { "offer": {...} }` (including the current `raw_text` and
   `saved_at`); `400 validation_failed` when no field is given or a value
-  is invalid;
+  is invalid (including the removed `saved` field);
   `404 not_found`.
 - A later scan is not special-cased: a sighting whose description hash
   differs from the stored (including manual) hash records another
@@ -401,9 +401,10 @@ Explicitly merges offer `:id` **into** `into_id` after user confirmation.
 In one transaction: every provenance row, event, offer note and snapshot
 of `:id` moves to `into_id`; earliest `first_seen_at`/latest
 `last_seen_at` are kept; duplicate provenance URLs are collapsed; the
-target adopts the source application state only when it is still `todo`;
-an active offer stays active, and only two disappeared offers stay
-disappeared. The absorbed offer row is removed after its children have
+target adopts the source application state when it is still `none`, and
+a `saved` target yields to a real application carried by the absorbed
+offer; `saved_at` follows the resulting state. An active offer stays
+active, and only two disappeared offers stay disappeared. The absorbed offer row is removed after its children have
 moved.
 
 ```json
@@ -432,7 +433,7 @@ is optional (default: the original title). `location` is optional:
 omitted copies the original location, `null` clears it. At least one
 provenance row must remain on the original. Events, notes and snapshots
 stay on the original; the new offer starts with application state
-`todo` and is `active` (or `disappeared` if the original was
+`none` and is `active` (or `disappeared` if the original was
 disappeared). The original canonical URL is repaired if the moved row
 owned it.
 

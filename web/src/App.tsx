@@ -154,7 +154,6 @@ export default function App() {
         {route.name === 'dashboard' && (
           <Dashboard
             refreshToken={refreshToken}
-            onDataChanged={refreshData}
             onNotice={notify}
             sources={sources}
             onScanBatch={scanBatch}
@@ -162,12 +161,7 @@ export default function App() {
           />
         )}
         {route.name === 'offers' && (
-          <OffersPage
-            refreshToken={refreshToken}
-            onDataChanged={refreshData}
-            onNotice={notify}
-            initialSaved={route.saved}
-          />
+          <OffersPage refreshToken={refreshToken} onDataChanged={refreshData} onNotice={notify} />
         )}
         {route.name === 'sources' && (
           <SourcesPage

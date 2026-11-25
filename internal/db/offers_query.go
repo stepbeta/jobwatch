@@ -24,9 +24,8 @@ type OfferQuery struct {
 	OfferStates       []model.OfferState
 	RemotePolicies    []model.RemotePolicy
 	CompanyID         *int64
-	HasApplication    bool  // application_state != 'todo'
-	Saved             *bool // nil = no filter; true/false = saved_at set/NULL
-	IncompleteOnly    bool  // list only incomplete items; default excludes them
+	HasApplication    bool // application_state not in ('none', 'saved')
+	IncompleteOnly    bool // list only incomplete items; default excludes them
 	Sort              string
 	// Order is "asc" or "desc". Empty keeps each sort's historical
 	// direction, so callers that do not send it see unchanged ordering.
@@ -175,14 +174,7 @@ func offerWhere(ctx context.Context, q Querier, f OfferQuery) (string, []any, er
 		args = append(args, *f.CompanyID)
 	}
 	if f.HasApplication {
-		b.WriteString(` AND o.application_state != 'todo'`)
-	}
-	if f.Saved != nil {
-		if *f.Saved {
-			b.WriteString(` AND o.saved_at IS NOT NULL`)
-		} else {
-			b.WriteString(` AND o.saved_at IS NULL`)
-		}
+		b.WriteString(` AND o.application_state NOT IN ('none', 'saved')`)
 	}
 	return b.String(), args, nil
 }
@@ -241,7 +233,6 @@ type OfferUpdate struct {
 	OfferState       *model.OfferState
 	Location         *string
 	Description      *string
-	Saved            *bool
 }
 
 // UpdateOfferFields applies u atomically and bumps updated_at. Offer
@@ -256,6 +247,14 @@ func UpdateOfferFields(ctx context.Context, sqlDB *sql.DB, id int64, u OfferUpda
 	if u.ApplicationState != nil {
 		sets = append(sets, "application_state = ?")
 		args = append(args, string(*u.ApplicationState))
+		// saved_at is metadata for the saved state: entering it records
+		// the server time, leaving it for any other state clears it.
+		if *u.ApplicationState == model.AppSaved {
+			sets = append(sets, "saved_at = ?")
+			args = append(args, model.FormatTime(now))
+		} else {
+			sets = append(sets, "saved_at = NULL")
+		}
 	}
 	if u.OfferState != nil {
 		sets = append(sets, "offer_state = ?")
@@ -268,15 +267,6 @@ func UpdateOfferFields(ctx context.Context, sqlDB *sql.DB, id int64, u OfferUpda
 			loc = u.Location
 		}
 		args = append(args, nullStr(loc))
-	}
-	if u.Saved != nil {
-		sets = append(sets, "saved_at = ?")
-		var savedAt *string
-		if *u.Saved {
-			ts := model.FormatTime(now)
-			savedAt = &ts
-		}
-		args = append(args, nullStr(savedAt))
 	}
 	if u.Description != nil {
 		sets = append(sets, "raw_text = ?", "text_hash = ?")

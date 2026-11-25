@@ -11,14 +11,12 @@ const applicationPageSize = 200
 
 export function Dashboard({
   refreshToken,
-  onDataChanged,
   onNotice,
   sources,
   onScanBatch,
   scanning,
 }: {
   refreshToken: number
-  onDataChanged: () => void
   onNotice: (kind: 'info' | 'success' | 'error', text: string) => void
   sources: Source[]
   onScanBatch: (targets: Source[]) => Promise<BatchScanOutcome[]>
@@ -29,7 +27,6 @@ export function Dashboard({
   const [savedTotal, setSavedTotal] = useState(0)
   const [error, setError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
-  const [busyOfferId, setBusyOfferId] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -49,7 +46,7 @@ export function Dashboard({
   useEffect(() => {
     let cancelled = false
     api
-      .listOffers({ saved: true, sort: 'saved', limit: 200 })
+      .listOffers({ application_state: 'saved', sort: 'saved', limit: 200 })
       .then((r) => {
         if (!cancelled) {
           setSaved(r.offers)
@@ -64,26 +61,9 @@ export function Dashboard({
     }
   }, [refreshToken])
 
-  async function toggleSaved(offer: Offer) {
-    setBusyOfferId(offer.id)
-    try {
-      const r = await api.patchOffer(offer.id, { saved: !offer.saved_at })
-      setSaved((prev) =>
-        r.offer.saved_at
-          ? prev.map((o) => (o.id === r.offer.id ? { ...o, ...r.offer } : o))
-          : prev.filter((o) => o.id !== r.offer.id),
-      )
-      onNotice('success', r.offer.saved_at ? 'Offer saved.' : 'Bookmark removed.')
-      onDataChanged()
-    } catch (e) {
-      onNotice('error', errorMessage(e))
-    } finally {
-      setBusyOfferId(null)
-    }
-  }
-
   // refreshApplications fans out over the existing per-source scan endpoint
-  // for every enabled source that owns at least one non-todo application.
+  // for every enabled source that owns at least one non-none, non-saved
+  // application.
   async function refreshApplications() {
     setRefreshing(true)
     try {
@@ -124,13 +104,15 @@ export function Dashboard({
         <div className="section-head">
           <div>
             <h2>Applications</h2>
-            <span className="muted">Offers with application_state ≠ todo, most recent activity first</span>
+            <span className="muted">
+              Offers with an application in progress (not None or Saved), most recent activity first
+            </span>
           </div>
           <button
             type="button"
             className="primary"
             disabled={scanning || refreshing}
-            title="Scans every enabled source behind your applications (application state ≠ todo). Sources with only todo offers are not scanned."
+            title="Scans every enabled source behind your applications (application state not None or Saved). Sources with only None or Saved offers are not scanned."
             onClick={() => void refreshApplications()}
           >
             {refreshing || scanning ? 'Refreshing…' : 'Refresh'}
@@ -182,22 +164,18 @@ export function Dashboard({
           <div>
             <h2>Saved</h2>
             <span className="muted">
-              Bookmarked offers to prepare before applying — independent of application state
+              Offers shortlisted before applying — the Saved application state
             </span>
           </div>
-          <a href="#/offers?saved=true">Show all ({savedTotal})</a>
+          <a href="#/offers?application_state=saved&sort=saved">Show all ({savedTotal})</a>
         </div>
         {saved.length === 0 ? (
           <p className="empty">
-            No saved offers yet. Use the star on an offer row or its detail page to bookmark it.
+            No saved offers yet. Set an offer's application state to Saved to shortlist it.
           </p>
         ) : (
           <div className="saved-list">
-            <OfferTable
-              offers={saved}
-              onToggleSaved={(o) => void toggleSaved(o)}
-              busyOfferId={busyOfferId}
-            />
+            <OfferTable offers={saved} />
           </div>
         )}
       </section>

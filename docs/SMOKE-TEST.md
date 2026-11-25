@@ -18,7 +18,7 @@ and an allow-all `robots.txt`. It then drives the real HTTP API:
 2. `POST /api/sources/:id/scan`; the real Workable adapter parses the
    fixture, the scan pipeline creates the company/offers/provenance, and
    the deterministic classifier fills both scores.
-3. `GET /api/offers` verifies 3 offers, company name, `todo` state and
+3. `GET /api/offers` verifies 3 offers, company name, `none` state and
    non-null scores.
 4. `PATCH /api/offers/:id` sets `application_state = applied`.
 5. `POST /api/offers/:id/events` adds a backdated `cv_sent` event.
@@ -51,12 +51,12 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
    or `Blocked` with the reason in the last-result column.
 3. **Offers.** New offers appear. Hover the `T`/`L` badges to see the
    classifier's matched terms. Filter by `Title ≥ 80` and `Location ≥
-   80` to see the target roles; change the sort and page through. Click a
-   row's star to bookmark it; the Dashboard **Saved** section lists it.
-4. Open an offer. Set **Application** to `Applied`, leave **Offer** on
-   `active`, correct the location if needed, and click **Save**. The
-   bookmark stays until you clear it (Saved is independent of the
-   application state).
+   80` to see the target roles; change the sort and page through. Open an
+   offer and set **Application** to `Saved`; the Dashboard **Saved**
+   section lists it.
+4. On the same offer, set **Application** to `Applied`, leave **Offer** on
+   `active`, correct the location if needed, and click **Save**. The offer
+   leaves Saved and appears in Applications; `saved_at` is cleared.
 5. In the **Timeline** panel add a `CV sent` event; set *Occurred at* to
    yesterday (leave the time empty to exercise date-only backdating); add
    an optional description. In the **Notes** panel add a note and pin it

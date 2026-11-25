@@ -813,22 +813,30 @@ func TestMigrationAddsOfferSavedAt(t *testing.T) {
 	}
 
 	savedAt := now.Add(time.Hour)
-	if err := UpdateOfferFields(ctx, sqlDB, o.ID, OfferUpdate{Saved: boolPtr(true)}, savedAt); err != nil {
+	saved := model.AppSaved
+	if err := UpdateOfferFields(ctx, sqlDB, o.ID, OfferUpdate{ApplicationState: &saved}, savedAt); err != nil {
 		t.Fatal(err)
 	}
 	got, err = GetOffer(ctx, sqlDB, o.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got.ApplicationState != model.AppSaved {
+		t.Errorf("application_state = %q, want saved", got.ApplicationState)
 	}
 	if got.SavedAt == nil || !got.SavedAt.Equal(savedAt) {
 		t.Errorf("saved_at = %v, want %v", got.SavedAt, savedAt)
 	}
-	if err := UpdateOfferFields(ctx, sqlDB, o.ID, OfferUpdate{Saved: boolPtr(false)}, savedAt.Add(time.Hour)); err != nil {
+	none := model.AppNone
+	if err := UpdateOfferFields(ctx, sqlDB, o.ID, OfferUpdate{ApplicationState: &none}, savedAt.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	got, err = GetOffer(ctx, sqlDB, o.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got.ApplicationState != model.AppNone {
+		t.Errorf("application_state after unsaving = %q, want none", got.ApplicationState)
 	}
 	if got.SavedAt != nil {
 		t.Errorf("saved_at after clearing = %v, want NULL", got.SavedAt)
@@ -1011,7 +1019,7 @@ func TestMigrationAddsInterviewEntryCategory(t *testing.T) {
 	}
 }
 
-func boolPtr(v bool) *bool { return &v }
+
 
 func countSnapshotsByOrigin(t *testing.T, sqlDB *sql.DB, offerID int64) map[model.SnapshotOrigin]int {
 	t.Helper()

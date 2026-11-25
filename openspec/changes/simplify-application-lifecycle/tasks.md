@@ -3,16 +3,16 @@
 ## 1. Preparation
 
 - [x] 1.1 Confirm `main` is up to date and cut `feat/simplify-application-lifecycle` from it; verify `git status` is clean and the branch is not `main`. (Done: `origin/main` was 0 behind / 0 ahead and the branch was created.)
-- [ ] 1.2 Stop the running `jobwatch` process that holds `jobwatch.db` (currently PID 1223; ask the user to stop it), then create a consistent backup with `./jobwatch backup jobwatch.db.<timestamp>.bkp`; verify the file exists and the backup reports a successful integrity check. Do not edit the database or run migration 0016 before this passes.
+- [x] 1.2 Stop the running `jobwatch` process that holds `jobwatch.db` (currently PID 1223; ask the user to stop it), then create a consistent backup with `./jobwatch backup jobwatch.db.<timestamp>.bkp`; verify the file exists and the backup reports a successful integrity check. Do not edit the database or run migration 0016 before this passes. (Done: no process held the DB; backup `jobwatch.db.20261125T105502Z.bkp` written, integrity check ok.)
 
 ## 2. State vocabulary, saved state, and migration
 
-- [ ] 2.1 Write migration `0016_application_lifecycle.sql`: rebuild `job_offers` with `DEFAULT 'none'`, map `todo`/`maybe` -> `none`, `responded` -> `applied`, `positive` -> `accepted`, turn bookmarked `todo`/`maybe` rows into `saved`, clear `saved_at` on other bookmarked rows, recreate indexes and FTS triggers, and rebuild the FTS index. Verify on a copy of the backup: row and ID counts, child row counts, `PRAGMA foreign_key_check`, FTS search, and the mapped state distribution.
-- [ ] 2.2 Update the application state constants and `Valid` in `internal/model`, set the default to `none`, and add table-driven tests for all new values and rejection of `todo`, `responded`, `maybe` and `positive`.
-- [ ] 2.3 Update `internal/db`: make `has_application` exclude `none` and `saved`, use `none` for merge/split defaults, make `application_state=saved` set `saved_at` and any other state clear it, and remove the independent `Saved` update path. Verify with db tests covering the timestamp invariant and merge/split behavior.
-- [ ] 2.4 Update the API offer filters, PATCH validation and DTOs; remove the `saved` PATCH field and `saved=true|false` list filter while keeping `sort=saved`; update API tests for the new enum, the removed filter, and `has_application` excluding `none`/`saved`.
-- [ ] 2.5 Update the frontend application state types, labels, orders and pill CSS; remove the star/bookmark controls from the offer table, offer detail and dashboard; use `application_state=saved` and the existing `sort=saved` for the Saved section. Verify with `npm test` and `npm run build`.
-- [ ] 2.6 Update `docs/DATA-MODEL.md`, `docs/API.md`, `docs/SPEC.md`, `docs/USAGE.md`, `docs/SMOKE-TEST.md` and `CHANGELOG.md` for the new vocabulary, the `saved` state, the removed star and migration 0016.
+- [x] 2.1 Write migration `0017_application_lifecycle.sql` (renumbered from 0016 because `0016_murena_detail_description.sql` already exists): rebuild `job_offers` with `DEFAULT 'none'`, map `todo`/`maybe` -> `none`, `responded` -> `applied`, `positive` -> `accepted`, turn bookmarked `todo`/`maybe` rows into `saved`, clear `saved_at` on other bookmarked rows, recreate indexes and FTS triggers, and rebuild the FTS index. Verify on a copy of the backup: row and ID counts, child row counts, `PRAGMA foreign_key_check`, FTS search, and the mapped state distribution. (Done on a copy: 3314 offers, IDs and all child rows preserved, `none` 3297 + `saved` 6, `applied` 7, `negative` 4, FTS search ok, default `none`, `saved_at` invariant holds.)
+- [x] 2.2 Update the application state constants and `Valid` in `internal/model`, set the default to `none`, and add table-driven tests for all new values and rejection of `todo`, `responded`, `maybe` and `positive`. (Done: `internal/model/application_state_test.go`.)
+- [x] 2.3 Update `internal/db`: make `has_application` exclude `none` and `saved`, use `none` for merge/split defaults, make `application_state=saved` set `saved_at` and any other state clear it, and remove the independent `Saved` update path. Verify with db tests covering the timestamp invariant and merge/split behavior. (Done: `internal/db/application_state_test.go`.)
+- [x] 2.4 Update the API offer filters, PATCH validation and DTOs; remove the `saved` PATCH field and `saved=true|false` list filter while keeping `sort=saved`; update API tests for the new enum, the removed filter, and `has_application` excluding `none`/`saved`. (Done: `TestOfferSavedState`, e2e default `none`.)
+- [x] 2.5 Update the frontend application state types, labels, orders and pill CSS; remove the star/bookmark controls from the offer table, offer detail and dashboard; use `application_state=saved` and the existing `sort=saved` for the Saved section. Verify with `npm test` and `npm run build`. (Done: 63 Vitest tests pass, production build ok.)
+- [x] 2.6 Update `docs/DATA-MODEL.md`, `docs/API.md`, `docs/SPEC.md`, `docs/USAGE.md`, `docs/SMOKE-TEST.md` and `CHANGELOG.md` for the new vocabulary, the `saved` state, the removed star and migration 0017. (Also updated `docs/ARCHITECTURE.md` and `README.md`.)
 
 ## 3. Event-driven transitions and rejection shortcut
 
@@ -36,7 +36,7 @@
 ## 6. Integration verification
 
 - [ ] 6.1 Run `go build ./...`, `go vet ./...`, `go test ./...`, `npm test` and `npm run build`; verify all pass.
-- [ ] 6.2 Apply migration 0016 to a copy of the backup and smoke-test: new offer is `none`, save sets `saved_at`, `cv_sent` opens, `rejected` closes, a scan ghosts an applied offer, and the dashboard filters and refresh scope behave; record the results.
+- [ ] 6.2 Apply migration 0017 to a copy of the backup and smoke-test: new offer is `none`, save sets `saved_at`, `cv_sent` opens, `rejected` closes, a scan ghosts an applied offer, and the dashboard filters and refresh scope behave; record the results.
 - [ ] 6.3 Run `openspec validate --change simplify-application-lifecycle`, verify every task is ticked, and confirm the docs listed in `AGENTS.md` are synchronized with the implemented behavior.
 
 ## Workflow follow-up

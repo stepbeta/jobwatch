@@ -93,9 +93,9 @@ choose another file.
    offers that disappear are marked `disappeared`, never deleted. The
    **Offers** page filters and sorts by state, remote policy, remote
    acceptance and both affinities.
-4. **Bookmark and apply.** The star is a personal bookmark, independent
-   of application state. Set an application state on the offer, then keep
-   its timeline events and notes on the offer detail page.
+4. **Save and apply.** Set the offer's application state to `saved` to
+   shortlist it, then move it to `applied` and keep its timeline events
+   and notes on the offer detail page.
 
 ```mermaid
 flowchart TD
@@ -107,7 +107,7 @@ flowchart TD
     E --> F["Store offer facts and the derived remote policy"]
     F --> G["New offers become active; description edits keep a snapshot; missing offers become disappeared"]
     G --> H["Review in Offers: read-time affinity from the search profile"]
-    H --> I["Bookmark in Saved"]
+    H --> I["Save in Saved"]
     H --> J["Set application state"]
     J --> K["Timeline events and notes"]
     M["Manual import: URL metadata or JSON"] --> E
@@ -133,13 +133,13 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
 ## Web UI
 
 - **Dashboard** (`#/`) — Applications (offers with an application state
-  other than `todo`, most recent timeline activity first) and Saved
-  (bookmarked offers).
+  other than `none` or `saved`, most recent timeline activity first) and
+  Saved (offers in the `saved` state).
 - **Offers** (`#/offers`) — the full filterable, sortable table with title
   and location affinity badges, a remote policy badge, a searchable
   company filter, persisted column picker, per-page selector, URL-restored
-  filters (including minimum affinity and remote acceptance), a bookmark
-  toggle on every row, and the **Add offer** import dialog.
+  filters (including minimum affinity and remote acceptance), and the
+  **Add offer** import dialog.
 - **Incomplete** (`#/incomplete`) — items a source could not normalize,
   with the item count, the reported values and a repair form that assigns
   a company and title while keeping the source link and history.
@@ -161,7 +161,7 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
   description terms, and explanatory text. Affinity is recomputed from
   the profile on every read; no reclassification command exists.
 
-Page-by-page behavior and the bookmark semantics are in
+Page-by-page behavior and the saved-state semantics are in
 [docs/USAGE.md](docs/USAGE.md#web-ui).
 
 ## Reference

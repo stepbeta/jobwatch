@@ -24,7 +24,7 @@ function makeOffer(overrides: Partial<Offer> = {}): Offer {
     remote_policy: 'remote',
     url: null,
     offer_state: 'active',
-    application_state: 'todo',
+    application_state: 'none',
     first_seen_at: '2026-11-01T00:00:00Z',
     last_seen_at: '2026-11-01T00:00:00Z',
     updated_at: '2026-11-01T00:00:00Z',
@@ -87,6 +87,7 @@ const applied = makeOffer({ id: 10, title: 'Applied role', application_state: 'a
 const savedOffer = makeOffer({
   id: 12,
   title: 'Saved role',
+  application_state: 'saved',
   saved_at: '2026-11-15T09:00:00Z',
 })
 
@@ -95,7 +96,6 @@ function renderDashboard(sources: Source[], onScanBatch = vi.fn().mockResolvedVa
   render(
     <Dashboard
       refreshToken={0}
-      onDataChanged={vi.fn()}
       onNotice={onNotice}
       sources={sources}
       onScanBatch={onScanBatch}
@@ -108,7 +108,7 @@ function renderDashboard(sources: Source[], onScanBatch = vi.fn().mockResolvedVa
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(api.listOffers).mockImplementation(async (query = {}) => {
-    if (query.saved) {
+    if (query.application_state === 'saved') {
       return { offers: [savedOffer], total: 1, limit: 200, offset: 0 }
     }
     if (query.has_application) {
@@ -129,14 +129,13 @@ describe('Dashboard', () => {
     expect(await screen.findByText('Saved role')).toBeTruthy()
   })
 
-  it('removes a row from Saved when it is unbookmarked', async () => {
-    const user = userEvent.setup()
-    vi.mocked(api.patchOffer).mockResolvedValue({ offer: { ...savedOffer, saved_at: null } })
+  it('loads the Saved section from the saved application state', async () => {
     renderDashboard([makeSource()])
 
-    await user.click(await screen.findByRole('button', { name: 'Remove bookmark' }))
-    await waitFor(() => expect(api.patchOffer).toHaveBeenCalledWith(12, { saved: false }))
-    await waitFor(() => expect(screen.queryByText('Saved role')).toBeNull())
+    await screen.findByText('Saved role')
+    expect(api.listOffers).toHaveBeenCalledWith(
+      expect.objectContaining({ application_state: 'saved', sort: 'saved' }),
+    )
   })
 
   it('refreshes only the enabled sources behind applications', async () => {

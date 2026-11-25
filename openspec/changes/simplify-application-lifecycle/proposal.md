@@ -52,7 +52,8 @@ application-level consequence to a disappearance.
 
 - `internal/model`: application state enum and default.
 - `internal/db`: offer filters, merge/split defaults, saved timestamp handling.
-- `migrations/`: new migration `0016` rebuilding `job_offers`.
+- `migrations/`: new migration `0017` rebuilding `job_offers` (`0016` was
+  already taken by `murena_detail_description`).
 - `internal/api`: offer PATCH validation, `has_application`, removal of the
   `saved` filter, event-create response, scan summary.
 - `internal/scan`: disappearance path and ghosted count.
@@ -61,4 +62,4 @@ application-level consequence to a disappearance.
 - Docs: `DATA-MODEL.md`, `API.md`, `ARCHITECTURE.md`, `USAGE.md`, `SPEC.md`,
   `SMOKE-TEST.md`, `CHANGELOG.md`, `MILESTONES.md`.
 - Existing SQLite data is migrated in place; a consistent backup is required
-  before migration `0016`.
+  before migration `0017`.

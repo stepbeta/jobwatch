@@ -190,18 +190,39 @@ func updateMergedOffer(ctx context.Context, q Querier, from, into model.JobOffer
 	if rawText == from.RawText {
 		textHash = from.TextHash
 	}
+	// Precedence is none < saved < a real application, mirroring the old
+	// `todo` precedence now that `saved` is a state: an unset target takes
+	// the absorbed state, and a saved target yields to a real application.
 	appState := into.ApplicationState
-	if appState == model.AppTodo && from.ApplicationState != model.AppTodo {
+	switch {
+	case appState == model.AppNone:
 		appState = from.ApplicationState
+	case appState == model.AppSaved &&
+		from.ApplicationState != model.AppNone && from.ApplicationState != model.AppSaved:
+		appState = from.ApplicationState
+	}
+	var savedAt *string
+	if appState == model.AppSaved {
+		switch {
+		case into.ApplicationState == model.AppSaved && into.SavedAt != nil:
+			s := model.FormatTime(*into.SavedAt)
+			savedAt = &s
+		case from.ApplicationState == model.AppSaved && from.SavedAt != nil:
+			s := model.FormatTime(*from.SavedAt)
+			savedAt = &s
+		default:
+			s := model.FormatTime(now)
+			savedAt = &s
+		}
 	}
 	policy := classify.DeriveRemotePolicy(derefString(location), derefString(rawText))
 	if _, err := q.ExecContext(ctx, `UPDATE job_offers SET
 		url = ?, location = ?, remote_policy = ?, first_seen_at = ?, last_seen_at = ?,
-		offer_state = ?, application_state = ?, raw_text = ?, text_hash = ?, updated_at = ?
+		offer_state = ?, application_state = ?, saved_at = ?, raw_text = ?, text_hash = ?, updated_at = ?
 		WHERE id = ?`,
 		nullStr(url), nullStr(location), string(policy), model.FormatTime(firstSeen), model.FormatTime(lastSeen),
-		string(mergeOfferState(from.OfferState, into.OfferState)), string(appState), nullStr(rawText), nullStr(textHash),
-		model.FormatTime(now), into.ID); err != nil {
+		string(mergeOfferState(from.OfferState, into.OfferState)), string(appState), nullStr(savedAt),
+		nullStr(rawText), nullStr(textHash), model.FormatTime(now), into.ID); err != nil {
 		return fmt.Errorf("update merged offer %d: %w", into.ID, err)
 	}
 	return nil
@@ -354,7 +375,7 @@ func SplitOffer(ctx context.Context, sqlDB *sql.DB, offerID int64, in OfferSplit
 		FirstSeenAt:      firstSeen,
 		LastSeenAt:       lastSeen,
 		OfferState:       state,
-		ApplicationState: model.AppTodo,
+		ApplicationState: model.AppNone,
 	}
 	created, err := InsertOffer(ctx, tx, newOffer, now)
 	if err != nil {

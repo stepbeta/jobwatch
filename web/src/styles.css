@@ -289,28 +289,6 @@ tr.row-saved td {
   background: color-mix(in srgb, var(--amber) 9%, transparent);
 }
 
-.bookmark-button {
-  background: none;
-  border: none;
-  padding: 0 2px;
-  line-height: 1;
-  font-size: 16px;
-  color: var(--muted);
-}
-
-.bookmark-button:hover:not(:disabled) {
-  color: var(--amber);
-  border: none;
-}
-
-.bookmark-button.is-saved {
-  color: var(--amber);
-}
-
-.bookmark-button.bookmark-large {
-  font-size: 24px;
-}
-
 .saved-list {
   max-height: 320px;
   overflow-y: auto;
@@ -374,36 +352,40 @@ td.scores {
   color: var(--muted);
 }
 
-.pill-app-todo {
+.pill-app-none {
   background: var(--panel-alt);
   color: var(--muted);
 }
 
-.pill-app-applied,
-.pill-app-responded {
-  background: var(--blue-bg);
-  color: var(--accent);
-}
-
-.pill-app-interview,
-.pill-app-positive {
+.pill-app-saved {
   background: var(--amber-bg);
   color: var(--amber);
 }
 
-.pill-app-offer {
+.pill-app-applied {
+  background: var(--blue-bg);
+  color: var(--accent);
+}
+
+.pill-app-interview {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
+.pill-app-offer,
+.pill-app-accepted {
   background: var(--green-bg);
   color: var(--green);
+}
+
+.pill-app-turned_down {
+  background: var(--panel-alt);
+  color: var(--text);
 }
 
 .pill-app-negative {
   background: var(--red-bg);
   color: var(--red);
-}
-
-.pill-app-maybe {
-  background: var(--panel-alt);
-  color: var(--text);
 }
 
 .score {

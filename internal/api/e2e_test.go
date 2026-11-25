@@ -79,7 +79,7 @@ func TestSmokeFlows(t *testing.T) {
 		if o.RemotePolicy == "" {
 			t.Errorf("offer %d has no remote policy fact: %+v", o.ID, o)
 		}
-		if o.ApplicationState != "todo" {
+		if o.ApplicationState != "none" {
 			t.Errorf("new offer %d state = %q", o.ID, o.ApplicationState)
 		}
 		if o.ID > target.ID {

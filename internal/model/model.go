@@ -80,20 +80,20 @@ func (r IncompleteReason) Valid() bool {
 type ApplicationState string
 
 const (
-	AppTodo      ApplicationState = "todo"
-	AppApplied   ApplicationState = "applied"
-	AppResponded ApplicationState = "responded"
-	AppInterview ApplicationState = "interview"
-	AppOffer     ApplicationState = "offer"
-	AppNegative  ApplicationState = "negative"
-	AppMaybe     ApplicationState = "maybe"
-	AppPositive  ApplicationState = "positive"
+	AppNone       ApplicationState = "none"
+	AppSaved      ApplicationState = "saved"
+	AppApplied    ApplicationState = "applied"
+	AppInterview  ApplicationState = "interview"
+	AppOffer      ApplicationState = "offer"
+	AppAccepted   ApplicationState = "accepted"
+	AppTurnedDown ApplicationState = "turned_down"
+	AppNegative   ApplicationState = "negative"
 )
 
 // Valid reports whether s is a known application state.
 func (s ApplicationState) Valid() bool {
 	switch s {
-	case AppTodo, AppApplied, AppResponded, AppInterview, AppOffer, AppNegative, AppMaybe, AppPositive:
+	case AppNone, AppSaved, AppApplied, AppInterview, AppOffer, AppAccepted, AppTurnedDown, AppNegative:
 		return true
 	}
 	return false

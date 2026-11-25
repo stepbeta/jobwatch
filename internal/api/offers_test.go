@@ -37,9 +37,9 @@ func seedOfferSet(t *testing.T, ts *testServer) (model.JobOffer, model.Company) 
 	acme := ts.seedCompany(t, "Acme")
 	other := ts.seedCompany(t, "Other")
 	sre := ts.seedOffer(t, acme, "Site Reliability Engineer", "Paris", model.AppApplied, model.RemoteFull)
-	ts.seedOffer(t, acme, "Platform Engineer", "Remote - France", model.AppTodo, model.RemoteFull)
+	ts.seedOffer(t, acme, "Platform Engineer", "Remote - France", model.AppNone, model.RemoteFull)
 	ts.seedOffer(t, other, "SRE", "Lyon", model.AppInterview, model.RemoteHybrid)
-	ts.seedOffer(t, other, "Marketing Manager", "", model.AppTodo, model.RemoteOnsite)
+	ts.seedOffer(t, other, "Marketing Manager", "", model.AppNone, model.RemoteOnsite)
 	if _, err := ts.db.ExecContext(context.Background(),
 		`UPDATE job_offers SET raw_text = 'Kubernetes and Terraform' WHERE id = ?`, sre.ID); err != nil {
 		t.Fatal(err)
@@ -214,58 +214,60 @@ func TestPatchOffer(t *testing.T) {
 	wantErrorCode(t, ts.do(t, "PATCH", "/api/offers/1", map[string]any{"bogus": 1}), 400, "invalid_json")
 }
 
-func TestOfferSaved(t *testing.T) {
+func TestOfferSavedState(t *testing.T) {
 	ts := newTestServer(t)
 	seedOfferSet(t, ts)
 
-	rec := ts.do(t, "PATCH", "/api/offers/1", map[string]any{"saved": true})
+	rec := ts.do(t, "PATCH", "/api/offers/1", map[string]any{"application_state": "saved"})
 	wantCode(t, rec, 200)
 	got := decodeBody[struct {
 		Offer offerJSON `json:"offer"`
 	}](t, rec).Offer
 	want := model.FormatTime(ts.clock.now())
-	if got.SavedAt == nil || *got.SavedAt != want {
-		t.Errorf("saved_at = %v, want %q", got.SavedAt, want)
+	if got.ApplicationState != "saved" || got.SavedAt == nil || *got.SavedAt != want {
+		t.Errorf("saved state = %q, saved_at = %v, want saved at %q", got.ApplicationState, got.SavedAt, want)
 	}
 
 	ts.clock.advance(time.Hour)
-	rec = ts.do(t, "PATCH", "/api/offers/2", map[string]any{"saved": true})
+	rec = ts.do(t, "PATCH", "/api/offers/2", map[string]any{"application_state": "saved"})
 	wantCode(t, rec, 200)
 
-	rec = ts.do(t, "GET", "/api/offers?saved=true&sort=saved", nil)
+	rec = ts.do(t, "GET", "/api/offers?application_state=saved&sort=saved", nil)
 	wantCode(t, rec, 200)
 	list := decodeBody[offerListResp](t, rec)
 	if list.Total != 2 || len(list.Offers) != 2 {
 		t.Fatalf("saved list = %d offers, total %d, want 2", len(list.Offers), list.Total)
 	}
 	if list.Offers[0].ID != 2 || list.Offers[1].ID != 1 {
-		t.Errorf("saved order = [%d %d], want [2 1] (newest bookmark first)",
+		t.Errorf("saved order = [%d %d], want [2 1] (newest save first)",
 			list.Offers[0].ID, list.Offers[1].ID)
 	}
 
-	rec = ts.do(t, "GET", "/api/offers?saved=false", nil)
+	// The old saved filter is gone; an unknown query parameter is ignored.
+	rec = ts.do(t, "GET", "/api/offers?saved=true", nil)
 	wantCode(t, rec, 200)
 	list = decodeBody[offerListResp](t, rec)
-	if list.Total != 2 {
-		t.Errorf("unsaved total = %d, want 2", list.Total)
+	if list.Total != 4 {
+		t.Errorf("legacy saved filter still applied: total = %d, want 4", list.Total)
 	}
 
-	rec = ts.do(t, "PATCH", "/api/offers/1", map[string]any{"saved": false})
+	rec = ts.do(t, "PATCH", "/api/offers/1", map[string]any{"application_state": "none"})
 	wantCode(t, rec, 200)
 	got = decodeBody[struct {
 		Offer offerJSON `json:"offer"`
 	}](t, rec).Offer
-	if got.SavedAt != nil {
-		t.Errorf("saved_at after unbookmark = %v, want null", got.SavedAt)
+	if got.ApplicationState != "none" || got.SavedAt != nil {
+		t.Errorf("after unsave: state = %q, saved_at = %v, want none with null", got.ApplicationState, got.SavedAt)
 	}
 
-	rec = ts.do(t, "GET", "/api/offers?saved=true", nil)
+	rec = ts.do(t, "GET", "/api/offers?application_state=saved", nil)
 	list = decodeBody[offerListResp](t, rec)
 	if list.Total != 1 || list.Offers[0].ID != 2 {
-		t.Errorf("saved list after unbookmark = %+v", list)
+		t.Errorf("saved list after unsave = %+v", list)
 	}
 
-	wantErrorCode(t, ts.do(t, "GET", "/api/offers?saved=maybe", nil), 400, "validation_failed")
+	// The removed PATCH field is rejected as unknown JSON.
+	wantErrorCode(t, ts.do(t, "PATCH", "/api/offers/1", map[string]any{"saved": true}), 400, "invalid_json")
 }
 
 func TestPatchOfferDescription(t *testing.T) {
@@ -497,7 +499,7 @@ func TestImportOffer(t *testing.T) {
 func TestOfferDetailSnapshotDiff(t *testing.T) {
 	ts := newTestServer(t)
 	acme := ts.seedCompany(t, "Acme")
-	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown)
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppNone, model.RemoteUnknown)
 	ctx := context.Background()
 	if err := db.InsertSnapshot(ctx, ts.db, o.ID, "one\ntwo\nthree", ts.clock.now()); err != nil {
 		t.Fatal(err)
@@ -532,7 +534,7 @@ func TestOfferDetailSnapshotDiff(t *testing.T) {
 func TestOfferSnapshotHistory(t *testing.T) {
 	ts := newTestServer(t)
 	acme := ts.seedCompany(t, "Acme")
-	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown)
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppNone, model.RemoteUnknown)
 	ctx := context.Background()
 
 	if err := db.InsertSnapshot(ctx, ts.db, o.ID, "one", ts.clock.now()); err != nil {
@@ -600,7 +602,7 @@ func TestOfferSnapshotHistory(t *testing.T) {
 func TestSnapshotDiffEndpoint(t *testing.T) {
 	ts := newTestServer(t)
 	acme := ts.seedCompany(t, "Acme")
-	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown)
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppNone, model.RemoteUnknown)
 	ctx := context.Background()
 
 	texts := []string{"alpha\nbeta", "alpha\ngamma", "alpha\ngamma\ndelta"}
@@ -652,7 +654,7 @@ func TestSnapshotDiffEndpoint(t *testing.T) {
 	}
 
 	// Snapshots of another offer are rejected.
-	other := ts.seedOffer(t, acme, "Platform Engineer", "Lyon", model.AppTodo, model.RemoteUnknown)
+	other := ts.seedOffer(t, acme, "Platform Engineer", "Lyon", model.AppNone, model.RemoteUnknown)
 	if err := db.InsertSnapshot(ctx, ts.db, other.ID, "foreign", ts.clock.now()); err != nil {
 		t.Fatal(err)
 	}
@@ -719,7 +721,7 @@ func TestSnapshotOriginsScanAndPatch(t *testing.T) {
 func TestMergeOffersAPI(t *testing.T) {
 	ts := newTestServer(t)
 	acme := ts.seedCompany(t, "Acme")
-	target := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown)
+	target := ts.seedOffer(t, acme, "SRE", "Paris", model.AppNone, model.RemoteUnknown)
 	source := ts.seedOffer(t, acme, "SRE - Platform", "Lyon", model.AppApplied, model.RemoteUnknown)
 	ctx := context.Background()
 	for _, p := range []struct {
@@ -774,7 +776,7 @@ func TestMergeOffersAPI(t *testing.T) {
 func TestSplitOfferAPI(t *testing.T) {
 	ts := newTestServer(t)
 	acme := ts.seedCompany(t, "Acme")
-	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppTodo, model.RemoteUnknown)
+	o := ts.seedOffer(t, acme, "SRE", "Paris", model.AppNone, model.RemoteUnknown)
 	ctx := context.Background()
 	var provIDs []int64
 	for _, url := range []string{"https://ex.com/a", "https://ex.com/b", "https://ex.com/c"} {

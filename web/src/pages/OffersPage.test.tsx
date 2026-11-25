@@ -164,7 +164,7 @@ describe('OffersPage table controls', () => {
 
   it('restores filters, sort, page and page size from the URL', async () => {
     window.location.hash =
-      '#/offers?q=sre&remote_policy=remote&saved=true&sort=title&order=asc&page=2&per_page=20'
+      '#/offers?q=sre&remote_policy=remote&sort=title&order=asc&page=2&per_page=20'
     renderPage()
 
     await waitFor(() =>
@@ -172,7 +172,6 @@ describe('OffersPage table controls', () => {
         expect.objectContaining({
           q: 'sre',
           remote_policy: 'remote',
-          saved: true,
           sort: 'title',
           order: 'asc',
           limit: 20,
@@ -186,13 +185,13 @@ describe('OffersPage table controls', () => {
 
   it('ignores invalid URL parameter values instead of failing', async () => {
     window.location.hash =
-      '#/offers?remote_policy=nope&saved=maybe&sort=nope&order=sideways&page=-3&per_page=999'
+      '#/offers?remote_policy=nope&application_state=nope&sort=nope&order=sideways&page=-3&per_page=999'
     renderPage()
 
     await waitFor(() => expect(api.listOffers).toHaveBeenCalled())
     expect(lastOfferQuery()).toMatchObject({ sort: 'last_seen', order: 'desc', limit: 50, offset: 0 })
     expect(lastOfferQuery().remote_policy).toBeUndefined()
-    expect(lastOfferQuery().saved).toBeUndefined()
+    expect(lastOfferQuery().application_state).toBeUndefined()
   })
 
   it('filters as the user types and reflects the debounced search in the URL', async () => {
@@ -234,7 +233,6 @@ describe('OffersPage table controls', () => {
     expect(screen.queryByRole('button', { name: 'Location' })).toBeNull()
     expect(window.localStorage.getItem('offers.columns')).toBe('["location"]')
 
-    await user.click(within(menu).getByRole('checkbox', { name: 'Bookmark' }))
     await user.click(within(menu).getByRole('checkbox', { name: 'Company' }))
     await user.click(within(menu).getByRole('checkbox', { name: 'Title' }))
     await user.click(within(menu).getByRole('checkbox', { name: 'Remote' }))

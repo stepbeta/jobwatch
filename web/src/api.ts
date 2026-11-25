@@ -100,7 +100,6 @@ export interface OfferQuery {
   min_location_affinity?: number
   company_id?: number
   has_application?: boolean
-  saved?: boolean
   incomplete?: boolean
   sort?: string
   order?: string
@@ -156,7 +155,6 @@ export const api = {
       offer_state?: string
       location?: string | null
       description?: string
-      saved?: boolean
     },
   ) => request<{ offer: OfferDetail['offer'] }>(`/offers/${id}`, body('PATCH', patch)),
   mergeOffer: (id: number, intoId: number) =>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 export type Route =
   | { name: 'dashboard' }
-  | { name: 'offers'; saved?: boolean }
+  | { name: 'offers' }
   | { name: 'incomplete' }
   | { name: 'sources' }
   | { name: 'interviewPrep' }
@@ -13,14 +13,10 @@ export type Route =
 
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '') || '/'
-  const [pathname, query = ''] = path.split('?')
-  const params = new URLSearchParams(query)
+  const [pathname] = path.split('?')
   const parts = pathname.split('/').filter(Boolean)
   if (parts.length === 0) return { name: 'dashboard' }
-  if (parts[0] === 'offers' && parts.length === 1) {
-    const saved = params.get('saved')
-    return { name: 'offers', saved: saved === 'true' ? true : saved === 'false' ? false : undefined }
-  }
+  if (parts[0] === 'offers' && parts.length === 1) return { name: 'offers' }
   if (parts[0] === 'sources' && parts.length === 1) return { name: 'sources' }
   if (parts[0] === 'incomplete' && parts.length === 1) return { name: 'incomplete' }
   if (parts[0] === 'interview-prep' && parts.length === 1) return { name: 'interviewPrep' }

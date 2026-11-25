@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### Simplified application lifecycle (OpenSpec change `simplify-application-lifecycle`)
+
+#### Added
+- `saved` application state: saving an offer now sets `application_state =
+  saved` and records the server time in `saved_at`. `saved_at` is set
+  exactly when the state is `saved` and cleared for every other state.
+- `accepted` and `turned_down` application states.
+- Migration `0017_application_lifecycle.sql`: rebuilds `job_offers` with
+  `application_state DEFAULT 'none'`, maps `todo`/`maybe` to `none`,
+  `responded` to `applied` and `positive` to `accepted`, turns bookmarked
+  `todo`/`maybe` rows into `saved`, clears stale bookmarks on later-stage
+  rows, recreates the indexes and FTS triggers and rebuilds the FTS index.
+  Every offer ID and child row is preserved.
+
+#### Changed
+- The application vocabulary is now `none`, `saved`, `applied`,
+  `interview`, `offer`, `accepted`, `turned_down`, `negative`. `none` is
+  the default for new offers; `todo`, `responded`, `maybe` and `positive`
+  are rejected.
+- `has_application` excludes both `none` and `saved`, so a saved offer is
+  not an application.
+- The dashboard Saved section queries `application_state=saved` with the
+  existing `sort=saved` (`saved_at DESC`).
+- Offer merge uses `none` for an unset target, promotes a `saved` target
+  to a real application carried by the absorbed offer, and keeps
+  `saved_at` consistent with the resulting state. Split creates the new
+  offer in `none`.
+
+#### Removed
+- The independent star/bookmark control from the offer table, offer detail
+  and dashboard. Saving is the `saved` state.
+- The `saved` field on `PATCH /api/offers/:id` (now rejected as unknown
+  JSON) and the `saved=true|false` list filter. The `#/offers?saved=true`
+  preset is gone; use `application_state=saved`.
+
 ### HTML detail descriptions (OpenSpec change `html-detail-descriptions`)
 
 #### Added

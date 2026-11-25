@@ -10,14 +10,14 @@ import type {
 } from './types'
 
 export const APP_STATES: ApplicationState[] = [
-  'todo',
+  'none',
+  'saved',
   'applied',
-  'responded',
   'interview',
   'offer',
+  'accepted',
+  'turned_down',
   'negative',
-  'maybe',
-  'positive',
 ]
 
 export const OFFER_STATES: OfferState[] = ['active', 'disappeared']
@@ -88,8 +88,19 @@ export function eventLabel(t: EventType): string {
   return EVENT_LABELS[t] ?? t
 }
 
+const APP_LABELS: Record<ApplicationState, string> = {
+  none: 'None',
+  saved: 'Saved',
+  applied: 'Applied',
+  interview: 'Interview',
+  offer: 'Offer',
+  accepted: 'Accepted',
+  turned_down: 'Turned down',
+  negative: 'Negative',
+}
+
 export function appLabel(s: ApplicationState): string {
-  return s.charAt(0).toUpperCase() + s.slice(1)
+  return APP_LABELS[s] ?? s
 }
 
 export function scanLabel(s: ScanStatus | null): string {

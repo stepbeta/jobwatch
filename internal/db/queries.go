@@ -333,13 +333,13 @@ func GetOffer(ctx context.Context, q Querier, id int64) (model.JobOffer, error) 
 }
 
 // InsertOffer stores a new offer. FirstSeenAt/LastSeenAt/CreatedAt/
-// UpdatedAt are all set to now; states default to active/todo when empty.
+// UpdatedAt are all set to now; states default to active/none when empty.
 func InsertOffer(ctx context.Context, q Querier, o model.JobOffer, now time.Time) (model.JobOffer, error) {
 	if o.OfferState == "" {
 		o.OfferState = model.OfferActive
 	}
 	if o.ApplicationState == "" {
-		o.ApplicationState = model.AppTodo
+		o.ApplicationState = model.AppNone
 	}
 	if o.RemotePolicy == "" {
 		o.RemotePolicy = model.RemoteUnknown

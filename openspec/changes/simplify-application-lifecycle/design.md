@@ -72,9 +72,10 @@ user wants one clean model and every current saved offer is pre-application);
 dropping `saved_at` and sorting by `updated_at` (rejected because it loses the
 actual save time and the existing Saved ordering).
 
-### Migration `0016`
+### Migration `0017`
 
-A rebuild of `job_offers` changes `DEFAULT 'todo'` to `DEFAULT 'none'` and maps
+Renumbered from `0016` because `0016_murena_detail_description.sql` already
+exists. A rebuild of `job_offers` changes `DEFAULT 'todo'` to `DEFAULT 'none'` and maps
 the existing values in the copy:
 
 | Existing value | Migrated value |
@@ -190,7 +191,7 @@ consecutive-empty-scan guard is explicitly out of scope.
 
 1. Stop the running `jobwatch` process and create a consistent backup with
    `./jobwatch backup jobwatch.db.<timestamp>.bkp`.
-2. Apply migration `0016` to a copy of the backup and verify counts, foreign
+2. Apply migration `0017` to a copy of the backup and verify counts, foreign
    keys, FTS and the mapped states.
 3. Apply to the live database, then run the backend/frontend test suites and a
    short smoke test (new offer `none`, save, `cv_sent`, `rejected`, scan
