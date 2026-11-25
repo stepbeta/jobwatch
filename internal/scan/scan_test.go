@@ -281,6 +281,186 @@ func offerByURL(t *testing.T, sqlDB *sql.DB, sourceID int64, url string) model.J
 // (source, uid) keeps one offer through title, location, company-name and
 // description changes; different uids or a missing uid fall back to the
 // source URL; and a disappeared offer reopens under the same identity.
+func setAppState(t *testing.T, sqlDB *sql.DB, id int64, state model.ApplicationState, now time.Time) {
+	t.Helper()
+	if err := db.UpdateOfferFields(context.Background(), sqlDB, id, db.OfferUpdate{ApplicationState: &state}, now); err != nil {
+		t.Fatalf("set application state %q: %v", state, err)
+	}
+}
+
+func ghostedEvents(t *testing.T, sqlDB *sql.DB, offerID int64) int {
+	t.Helper()
+	return count(t, sqlDB, `SELECT COUNT(*) FROM events WHERE offer_id = ? AND type = 'ghosted'`, offerID)
+}
+
+func TestScanGhostsDisappearedApplications(t *testing.T) {
+	sqlDB, sc, ff, clk := setup(t)
+	src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
+	ctx := context.Background()
+
+	clk.advance()
+	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform}
+	if r := sc.ScanSource(ctx, src); r.New != 2 {
+		t.Fatalf("first scan = %+v", r)
+	}
+	sre := offerByTitle(t, sqlDB, rawSRE.Title)
+	platform := offerByTitle(t, sqlDB, rawPlatform.Title)
+	setAppState(t, sqlDB, sre.ID, model.AppApplied, clk.now())
+	setAppState(t, sqlDB, platform.ID, model.AppInterview, clk.now())
+
+	clk.advance()
+	ff.offers[src.ID] = nil
+	r := sc.ScanSource(ctx, src)
+	if r.Disappeared != 2 || r.Ghosted != 2 {
+		t.Fatalf("empty scan = %+v, want 2 disappeared and 2 ghosted", r)
+	}
+	for _, id := range []int64{sre.ID, platform.ID} {
+		o, _ := db.GetOffer(ctx, sqlDB, id)
+		if o.ApplicationState != model.AppNegative {
+			t.Errorf("offer %d state = %q, want negative", id, o.ApplicationState)
+		}
+		if n := ghostedEvents(t, sqlDB, id); n != 1 {
+			t.Errorf("offer %d ghosted events = %d, want 1", id, n)
+		}
+	}
+
+	// A repeat scan does not recreate the event.
+	clk.advance()
+	r = sc.ScanSource(ctx, src)
+	if r.Disappeared != 0 || r.Ghosted != 0 {
+		t.Errorf("repeat scan = %+v, want no disappearances or ghosts", r)
+	}
+	for _, id := range []int64{sre.ID, platform.ID} {
+		if n := ghostedEvents(t, sqlDB, id); n != 1 {
+			t.Errorf("offer %d ghosted events after repeat = %d, want 1", id, n)
+		}
+	}
+
+	// Reappearance keeps the closed state; a later disappearance ghosts
+	// again only for the offer the user reopened.
+	clk.advance()
+	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform}
+	if r := sc.ScanSource(ctx, src); r.Reappeared != 2 {
+		t.Fatalf("reappearance scan = %+v", r)
+	}
+	setAppState(t, sqlDB, sre.ID, model.AppApplied, clk.now())
+	setAppState(t, sqlDB, platform.ID, model.AppOffer, clk.now())
+
+	clk.advance()
+	ff.offers[src.ID] = nil
+	r = sc.ScanSource(ctx, src)
+	if r.Disappeared != 2 || r.Ghosted != 1 {
+		t.Fatalf("second disappearance = %+v, want 2 disappeared and 1 ghosted", r)
+	}
+	if n := ghostedEvents(t, sqlDB, sre.ID); n != 2 {
+		t.Errorf("reopened offer ghosted events = %d, want 2", n)
+	}
+	// The platform offer was ghosted during the first disappearance; the
+	// offer-stage disappearance must not add another event.
+	if n := ghostedEvents(t, sqlDB, platform.ID); n != 1 {
+		t.Errorf("offer-stage ghosted events = %d, want 1 (no new event)", n)
+	}
+	if o, _ := db.GetOffer(ctx, sqlDB, platform.ID); o.ApplicationState != model.AppOffer {
+		t.Errorf("offer-stage state = %q, want offer", o.ApplicationState)
+	}
+}
+
+func TestScanDoesNotGhostOtherStates(t *testing.T) {
+	sqlDB, sc, ff, clk := setup(t)
+	src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
+	ctx := context.Background()
+	rawOfferStage := sources.RawOffer{ExternalUID: "3", Title: "Offer Stage Role", Location: "Paris",
+		URL: "https://ex.com/jobs/3", Description: "An offer."}
+
+	clk.advance()
+	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform, rawOfferStage}
+	if r := sc.ScanSource(ctx, src); r.New != 3 {
+		t.Fatalf("first scan = %+v", r)
+	}
+	none := offerByTitle(t, sqlDB, rawSRE.Title)
+	saved := offerByTitle(t, sqlDB, rawPlatform.Title)
+	offer := offerByTitle(t, sqlDB, rawOfferStage.Title)
+	setAppState(t, sqlDB, none.ID, model.AppNone, clk.now())
+	setAppState(t, sqlDB, saved.ID, model.AppSaved, clk.now())
+	setAppState(t, sqlDB, offer.ID, model.AppOffer, clk.now())
+
+	clk.advance()
+	ff.offers[src.ID] = nil
+	r := sc.ScanSource(ctx, src)
+	if r.Disappeared != 3 || r.Ghosted != 0 {
+		t.Fatalf("scan = %+v, want 3 disappeared and 0 ghosted", r)
+	}
+	for _, tc := range []struct {
+		id   int64
+		want model.ApplicationState
+	}{
+		{none.ID, model.AppNone},
+		{saved.ID, model.AppSaved},
+		{offer.ID, model.AppOffer},
+	} {
+		o, _ := db.GetOffer(ctx, sqlDB, tc.id)
+		if o.OfferState != model.OfferDisappeared || o.ApplicationState != tc.want {
+			t.Errorf("offer %d = %q/%q, want disappeared/%q", tc.id, o.OfferState, o.ApplicationState, tc.want)
+		}
+		if n := ghostedEvents(t, sqlDB, tc.id); n != 0 {
+			t.Errorf("offer %d ghosted events = %d, want 0", tc.id, n)
+		}
+	}
+}
+
+func TestScanDoesNotGhostWhileAnotherSourceListsTheOffer(t *testing.T) {
+	sqlDB, sc, ff, clk := setup(t)
+	s1 := addSource(t, sqlDB, "Acme careers", `{"company":"Acme"}`)
+	s2 := addSource(t, sqlDB, "Aggregator", "")
+	ctx := context.Background()
+
+	clk.advance()
+	ff.offers[s1.ID] = []sources.RawOffer{rawSRE}
+	if r := sc.ScanSource(ctx, s1); r.New != 1 {
+		t.Fatalf("s1 scan = %+v", r)
+	}
+	sre := offerByTitle(t, sqlDB, rawSRE.Title)
+	setAppState(t, sqlDB, sre.ID, model.AppApplied, clk.now())
+
+	// The aggregator's uid points at the same offer (the merge path creates
+	// this link).
+	onAggregator := sources.RawOffer{ExternalUID: "agg-1", Title: rawSRE.Title,
+		Location: rawSRE.Location, URL: "https://aggregator.example/acme-sre", Company: "Acme"}
+	ts := model.FormatTime(clk.now())
+	if _, err := sqlDB.ExecContext(ctx, `INSERT INTO job_offer_provenance(
+		offer_id, source_id, external_uid, url, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		sre.ID, s2.ID, onAggregator.ExternalUID, onAggregator.URL, ts, ts); err != nil {
+		t.Fatal(err)
+	}
+	ff.offers[s2.ID] = []sources.RawOffer{onAggregator}
+	clk.advance()
+	if r := sc.ScanSource(ctx, s2); r.Status != model.ScanOK {
+		t.Fatalf("s2 scan = %+v", r)
+	}
+
+	// s1 no longer lists it, but s2's latest scan still does.
+	clk.advance()
+	ff.offers[s1.ID] = nil
+	r := sc.ScanSource(ctx, s1)
+	if r.Disappeared != 0 || r.Ghosted != 0 {
+		t.Fatalf("s1 empty scan = %+v, want no disappearance while s2 lists it", r)
+	}
+	if o, _ := db.GetOffer(ctx, sqlDB, sre.ID); o.ApplicationState != model.AppApplied {
+		t.Errorf("state = %q, want applied", o.ApplicationState)
+	}
+
+	// Once s2 also stops listing it, the offer disappears and is ghosted.
+	clk.advance()
+	ff.offers[s2.ID] = nil
+	r = sc.ScanSource(ctx, s2)
+	if r.Disappeared != 1 || r.Ghosted != 1 {
+		t.Fatalf("s2 empty scan = %+v, want 1 disappeared and 1 ghosted", r)
+	}
+	if o, _ := db.GetOffer(ctx, sqlDB, sre.ID); o.ApplicationState != model.AppNegative {
+		t.Errorf("state = %q, want negative", o.ApplicationState)
+	}
+}
+
 func TestScanIdentity(t *testing.T) {
 	type want struct{ New, Seen, Reappeared, Disappeared int }
 	type step struct {

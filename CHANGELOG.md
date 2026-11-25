@@ -2,6 +2,67 @@
 
 ## Unreleased
 
+### Simplified application lifecycle (OpenSpec change `simplify-application-lifecycle`)
+
+#### Added
+- `saved` application state: saving an offer now sets `application_state =
+  saved` and records the server time in `saved_at`. `saved_at` is set
+  exactly when the state is `saved` and cleared for every other state.
+- `accepted` and `turned_down` application states.
+- Event-driven application transitions: creating a `cv_sent` event sets
+  `applied` from `none`, `saved` or `negative`; `rejected` sets `negative`
+  from any state; `ghosted` sets `negative` from `applied` or `interview`.
+  The transition is applied atomically with the event insert and depends
+  on the state at creation time, not on `occurred_at`.
+- "This is a rejection" shortcut on the inbound-message form: it records
+  one `rejected` event with the same description and time instead of a
+  `message_received`, and the toast names the resulting state.
+- Automatic ghosting: a successful scan that transitions an `applied` or
+  `interview` offer to `disappeared` records one `ghosted` event and sets
+  `negative` in the same transaction. Other states and
+  already-disappeared offers are untouched, and no history is backfilled.
+- A `ghosted` count in the scan result, the scan summary API, the CLI
+  `scan` table and the dashboard refresh summary. It is always a subset
+  of the disappeared count.
+- Dashboard filters: a listing filter (`all` / `active only`) on both
+  sections and an application filter (`all` / `hide negative`) on
+  Applications. They persist in the hash query (`listing=active`,
+  `application=hide_negative`) and survive a reload. The dashboard
+  Refresh now pages through the same filtered query, so hidden
+  applications and their sources are not scanned, and the empty state and
+  notice name the active filter. The Saved "Show all" link keeps the
+  active listing filter so its count matches the link target.
+- Migration `0017_application_lifecycle.sql`: rebuilds `job_offers` with
+  `application_state DEFAULT 'none'`, maps `todo`/`maybe` to `none`,
+  `responded` to `applied` and `positive` to `accepted`, turns bookmarked
+  `todo`/`maybe` rows into `saved`, clears stale bookmarks on later-stage
+  rows, recreates the indexes and FTS triggers and rebuilds the FTS index.
+  Every offer ID and child row is preserved.
+
+#### Changed
+- The application vocabulary is now `none`, `saved`, `applied`,
+  `interview`, `offer`, `accepted`, `turned_down`, `negative`. `none` is
+  the default for new offers; `todo`, `responded`, `maybe` and `positive`
+  are rejected.
+- `has_application` excludes both `none` and `saved`, so a saved offer is
+  not an application.
+- `POST /api/offers/:id/events` now returns `application_state` and
+  `state_changed` alongside the event. Editing or deleting an event never
+  recomputes the state.
+- The dashboard Saved section queries `application_state=saved` with the
+  existing `sort=saved` (`saved_at DESC`).
+- Offer merge uses `none` for an unset target, promotes a `saved` target
+  to a real application carried by the absorbed offer, and keeps
+  `saved_at` consistent with the resulting state. Split creates the new
+  offer in `none`.
+
+#### Removed
+- The independent star/bookmark control from the offer table, offer detail
+  and dashboard. Saving is the `saved` state.
+- The `saved` field on `PATCH /api/offers/:id` (now rejected as unknown
+  JSON) and the `saved=true|false` list filter. The `#/offers?saved=true`
+  preset is gone; use `application_state=saved`.
+
 ### HTML detail descriptions (OpenSpec change `html-detail-descriptions`)
 
 #### Added

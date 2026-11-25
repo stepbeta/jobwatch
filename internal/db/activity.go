@@ -47,6 +47,55 @@ func InsertEvent(ctx context.Context, q Querier, e model.Event, now time.Time) (
 	return e, nil
 }
 
+// InsertEventWithTransition stores a timeline event and applies the
+// application state transition it implies in the same transaction. It
+// returns the stored event, the resulting application state and whether the
+// state changed. Only event creation transitions state; event edits and
+// deletions never recompute it.
+func InsertEventWithTransition(ctx context.Context, sqlDB *sql.DB, e model.Event, now time.Time) (model.Event, model.ApplicationState, bool, error) {
+	if e.OccurredAt.IsZero() {
+		return model.Event{}, "", false, fmt.Errorf("insert event: occurred_at is required")
+	}
+	tx, err := sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return model.Event{}, "", false, fmt.Errorf("begin event %q for offer %d: %w", e.Type, e.OfferID, err)
+	}
+	defer tx.Rollback()
+
+	var current string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT application_state FROM job_offers WHERE id = ?`, e.OfferID).Scan(&current); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.Event{}, "", false, ErrNotFound
+		}
+		return model.Event{}, "", false, fmt.Errorf("read application state of offer %d: %w", e.OfferID, err)
+	}
+	from := model.ApplicationState(current)
+	next := model.NextApplicationState(from, e.Type)
+
+	inserted, err := InsertEvent(ctx, tx, e, now)
+	if err != nil {
+		return model.Event{}, "", false, err
+	}
+	changed := next != from
+	if changed {
+		var savedAt *string
+		if next == model.AppSaved {
+			ts := model.FormatTime(now)
+			savedAt = &ts
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE job_offers SET application_state = ?, saved_at = ?, updated_at = ? WHERE id = ?`,
+			string(next), nullStr(savedAt), model.FormatTime(now), e.OfferID); err != nil {
+			return model.Event{}, "", false, fmt.Errorf("apply event transition to offer %d: %w", e.OfferID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return model.Event{}, "", false, fmt.Errorf("commit event %q for offer %d: %w", e.Type, e.OfferID, err)
+	}
+	return inserted, next, changed, nil
+}
+
 // GetEvent returns the event with the given ID.
 func GetEvent(ctx context.Context, q Querier, id int64) (model.Event, error) {
 	e, err := scanEventRow(q.QueryRowContext(ctx,

@@ -28,7 +28,7 @@ function makeIncomplete(overrides: Partial<Offer> = {}): Offer {
     remote_policy: 'unknown',
     url: 'https://example.com/jobs/1',
     offer_state: 'active',
-    application_state: 'todo',
+    application_state: 'none',
     first_seen_at: '2026-11-01T00:00:00Z',
     last_seen_at: '2026-11-02T00:00:00Z',
     updated_at: '2026-11-02T00:00:00Z',

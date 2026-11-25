@@ -26,6 +26,8 @@ require a table rebuild.
 | 0013 | `0013_company_resolution.sql` | OpenSpec change `offer-identity-from-source-uid`: rebuilds `companies` so `name_normalized` is no longer UNIQUE (display names are attributes, not identity) and adds a non-unique lookup index; backfills a global alias for any company without one; sets `config.company` to the current display name on enabled single-employer sources (typed ATS plus RSS/HTML except We Work Remotely) so the scan pipeline can stop using `sources.name` as a company fallback |
 | 0014 | `0014_wwr_employer_rule.sql` | Data-only: adds `{"employer":{"separator":":"}}` to the registered We Work Remotely RSS config when no employer rule is present, so the adapter splits `Employer: Role` into company and title. Every other config key is kept; re-applying matches no row |
 | 0015 | `0015_search_profiles.sql` | OpenSpec change `classification-profiles`: creates `search_profiles`, `search_profile_terms` and `search_profile_remote` and seeds one default profile from the former hardcoded classifier tables (35 title, 79 location, 15 description terms with their exact weights; `remote` and `unknown` accepted). Additive: no `job_offers` row or column is changed; the legacy score columns stay unused |
+| 0016 | `0016_murena_detail_description.sql` | Data-only, idempotent: adds `detail_description_selector` to the seeded Murena HTML source when the key is absent. Every other config key is preserved and a user-edited selector is never overwritten |
+| 0017 | `0017_application_lifecycle.sql` | OpenSpec change `simplify-application-lifecycle`: rebuilds `job_offers` with `application_state DEFAULT 'none'`; maps `todo`/`maybe` → `none`, `responded` → `applied`, `positive` → `accepted`; turns bookmarked `todo`/`maybe` rows into `saved` and clears `saved_at` on other bookmarked rows; recreates indexes and FTS triggers and rebuilds the FTS index. Every offer ID and every child row is preserved |
 
 Migration 0012 runs on a pinned connection with `foreign_keys=OFF` so it
 can rebuild `job_offers` without `DROP TABLE` cascading into events,
@@ -79,8 +81,9 @@ rows (39 enabled, 32 disabled). Milestone 7b renames the old
 and no schema. Milestone 7c adds the snapshot `origin`
 column in 0007 (additive, default `scan`) so every future snapshot records
 whether it came from a scan/import or a manual description edit.
-Milestone 7e adds the nullable `job_offers.saved_at` bookmark in 0008;
-it is orthogonal to `offer_state` and `application_state`.
+Milestone 7e adds the nullable `job_offers.saved_at` column in 0008;
+since 0017 it is metadata for the `saved` application state, not an
+independent bookmark.
 Milestone 9 adds the standalone `interview_entries` table in 0009; it is
 not linked to offers, companies or the application lifecycle. Milestone
 10 adds the nullable `interview_entries.category` column in 0010; there is
@@ -221,13 +224,13 @@ them or keeping a user-edited source is safe.
 | fingerprint | TEXT NOT NULL DEFAULT '' | no longer UNIQUE since 0012; see Fingerprints. Written on creation for compatibility with the merge/rename code; never used for resolution |
 | first_seen_at, last_seen_at | TEXT NOT NULL | |
 | offer_state | TEXT NOT NULL DEFAULT 'active' | `active` `disappeared` |
-| application_state | TEXT NOT NULL DEFAULT 'todo' | `todo` `applied` `responded` `interview` `offer` `negative` `maybe` `positive` |
+| application_state | TEXT NOT NULL DEFAULT 'none' | `none` `saved` `applied` `interview` `offer` `accepted` `turned_down` `negative` |
 | raw_text | TEXT | latest plain-text description |
 | text_hash | TEXT | SHA-256 hex of whitespace-collapsed `raw_text`; NULL when no description |
 | title_confidence | INTEGER | **Deprecated since 0015, unused.** Legacy stored title score. Kept only for rollback; no code reads or writes it, and it is absent from API responses and filters |
 | location_confidence | INTEGER | **Deprecated since 0015, unused.** Legacy stored location score. Same status as `title_confidence` |
 | match_reasons_json | TEXT | **Deprecated since 0015, unused.** Legacy stored reason strings; reasons are computed from the current profile at read time |
-| saved_at | TEXT | NULL = not bookmarked; otherwise the UTC RFC3339 time the user bookmarked the offer (`PATCH /api/offers/:id` with `saved: true`). Independent of `offer_state` and `application_state` |
+| saved_at | TEXT | NULL unless `application_state = 'saved'`; otherwise the UTC RFC3339 time the offer entered the saved state. Set when the state becomes `saved`, cleared when it leaves `saved` |
 | incomplete_reason | TEXT | NULL for a usable offer; otherwise `missing_company`, `missing_title` or `missing_company_title` (validated in Go) |
 | incomplete_raw | TEXT | JSON object with the values the source reported for an incomplete item. Kept after a repair as the durable marker that protects the user's title and location from later scans |
 | created_at, updated_at | TEXT | |
@@ -244,9 +247,11 @@ user's company, title or location. An incomplete offer with a known
 company keeps that company; only a missing company leaves `company_id`
 NULL.
 
-`saved_at` is a personal-interest bookmark, not a state. Saving never
-changes either state machine, and an offer that becomes an application
-keeps its bookmark until the user explicitly clears it.
+`saved` is an application state, and `saved_at` is its metadata. The
+invariant is `saved_at IS NOT NULL` exactly when
+`application_state = 'saved'`. Entering `saved` records the server time;
+leaving it for any other state clears the column. A saved offer is not
+an application: `has_application` excludes both `none` and `saved`.
 
 ### Deprecated classification columns
 
@@ -516,16 +521,33 @@ as a snapshot.
 - The classifier re-runs on every sighting using the stored title,
   location and latest description; score columns and `remote_policy` are
   updated even when the offer state does not change.
+- When a scan transitions an `applied` or `interview` offer to
+  `disappeared`, it also records one `ghosted` event and sets
+  `application_state = negative` in the same transaction. `offer`,
+  `none`, `saved`, `accepted`, `turned_down` and `negative` are left
+  untouched. The `offer_state != 'disappeared'` predicate makes this
+  idempotent, and no migration backfills offers that disappeared before
+  this behavior existed.
 - Failed or blocked scans change no offer.
 - Offers are never deleted by scans or imports.
 - When several postings of one scan map to the same offer, only the
   first one updates the offer; the others only add provenance.
 
 ### application_state
-Default `todo`. Transitions are user-driven through
-`PATCH /api/offers/:id`; the API validates the enum and bumps
-`updated_at` (the audit field). No automatic transition is derived from
-timeline events.
+Default `none`. The vocabulary is `none`, `saved`, `applied`,
+`interview`, `offer`, `accepted`, `turned_down`, `negative`. Manual
+changes go through `PATCH /api/offers/:id`; the API validates the enum
+and bumps `updated_at` (the audit field). Manual changes are free-form
+and create no timeline event. Creating an event applies its transition in
+the same transaction: `cv_sent` sets `applied` from `none`, `saved` or
+`negative`; `rejected` sets `negative` from any state; `ghosted` sets
+`negative` from `applied` or `interview`; every other event leaves the
+state unchanged. The rule uses the state at creation time, not
+`occurred_at`. Event edits and deletions never recompute the state. A
+successful scan also ghosts an `applied` or `interview` offer when its
+listing disappears: it inserts one `ghosted` event and sets `negative` in
+the scan transaction. `saved` maintains `saved_at` as described above;
+`none` and `saved` are not applications.
 
 ### last_scan_status
 `ok` after a committed scan; `blocked` when robots.txt disallows the URL
@@ -563,7 +585,9 @@ never merge or split offers.
   the target, keeps the earliest `first_seen_at` / latest `last_seen_at`,
   collapses duplicate provenance URLs (earliest first-seen, latest
   last-seen), adopts the absorbed application state when the target is
-  `todo`, and keeps the offer active if either side was active; only two
+  `none` (and promotes a `saved` target to a real application carried by
+  the absorbed offer), keeps `saved_at` consistent with the resulting
+  state, and keeps the offer active if either side was active; only two
   disappeared offers stay disappeared. The absorbed
   `job_offers` row is deleted only after all children have moved; no
   events, notes, snapshots or provenance rows are lost.
@@ -573,7 +597,7 @@ never merge or split offers.
   snapshots stay with the original because they describe the tracked
   application. At least one provenance row must remain on the original.
   The new offer gets `active` (or `disappeared` when the original was
-  disappeared), application state `todo`, and a base fingerprint. A
+  disappeared), application state `none`, and a base fingerprint. A
   company/title/location match with another offer is allowed because
   identity is provenance; the fingerprint is not checked for collisions.
   The original canonical `url` is repaired to a remaining link when the

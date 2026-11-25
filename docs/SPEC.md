@@ -94,13 +94,14 @@ job_offers (
   first_seen_at TEXT NOT NULL,
   last_seen_at TEXT NOT NULL,
   offer_state TEXT NOT NULL DEFAULT 'active',  -- active | disappeared
-  application_state TEXT NOT NULL DEFAULT 'todo',
-      -- todo | applied | responded | interview | offer | negative | maybe | positive
+  application_state TEXT NOT NULL DEFAULT 'none',
+      -- none | saved | applied | interview | offer | accepted | turned_down | negative
   raw_text TEXT,                  -- latest snapshot of the offer description
   text_hash TEXT,                 -- hash to detect description changes
   title_confidence INTEGER,       -- 0..100, probability it's a platform/SRE role (from classifier)
   location_confidence INTEGER,    -- 0..100, probability it matches "full remote in France"
   match_reasons_json TEXT,        -- human-readable list explaining the scores
+  saved_at TEXT,                  -- set iff application_state = 'saved'; UTC time it entered saved
   incomplete_reason TEXT,         -- NULL, or missing_company | missing_title | missing_company_title
   incomplete_raw TEXT,            -- JSON of the values the source reported, kept for repair
   created_at TEXT, updated_at TEXT
@@ -267,23 +268,27 @@ Local-only dashboard. Sections:
 - **Top bar**: navigation only (Dashboard, Offers, Sources, Incomplete
   with a pending count). Scan actions live on the Sources page and in the
   dashboard Applications section.
-- **Dashboard** (`#/`): the Applications section — all offers with
-  `application_state != todo`, sorted by most recent timeline activity
-  ("where did I send my CV") — with a Refresh button scoped to the
-  enabled sources behind those applications; and the Saved section —
-  every offer with `saved_at` set, independent of application state,
-  sorted by most recent bookmark, with an un-bookmark toggle.
+- **Dashboard** (`#/`): the Applications section — all offers whose
+  application state is neither `none` nor `saved`, sorted by most recent
+  timeline activity ("where did I send my CV") — with a Refresh button
+  scoped to the enabled sources behind the currently visible
+  applications; and the Saved section — every offer in the `saved`
+  application state, sorted by most recent save. Both sections offer a
+  listing filter (`all` / `active only`); Applications also offers an
+  application filter (`all` / `hide negative`). The choices persist in the
+  dashboard hash query as `listing=active` and
+  `application=hide_negative`.
 - **Offers** (`#/offers`): filterable/sortable table. Filters on
-  `application_state`, `offer_state`, `remote_policy`, saved/unsaved,
+  `application_state`, `offer_state`, `remote_policy`,
   `title_confidence`, `location_confidence`, a searchable company
   combobox and debounced full-text search. Every table view keeps its
   filters, sort, order, page and page size in the hash-route query string.
   Each row shows small score badges with tooltip explanations
-  (match_reasons) and a bookmark star — no review queue. Columns can be
-  hidden from a persisted picker.
+  (match_reasons) — no review queue. Columns can be hidden from a
+  persisted picker.
 - **Offer detail page**:
   - two-column header: identity (company, title, editable states, scores,
-    bookmark, merge/split actions) on the left and an always-visible
+    merge/split actions) on the left and an always-visible
     compact provenance list on the right. The provenance list holds ALL
     links where this offer was seen, so the user can open them and decide
     whether they are really the same offer (with "split offer" action).
@@ -515,3 +520,15 @@ plain React + a lightweight table component is fine.
   detail page, and the polite request budget. The section 7 `html` entry
   is now a pointer. The config key and schema notes remain in
   `docs/DATA-MODEL.md` and `docs/USAGE.md`.
+- 2026-11-25 (OpenSpec change `simplify-application-lifecycle`): the
+  application vocabulary is `none`, `saved`, `applied`, `interview`,
+  `offer`, `accepted`, `turned_down`, `negative`; `none` is the default
+  and `todo`, `responded`, `maybe` and `positive` are rejected. `saved`
+  replaces the independent star bookmark: `saved_at` is set exactly when
+  the state is `saved`, and `has_application` excludes both `none` and
+  `saved`. Migration 0017 rebuilds `job_offers` to change the default and
+  map the old values. The dashboard Saved section filters on
+  `application_state=saved` and the removed `saved` query/body fields are
+  gone. Event-driven transitions and automatic ghosting are specified by
+  the `application-lifecycle` capability delta and documented in
+  `docs/API.md` and `docs/USAGE.md`.

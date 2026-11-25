@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
-import { BookmarkButton } from '../components/BookmarkButton'
 import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
 import { EditViewEditor } from '../components/EditViewEditor'
 import { Link } from '../components/Link'
@@ -59,16 +58,16 @@ export function OfferPage({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const [appState, setAppState] = useState<ApplicationState>('todo')
+  const [appState, setAppState] = useState<ApplicationState>('none')
   const [offerState, setOfferState] = useState<OfferState>('active')
   const [location, setLocation] = useState('')
   const [saving, setSaving] = useState(false)
-  const [savedBusy, setSavedBusy] = useState(false)
 
   const [eventType, setEventType] = useState<EventType>('cv_sent')
   const [eventDate, setEventDate] = useState(() => splitLocalInput(toLocalInput(new Date())).date)
   const [eventTime, setEventTime] = useState(() => splitLocalInput(toLocalInput(new Date())).time)
   const [eventDesc, setEventDesc] = useState('')
+  const [rejectionShortcut, setRejectionShortcut] = useState(false)
   const [editingEvent, setEditingEvent] = useState<{
     id: number
     type: EventType
@@ -163,22 +162,6 @@ export function OfferPage({
       onNotice('error', text)
     } finally {
       setSaving(false)
-    }
-  }
-
-  async function toggleSaved() {
-    if (!detail) return
-    setSavedBusy(true)
-    try {
-      const r = await api.patchOffer(id, { saved: !detail.offer.saved_at })
-      setDetail({ ...detail, offer: { ...detail.offer, ...r.offer } })
-      onNotice('success', r.offer.saved_at ? 'Offer saved.' : 'Bookmark removed.')
-    } catch (err) {
-      const text = errorMessage(err)
-      setError(text)
-      onNotice('error', text)
-    } finally {
-      setSavedBusy(false)
     }
   }
 
@@ -287,17 +270,27 @@ export function OfferPage({
       return
     }
     try {
-      await api.createEvent(id, {
-        type: eventType,
+      // The rejection shortcut records a single `rejected` event instead of
+      // a message_received, so the timeline has no duplicate entry.
+      const type: EventType =
+        eventType === 'message_received' && rejectionShortcut ? 'rejected' : eventType
+      const res = await api.createEvent(id, {
+        type,
         description: eventDesc.trim() || undefined,
         occurred_at: eventTimestamp(eventDate, eventTime) || undefined,
       })
       setEventDesc('')
+      setRejectionShortcut(false)
       const now = splitLocalInput(toLocalInput(new Date()))
       setEventDate(now.date)
       setEventTime(now.time)
       await load()
-      onNotice('success', 'Timeline event added.')
+      onNotice(
+        'success',
+        res.state_changed
+          ? `Timeline event added. Application state is now ${appLabel(res.application_state)}.`
+          : 'Timeline event added.',
+      )
     } catch (err) {
       const text = errorMessage(err)
       setError(text)
@@ -573,12 +566,6 @@ export function OfferPage({
             </div>
           </div>
           <div className="badges">
-            <BookmarkButton
-              saved={Boolean(detail.offer.saved_at)}
-              disabled={savedBusy}
-              size="large"
-              onClick={() => void toggleSaved()}
-            />
             <ScoreBadge
               label="Title"
               value={detail.offer.title_affinity}
@@ -920,6 +907,16 @@ export function OfferPage({
                 placeholder="optional"
               />
             </label>
+            {eventType === 'message_received' && (
+              <label className="checkbox-inline">
+                <input
+                  type="checkbox"
+                  checked={rejectionShortcut}
+                  onChange={(e) => setRejectionShortcut(e.target.checked)}
+                />
+                This is a rejection
+              </label>
+            )}
             <button type="submit" className="primary">
               Add event
             </button>

@@ -440,10 +440,10 @@ func TestQueryOffersFilters(t *testing.T) {
 		return o
 	}
 	sre := mk(acme, "Site Reliability Engineer", "Paris", model.AppApplied, model.RemoteFull, 95, 90, &raw)
-	mk(acme, "Platform Engineer", "Remote - France", model.AppTodo, model.RemoteFull, 80, 85, nil)
+	mk(acme, "Platform Engineer", "Remote - France", model.AppNone, model.RemoteFull, 80, 85, nil)
 	mk(other, "SRE", "Lyon", model.AppInterview, model.RemoteHybrid, 70, 60, nil)
 	zero := 0
-	mk(other, "Marketing Manager", "", model.AppTodo, model.RemoteOnsite, zero, zero, nil)
+	mk(other, "Marketing Manager", "", model.AppNone, model.RemoteOnsite, zero, zero, nil)
 
 	if _, err := InsertEvent(ctx, sqlDB, model.Event{
 		OfferID: sre.ID, Type: model.EventCVSent, OccurredAt: testNow.Add(time.Hour),

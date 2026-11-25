@@ -151,7 +151,13 @@ never stops on a failing one:
      repaired offer is identified by `incomplete_raw` still being set
      after `incomplete_reason` was cleared: scans then keep the user's
      company, title and location instead of the sighting's values.
-   - `MarkDisappeared(source, now)`.
+   - `MarkDisappeared(source, now)` returns the offers it transitioned
+     with their application state. For each `applied` or `interview`
+     offer, insert one `ghosted` event and set `negative` in the same
+     transaction; other states are left untouched. The
+     `offer_state != 'disappeared'` predicate makes this idempotent, and
+     no backfill runs for offers that disappeared before this behavior
+     existed.
    - `last_scan_status = ok`, `last_scan_at = now`; commit.
 4. A failure inside the transaction rolls back and marks the source `error`.
 
@@ -310,7 +316,9 @@ robots.txt and the per-host interval.
 Offer listing is `db.QueryOffers`: a shared WHERE builder for the count
 and page queries, FTS5 `MATCH` against `job_offers_fts` (validated up
 front so a syntax error is a 400), enum lists, score minima,
-`has_application`, company filter, five sort orders, `limit`/`offset`.
+`has_application`, company filter, the supported sort orders (`last_seen`,
+`first_seen`, `recent_event`, `title`, `company`, `location`, `saved`,
+`title_affinity`, `location_affinity`), `limit`/`offset`.
 `recent_event` sorts by `MAX(events.occurred_at)` with `updated_at` as
 fallback. Detail responses join provenance with source names, events,
 offer notes, the snapshot version history (metadata only), the latest
@@ -318,19 +326,32 @@ snapshot, the snapshot count and a line diff between the two latest
 snapshots (`snapshot_diff`) when two exist. `?snapshot_id=N` adds the full
 text of that version; `GET /api/offers/{id}/snapshot-diff?from=N&to=M`
 reuses `internal/diff` for any two versions (ordered older → newer).
-`PATCH /api/offers/{id}` applies state/location/description/bookmark
-changes in one transaction; a description edit recomputes `text_hash`
+`PATCH /api/offers/{id}` applies application/offer state, location and
+description changes in one transaction; setting `application_state =
+saved` records `saved_at` and any other state clears it. A description
+edit recomputes `text_hash`
 and appends a snapshot with `origin = manual`. Scan and manual-import snapshots use
 `origin = scan`. Event types are validated in Go; `message_received`
 replaced `reply_received` (migration 0006) and `message_sent` was added.
+
+Creating an event applies its application-state transition atomically with
+the insert (`cv_sent`, `rejected`, `ghosted`; see
+`DATA-MODEL.md#application_state`) and returns `application_state` and
+`state_changed`; event edits and deletions never recompute the state (see
+`API.md`). The scan summary includes a `ghosted` count: a scan that
+transitions an `applied` or `interview` offer to `disappeared` inserts one
+`ghosted` event and sets `negative` in the same transaction, and the count
+is always a subset of `disappeared`.
 
 ## Offer merge and split (`internal/db`)
 
 An explicit offer merge (`POST /api/offers/{id}/merge`) moves every
 provenance row, event, offer note and snapshot of the absorbed offer to
 the target, keeps the earliest `first_seen_at` and latest `last_seen_at`,
-adopts the source application state when the target is still `todo`, and
-keeps the offer active if either side was active; only two disappeared
+adopts the source application state when the target is still `none`,
+promotes a `saved` target to a real application carried by the absorbed
+offer, keeps `saved_at` consistent with the resulting state, and keeps
+the offer active if either side was active; only two disappeared
 offers stay disappeared. Duplicate provenance URLs are
 collapsed into one row with the earliest first-seen and latest last-seen.
 The absorbed offer row is then deleted after all children have moved;
@@ -379,13 +400,13 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | Path | Content |
 |---|---|
 | `App.tsx` | top bar with navigation (including the incomplete count), source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
-| `router.ts` | hash routing (`#/`, `#/offers`, `#/offers?saved=true`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/search-profile`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
+| `router.ts` | hash routing (`#/`, `#/offers`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/search-profile`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
 | `api.ts` | typed fetch wrapper and API error mapping |
-| `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with a Refresh button that fans out over the enabled sources behind those applications, and a Saved section (bookmarks, `saved=true`, `sort=saved`) |
-| `pages/OffersPage.tsx` | full offers table: URL-restored filters (including saved/unsaved, remote acceptance, minimum title/location affinity and a searchable company combobox), debounced FTS search, header-click server sorting (including `title_affinity`/`location_affinity`), column picker, per-page selector and pagination, bookmark toggle per row, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
+| `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with listing (`all`/`active only`) and application (`all`/`hide negative`) filters persisted in the hash query, a Refresh button that fans out over the enabled sources behind the visible applications, and a Saved section (`application_state=saved`, `sort=saved`) with the listing filter |
+| `pages/OffersPage.tsx` | full offers table: URL-restored filters (including remote acceptance, minimum title/location affinity and a searchable company combobox), debounced FTS search, header-click server sorting (including `title_affinity`/`location_affinity`), column picker, per-page selector and pagination, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
 | `pages/IncompletePage.tsx` | incomplete offers with the count, the source-reported company/title/location, the reason and source link; a repair modal reuses the manual import layout and company combobox and calls `POST /api/offers/:id/repair` |
 | `pages/SourcesPage.tsx` | source list with enabled/type/status/name filters, URL-restored client sorting and pagination, column picker, row selection with bulk refresh/delete, right-aligned enable switch, icon row actions, company links resolved from the local company list, header Refresh all, and an add/edit modal with type-dependent config fields (personio/workable/rss/html included) and explanatory notes on seeded sources |
-| `pages/OfferPage.tsx` | two-column header: identity (bookmark, editable states/location, title/location affinity badges with term reasons, remote policy badge, merge/split actions, description version count) on the left and an always-visible compact provenance list on the right; timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save through the shared Edit/View editor) |
+| `pages/OfferPage.tsx` | two-column header: identity (editable states/location, title/location affinity badges with term reasons, remote policy badge, merge/split actions, description version count) on the left and an always-visible compact provenance list on the right; timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save through the shared Edit/View editor) |
 | `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note, refresh) |
 | `pages/CompanyPage.tsx` | one two-column header block: company identity (including its attested keys), actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; a separate offers panel below with URL-restored FTS search, server-side sorting, per-page selector and pagination. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
 | `pages/SearchProfilePage.tsx` | edits the default search profile: name and labels, 3/5 bucket scale, title/location term rows (bucket plus numeric weight), an advanced description-terms section, and remote policy checkboxes; explanatory text states what each signal changes. It is a display/edit layer: the API computes affinity |
@@ -393,8 +414,7 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `components/Markdown.tsx` | deliberately small markdown renderer for interview answers: headings, bold, italic, inline code, fenced code blocks and lists, emitted as React elements (never HTML) |
 | `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source(s)/event/note/company) |
 | `components/Modal.tsx` | shared dialog shell (fixed backdrop, titled head, Escape/backdrop close, wide variant) used by the source add/edit form, the offer import dialog and the incomplete repair dialog |
-| `components/BookmarkButton.tsx` | dependency-free star toggle used in offer rows and the offer detail header |
-| `components/OfferTable.tsx` | reusable offers table with optional/selectable columns, optional company/application columns, optional bookmark toggle, title/location affinity score badges, a remote policy badge with its profile acceptance, and clickable sortable headers driven by the caller's server sort key |
+| `components/OfferTable.tsx` | reusable offers table with optional/selectable columns, optional company/application columns, title/location affinity score badges, a remote policy badge with its profile acceptance, and clickable sortable headers driven by the caller's server sort key |
 | `components/TableControls.tsx` | shared column picker with localStorage persistence of hidden columns, `SortHeader`, per-page selector, debounced-value hook and sort toggle helper |
 | `components/CompanyCombobox.tsx` | searchable client-side company selector for the offers filter; keeps the `company_id` parameter unchanged |
 | `components/EditViewEditor.tsx` | shared Edit/View tabbed editor (textarea plus caller-rendered view), used by interview answers and offer descriptions |
@@ -412,15 +432,14 @@ from the current profile.
 The dashboard (`#/`) contains only Applications and Saved. The full
 filtered/paginated offers table and the manual import dialog live on
 `#/offers`; the Saved section's "Show all" link opens
-`#/offers?saved=true`. The Offers header "Add offer" button opens the
+`#/offers?application_state=saved&sort=saved`. The Offers header "Add offer" button opens the
 import form in the shared `Modal`. A successful import closes the
 dialog, toasts the offer id, refreshes the app data and navigates to the
 new or matched `#/offers/:id` detail page, so the id is always
 reachable. A `422 metadata_*` response keeps the dialog open and
-prefills the extracted fields for manual entry. The bookmark (`saved_at`)
-is independent of both state machines: saving never changes
-`offer_state` or `application_state`, and a saved offer that becomes an
-application stays in Saved until the user un-bookmarks it.
+prefills the extracted fields for manual entry. Saving is the `saved`
+application state: `saved_at` is set exactly when the state is `saved`
+and cleared otherwise, and a saved offer is not an application.
 
 The Incomplete page (`#/incomplete`) lists the offers a source could not
 normalize (`GET /api/offers?incomplete=true`) with the item count, the
@@ -483,8 +502,10 @@ shared `ConfirmDialog`.
 
 The Sources header owns "Refresh all"; the top bar only navigates. The
 Dashboard's Applications Refresh is a client-side fan-out over
-`POST /api/sources/:id/scan`: it reads every offer with
-`application_state != todo`, resolves their provenance `source_id`s via
+`POST /api/sources/:id/scan`: it pages through the same filtered query as
+the visible Applications section (`has_application`, the listing filter as
+`offer_state=active`, and the application filter as the explicit
+non-negative state list), resolves their provenance `source_id`s via
 the offer detail endpoint, keeps the enabled sources, and scans them
 sequentially (one request at a time) so the per-host rate limiter is
 respected. Manual provenance rows (`source_id` NULL) contribute no

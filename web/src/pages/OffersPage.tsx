@@ -6,7 +6,7 @@ import { Modal } from '../components/Modal'
 import { OFFER_COLUMNS, OFFER_SORT_LABELS, OFFER_SORT_VALUES, OfferTable, defaultOfferSortOrder } from '../components/OfferTable'
 import { APP_STATES, OFFER_STATES, REMOTE_POLICIES, appLabel } from '../format'
 import { currentRouteQuery, enumParam, intParam, navigate, replaceRouteQuery } from '../router'
-import type { Company, Offer, OfferList } from '../types'
+import type { Company, OfferList } from '../types'
 
 const COLUMNS_KEY = 'offers.columns'
 const PER_PAGE_KEY = 'offers.perPage'
@@ -23,12 +23,6 @@ function numberValue(value: string): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
-function savedValue(value: string): boolean | undefined {
-  if (value === 'saved') return true
-  if (value === 'unsaved') return false
-  return undefined
-}
-
 function triState(value: string | null): boolean | undefined {
   if (value === 'yes' || value === 'true') return true
   if (value === 'no' || value === 'false') return false
@@ -40,7 +34,6 @@ interface OffersView {
   application_state?: string
   offer_state?: string
   remote_policy?: string
-  saved?: boolean
   remote_accepted?: boolean
   min_title_affinity?: number
   min_location_affinity?: number
@@ -78,21 +71,17 @@ function positiveID(value: number | undefined): number | undefined {
   return value !== undefined && value > 0 ? value : undefined
 }
 
-export function readOffersView(initialSaved?: boolean): OffersView {
+export function readOffersView(): OffersView {
   const params = currentRouteQuery()
   const sort = enumParam(params, 'sort', OFFER_SORT_VALUES) ?? DEFAULT_SORT
   const rawOrder = enumParam(params, 'order', ['asc', 'desc'] as const)
   const perPage = intParam(params, 'per_page')
   const page = intParam(params, 'page')
-  const savedRaw = params.get('saved')
-  const saved =
-    savedRaw === 'true' ? true : savedRaw === 'false' ? false : initialSaved
   return {
     q: params.get('q')?.trim() || undefined,
     application_state: enumParam(params, 'application_state', APP_STATES),
     offer_state: enumParam(params, 'offer_state', OFFER_STATES),
     remote_policy: enumParam(params, 'remote_policy', REMOTE_POLICIES),
-    saved,
     remote_accepted: triState(params.get('remote_accepted')),
     min_title_affinity: scoreParam(intParam(params, 'min_title_affinity')),
     min_location_affinity: scoreParam(intParam(params, 'min_location_affinity')),
@@ -110,7 +99,6 @@ function viewQuery(view: OffersView): OfferQuery {
     application_state: view.application_state,
     offer_state: view.offer_state,
     remote_policy: view.remote_policy,
-    saved: view.saved,
     remote_accepted: view.remote_accepted,
     min_title_affinity: view.min_title_affinity,
     min_location_affinity: view.min_location_affinity,
@@ -128,7 +116,6 @@ function writeURL(view: OffersView): void {
   if (view.application_state) params.set('application_state', view.application_state)
   if (view.offer_state) params.set('offer_state', view.offer_state)
   if (view.remote_policy) params.set('remote_policy', view.remote_policy)
-  if (view.saved !== undefined) params.set('saved', view.saved ? 'true' : 'false')
   if (view.remote_accepted !== undefined)
     params.set('remote_accepted', view.remote_accepted ? 'true' : 'false')
   if (view.min_title_affinity !== undefined)
@@ -149,21 +136,18 @@ export function OffersPage({
   refreshToken,
   onDataChanged,
   onNotice,
-  initialSaved,
 }: {
   refreshToken: number
   onDataChanged: () => void
   onNotice: (kind: 'info' | 'success' | 'error', text: string) => void
-  initialSaved?: boolean
 }) {
-  const [view, setView] = useState<OffersView>(() => readOffersView(initialSaved))
+  const [view, setView] = useState<OffersView>(() => readOffersView())
   const [search, setSearch] = useState(() => view.q ?? '')
   const debouncedSearch = useDebouncedValue(search)
   const [companies, setCompanies] = useState<Company[]>([])
   const [offers, setOffers] = useState<OfferList | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [busyOfferId, setBusyOfferId] = useState<number | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const columns = useColumnVisibility(COLUMNS_KEY, OFFER_COLUMNS)
 
@@ -173,10 +157,6 @@ export function OffersPage({
       return v.q === q ? v : { ...v, q, page: 1 }
     })
   }, [debouncedSearch])
-
-  useEffect(() => {
-    setView((v) => (v.saved === initialSaved ? v : { ...v, saved: initialSaved, page: 1 }))
-  }, [initialSaved])
 
   useEffect(() => {
     writeURL(view)
@@ -242,27 +222,6 @@ export function OffersPage({
     setView((v) => ({ ...v, perPage: value, page: 1 }))
   }
 
-  async function toggleSaved(offer: Offer) {
-    setBusyOfferId(offer.id)
-    try {
-      const r = await api.patchOffer(offer.id, { saved: !offer.saved_at })
-      setOffers((prev) =>
-        prev
-          ? {
-              ...prev,
-              offers: prev.offers.map((o) => (o.id === r.offer.id ? { ...o, ...r.offer } : o)),
-            }
-          : prev,
-      )
-      onNotice('success', r.offer.saved_at ? 'Offer saved.' : 'Bookmark removed.')
-      onDataChanged()
-    } catch (e) {
-      onNotice('error', errorMessage(e))
-    } finally {
-      setBusyOfferId(null)
-    }
-  }
-
   const limit = offers?.limit ?? view.perPage
   const offset = offers?.offset ?? (view.page - 1) * view.perPage
   const total = offers?.total ?? 0
@@ -274,8 +233,7 @@ export function OffersPage({
       view.remote_accepted !== undefined ||
       view.min_title_affinity !== undefined ||
       view.min_location_affinity !== undefined ||
-      view.company_id !== undefined ||
-      view.saved !== undefined,
+      view.company_id !== undefined,
   )
 
   return (
@@ -343,17 +301,6 @@ export function OffersPage({
                   {s}
                 </option>
               ))}
-            </select>
-          </label>
-          <label>
-            Saved
-            <select
-              value={view.saved === true ? 'saved' : view.saved === false ? 'unsaved' : ''}
-              onChange={(e) => patchView({ saved: savedValue(e.target.value) })}
-            >
-              <option value="">Any</option>
-              <option value="saved">Saved only</option>
-              <option value="unsaved">Not saved</option>
             </select>
           </label>
           <label>
@@ -456,8 +403,6 @@ export function OffersPage({
           <OfferTable
             offers={offers.offers}
             columns={columns.visible}
-            onToggleSaved={(o) => void toggleSaved(o)}
-            busyOfferId={busyOfferId}
             sort={view.sort}
             order={view.order}
             onSort={handleSort}

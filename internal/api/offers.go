@@ -92,13 +92,6 @@ func parseOfferQuery(r *http.Request) (offerListQuery, error) {
 		return q, err
 	}
 	f.HasApplication = queryBool(r, "has_application")
-	if raw := strings.TrimSpace(r.URL.Query().Get("saved")); raw != "" {
-		v, err := strconv.ParseBool(raw)
-		if err != nil {
-			return q, fmt.Errorf("saved must be true or false")
-		}
-		f.Saved = &v
-	}
 	if raw := strings.TrimSpace(r.URL.Query().Get("incomplete")); raw != "" {
 		v, err := strconv.ParseBool(raw)
 		if err != nil {
@@ -444,7 +437,6 @@ type offerPatch struct {
 	OfferState       *string         `json:"offer_state"`
 	Location         json.RawMessage `json:"location"`
 	Description      json.RawMessage `json:"description"`
-	Saved            *bool           `json:"saved"`
 }
 
 func (s *Server) patchOffer(w http.ResponseWriter, r *http.Request) {
@@ -500,12 +492,9 @@ func (s *Server) patchOffer(w http.ResponseWriter, r *http.Request) {
 		desc = strings.TrimSpace(desc)
 		u.Description = &desc
 	}
-	if in.Saved != nil {
-		u.Saved = in.Saved
-	}
-	if u.ApplicationState == nil && u.OfferState == nil && u.Location == nil && u.Description == nil && u.Saved == nil {
+	if u.ApplicationState == nil && u.OfferState == nil && u.Location == nil && u.Description == nil {
 		writeError(w, http.StatusBadRequest, "validation_failed",
-			"nothing to update: provide application_state, offer_state, location, description or saved")
+			"nothing to update: provide application_state, offer_state, location or description")
 		return
 	}
 

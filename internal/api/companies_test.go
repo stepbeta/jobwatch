@@ -111,7 +111,7 @@ func TestCompanyMerge(t *testing.T) {
 	source := ts.createCompany(t, map[string]any{"name": "Acme"})
 	target := ts.createCompany(t, map[string]any{"name": "ACME SAS France"})
 	offer := ts.seedOffer(t, model.Company{ID: source.ID, Name: source.Name, NameNormalized: source.NameNormalized},
-		"SRE", "Paris", model.AppTodo, model.RemoteUnknown)
+		"SRE", "Paris", model.AppNone, model.RemoteUnknown)
 	if _, err := db.UpsertProvenance(context.Background(), ts.db, offer.ID, nil, nil,
 		"https://source.example/sre", ts.clock.now()); err != nil {
 		t.Fatal(err)
@@ -174,9 +174,9 @@ func TestCompanyMergeSameTitleAndDelete(t *testing.T) {
 	a := ts.createCompany(t, map[string]any{"name": "Acme"})
 	b := ts.createCompany(t, map[string]any{"name": "Acme France"})
 	ts.seedOffer(t, model.Company{ID: a.ID, Name: a.Name, NameNormalized: a.NameNormalized},
-		"SRE", "Paris", model.AppTodo, model.RemoteUnknown)
+		"SRE", "Paris", model.AppNone, model.RemoteUnknown)
 	ts.seedOffer(t, model.Company{ID: b.ID, Name: b.Name, NameNormalized: b.NameNormalized},
-		"SRE", "Paris", model.AppTodo, model.RemoteUnknown)
+		"SRE", "Paris", model.AppNone, model.RemoteUnknown)
 
 	wantErrorCode(t, ts.do(t, "DELETE", "/api/companies/1", nil), 409, "company_has_offers")
 

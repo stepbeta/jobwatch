@@ -1,4 +1,5 @@
 import type {
+  ApplicationState,
   CompanyDetail,
   CompanyList,
   Event,
@@ -100,7 +101,6 @@ export interface OfferQuery {
   min_location_affinity?: number
   company_id?: number
   has_application?: boolean
-  saved?: boolean
   incomplete?: boolean
   sort?: string
   order?: string
@@ -156,7 +156,6 @@ export const api = {
       offer_state?: string
       location?: string | null
       description?: string
-      saved?: boolean
     },
   ) => request<{ offer: OfferDetail['offer'] }>(`/offers/${id}`, body('PATCH', patch)),
   mergeOffer: (id: number, intoId: number) =>
@@ -193,7 +192,11 @@ export const api = {
   createEvent: (
     offerId: number,
     input: { type: EventType; description?: string; occurred_at?: string },
-  ) => request<{ event: Event }>(`/offers/${offerId}/events`, body('POST', input)),
+  ) =>
+    request<{ event: Event; application_state: ApplicationState; state_changed: boolean }>(
+      `/offers/${offerId}/events`,
+      body('POST', input),
+    ),
   updateEvent: (
     offerId: number,
     eventId: number,

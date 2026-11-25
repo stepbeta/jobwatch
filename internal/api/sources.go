@@ -259,6 +259,7 @@ type scanResultJSON struct {
 	Seen        int    `json:"seen"`
 	Reappeared  int    `json:"reappeared"`
 	Disappeared int    `json:"disappeared"`
+	Ghosted     int    `json:"ghosted"`
 	Incomplete  int    `json:"incomplete"`
 	Error       string `json:"error,omitempty"`
 }
@@ -291,6 +292,7 @@ func (s *Server) scanSource(w http.ResponseWriter, r *http.Request) {
 		Seen:        res.Seen,
 		Reappeared:  res.Reappeared,
 		Disappeared: res.Disappeared,
+		Ghosted:     res.Ghosted,
 		Incomplete:  res.Incomplete,
 	}
 	if out.Status == "" {

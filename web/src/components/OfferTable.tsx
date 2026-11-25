@@ -1,13 +1,11 @@
 import { appLabel, fmtDateTime, relativeTime } from '../format'
 import type { Offer } from '../types'
-import { BookmarkButton } from './BookmarkButton'
 import { Link } from './Link'
 import { RemoteBadge, ScoreBadge } from './ScoreBadge'
 import { StatePill } from './StatePill'
 import { SortHeader, type SortOrder, type TableColumn } from './TableControls'
 
 export const OFFER_COLUMNS: TableColumn[] = [
-  { id: 'bookmark', label: 'Bookmark' },
   { id: 'company', label: 'Company' },
   { id: 'title', label: 'Title' },
   { id: 'location', label: 'Location' },
@@ -20,7 +18,7 @@ export const OFFER_COLUMNS: TableColumn[] = [
 ]
 
 // Server-side sort key for each clickable header. Columns without a key
-// (states, remote policy, bookmark) are display-only.
+// (states, remote policy) are display-only.
 const SORT_KEYS: Record<string, string> = {
   company: 'company',
   title: 'title',
@@ -64,8 +62,6 @@ export function OfferTable({
   showCompany = true,
   showApplication = true,
   emptyText = 'No offers match.',
-  onToggleSaved,
-  busyOfferId,
   sort,
   order,
   onSort,
@@ -75,8 +71,6 @@ export function OfferTable({
   showCompany?: boolean
   showApplication?: boolean
   emptyText?: string
-  onToggleSaved?: (offer: Offer) => void
-  busyOfferId?: number | null
   sort?: string
   order?: SortOrder
   onSort?: (sortKey: string) => void
@@ -86,7 +80,6 @@ export function OfferTable({
   }
 
   const applicable = OFFER_COLUMNS.filter((c) => {
-    if (c.id === 'bookmark') return Boolean(onToggleSaved)
     if (c.id === 'company') return showCompany
     if (c.id === 'application') return showApplication
     return true
@@ -115,7 +108,6 @@ export function OfferTable({
       <table className="grid offers-table">
         <thead>
           <tr>
-            {visible.includes('bookmark') && <th aria-label="Bookmark" />}
             {visible.includes('company') && header('company', 'Company')}
             {visible.includes('title') && header('title', 'Title')}
             {visible.includes('location') && header('location', 'Location')}
@@ -129,16 +121,7 @@ export function OfferTable({
         </thead>
         <tbody>
           {offers.map((o) => (
-            <tr key={o.id} className={o.saved_at ? 'row-saved' : undefined}>
-              {visible.includes('bookmark') && (
-                <td>
-                  <BookmarkButton
-                    saved={Boolean(o.saved_at)}
-                    disabled={busyOfferId === o.id}
-                    onClick={() => onToggleSaved?.(o)}
-                  />
-                </td>
-              )}
+            <tr key={o.id} className={o.application_state === 'saved' ? 'row-saved' : undefined}>
               {visible.includes('company') && (
                 <td>
                   {o.company_id === null ? (

@@ -24,7 +24,7 @@ function makeOffer(overrides: Partial<Offer> = {}): Offer {
     remote_policy: 'remote',
     url: null,
     offer_state: 'active',
-    application_state: 'todo',
+    application_state: 'none',
     first_seen_at: '2026-11-01T00:00:00Z',
     last_seen_at: '2026-11-01T00:00:00Z',
     updated_at: '2026-11-01T00:00:00Z',
@@ -87,28 +87,29 @@ const applied = makeOffer({ id: 10, title: 'Applied role', application_state: 'a
 const savedOffer = makeOffer({
   id: 12,
   title: 'Saved role',
+  application_state: 'saved',
   saved_at: '2026-11-15T09:00:00Z',
 })
 
 function renderDashboard(sources: Source[], onScanBatch = vi.fn().mockResolvedValue([])) {
   const onNotice = vi.fn()
-  render(
+  const view = render(
     <Dashboard
       refreshToken={0}
-      onDataChanged={vi.fn()}
       onNotice={onNotice}
       sources={sources}
       onScanBatch={onScanBatch}
       scanning={false}
     />,
   )
-  return { onNotice, onScanBatch }
+  return { ...view, onNotice, onScanBatch }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.location.hash = '#/'
   vi.mocked(api.listOffers).mockImplementation(async (query = {}) => {
-    if (query.saved) {
+    if (query.application_state === 'saved') {
       return { offers: [savedOffer], total: 1, limit: 200, offset: 0 }
     }
     if (query.has_application) {
@@ -129,14 +130,102 @@ describe('Dashboard', () => {
     expect(await screen.findByText('Saved role')).toBeTruthy()
   })
 
-  it('removes a row from Saved when it is unbookmarked', async () => {
-    const user = userEvent.setup()
-    vi.mocked(api.patchOffer).mockResolvedValue({ offer: { ...savedOffer, saved_at: null } })
+  it('loads the Saved section from the saved application state', async () => {
     renderDashboard([makeSource()])
 
-    await user.click(await screen.findByRole('button', { name: 'Remove bookmark' }))
-    await waitFor(() => expect(api.patchOffer).toHaveBeenCalledWith(12, { saved: false }))
-    await waitFor(() => expect(screen.queryByText('Saved role')).toBeNull())
+    await screen.findByText('Saved role')
+    expect(api.listOffers).toHaveBeenCalledWith(
+      expect.objectContaining({ application_state: 'saved', sort: 'saved' }),
+    )
+  })
+
+  it('restores dashboard filters from the URL and applies them to both sections', async () => {
+    window.location.hash = '#/?listing=active&application=hide_negative'
+    renderDashboard([makeSource()])
+
+    await screen.findByText('Applied role')
+    expect(api.listOffers).toHaveBeenCalledWith(
+      expect.objectContaining({
+        has_application: true,
+        application_state: 'applied,interview,offer,accepted,turned_down',
+        offer_state: 'active',
+      }),
+    )
+    expect(api.listOffers).toHaveBeenCalledWith(
+      expect.objectContaining({
+        application_state: 'saved',
+        offer_state: 'active',
+        sort: 'saved',
+      }),
+    )
+    expect((screen.getByLabelText('Applications listing') as HTMLSelectElement).value).toBe('active')
+    expect((screen.getByLabelText('Saved listing') as HTMLSelectElement).value).toBe('active')
+    expect((screen.getByLabelText('Application filter') as HTMLSelectElement).value).toBe(
+      'hide_negative',
+    )
+    // The Saved count comes from the filtered query, so the link keeps the
+    // same listing filter.
+    expect(screen.getByRole('link', { name: /Show all/ }).getAttribute('href')).toContain(
+      'offer_state=active',
+    )
+  })
+
+  it('persists filter changes in the dashboard URL', async () => {
+    const user = userEvent.setup()
+    renderDashboard([makeSource()])
+    await screen.findByText('Applied role')
+
+    await user.selectOptions(screen.getByLabelText('Application filter'), 'hide_negative')
+    await waitFor(() => expect(window.location.hash).toContain('application=hide_negative'))
+
+    await user.selectOptions(screen.getByLabelText('Applications listing'), 'active')
+    await waitFor(() => expect(window.location.hash).toContain('listing=active'))
+    expect(window.location.hash).toContain('application=hide_negative')
+    expect(api.listOffers).toHaveBeenCalledWith(
+      expect.objectContaining({ offer_state: 'active' }),
+    )
+  })
+
+  it('refreshes only the sources behind the visible applications', async () => {
+    const user = userEvent.setup()
+    window.location.hash = '#/?application=hide_negative'
+    const negative = makeOffer({ id: 11, title: 'Negative role', application_state: 'negative' })
+    vi.mocked(api.listOffers).mockImplementation(async (query = {}) => {
+      if (query.application_state === 'saved') {
+        return { offers: [], total: 0, limit: 200, offset: 0 }
+      }
+      if (query.has_application) {
+        const visible = query.application_state ? [applied] : [applied, negative]
+        return { offers: visible, total: visible.length, limit: query.limit ?? 50, offset: 0 }
+      }
+      return { offers: [], total: 0, limit: 50, offset: 0 }
+    })
+    vi.mocked(api.getOffer).mockImplementation(async (id) =>
+      makeDetail(id === applied.id ? applied : negative, id === applied.id ? [1] : [2]),
+    )
+    const { onScanBatch } = renderDashboard([
+      makeSource({ id: 1, name: 'Visible source' }),
+      makeSource({ id: 2, name: 'Hidden source' }),
+    ])
+
+    await user.click(await screen.findByRole('button', { name: 'Refresh' }))
+
+    await waitFor(() => expect(onScanBatch).toHaveBeenCalledTimes(1))
+    const targets = vi.mocked(onScanBatch).mock.calls[0][0] as Source[]
+    expect(targets.map((s) => s.id)).toEqual([1])
+  })
+
+  it('uses a filter-aware empty state and refresh notice', async () => {
+    const user = userEvent.setup()
+    window.location.hash = '#/?application=hide_negative'
+    vi.mocked(api.listOffers).mockResolvedValue({ offers: [], total: 0, limit: 20, offset: 0 })
+    const { onNotice } = renderDashboard([makeSource()])
+
+    expect(await screen.findByText('No applications match these filters.')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() =>
+      expect(onNotice).toHaveBeenCalledWith('info', 'No applications match these filters.'),
+    )
   })
 
   it('refreshes only the enabled sources behind applications', async () => {
@@ -156,7 +245,7 @@ describe('Dashboard', () => {
     expect(targets.map((s) => s.id)).toEqual([1])
     expect(onNotice).toHaveBeenCalledWith(
       'success',
-      '1 source scanned: 0 new, 0 incomplete, 0 disappeared; 1 manual link(s) skipped (no fetchable source).',
+      '1 source scanned: 0 new, 0 incomplete, 0 disappeared, 0 ghosted; 1 manual link(s) skipped (no fetchable source).',
     )
   })
 })

@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/stepbeta/jobwatch/internal/db"
 	"github.com/stepbeta/jobwatch/internal/model"
 	"github.com/stepbeta/jobwatch/internal/sources"
 )
@@ -121,6 +124,60 @@ func TestSourceScan(t *testing.T) {
 	}
 
 	wantErrorCode(t, ts.do(t, "POST", "/api/sources/99/scan", nil), 404, "not_found")
+}
+
+func TestSourceScanGhostedCount(t *testing.T) {
+	ts := newTestServer(t)
+	rec := ts.do(t, "POST", "/api/sources", map[string]any{
+		"name": "Acme", "url": "https://boards.greenhouse.io/acme",
+		"config": map[string]any{"company": "Acme"},
+	})
+	wantCode(t, rec, 201)
+	src := decodeBody[sourceResp](t, rec).Source
+	srcID := fmt.Sprintf("%d", src.ID)
+
+	ts.fetcher.offers[src.ID] = []sources.RawOffer{
+		{Title: "Site Reliability Engineer", Location: "Paris", URL: "https://ex.com/jobs/1"},
+	}
+	rec = ts.do(t, "POST", "/api/sources/"+srcID+"/scan", nil)
+	wantCode(t, rec, 200)
+
+	var offerID int64
+	if err := ts.db.QueryRowContext(context.Background(),
+		`SELECT id FROM job_offers WHERE title = ?`, "Site Reliability Engineer").Scan(&offerID); err != nil {
+		t.Fatal(err)
+	}
+	applied := model.AppApplied
+	if err := db.UpdateOfferFields(context.Background(), ts.db, offerID,
+		db.OfferUpdate{ApplicationState: &applied}, ts.clock.now()); err != nil {
+		t.Fatal(err)
+	}
+
+	ts.clock.advance(time.Hour)
+	ts.fetcher.offers[src.ID] = nil
+	rec = ts.do(t, "POST", "/api/sources/"+srcID+"/scan", nil)
+	wantCode(t, rec, 200)
+	out := decodeBody[scanResp](t, rec)
+	if out.Result.Disappeared != 1 || out.Result.Ghosted != 1 {
+		t.Errorf("scan result = %+v, want 1 disappeared and 1 ghosted", out.Result)
+	}
+	var events int
+	if err := ts.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM events WHERE offer_id = ? AND type = 'ghosted'`, offerID).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if events != 1 {
+		t.Errorf("ghosted events = %d, want 1", events)
+	}
+
+	// A repeat scan reports no plain disappearance and no ghost.
+	ts.clock.advance(time.Hour)
+	rec = ts.do(t, "POST", "/api/sources/"+srcID+"/scan", nil)
+	wantCode(t, rec, 200)
+	out = decodeBody[scanResp](t, rec)
+	if out.Result.Disappeared != 0 || out.Result.Ghosted != 0 {
+		t.Errorf("repeat scan = %+v, want 0 disappeared and 0 ghosted", out.Result)
+	}
 }
 
 func TestSourceScanNotImplemented(t *testing.T) {

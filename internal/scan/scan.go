@@ -38,6 +38,7 @@ type Result struct {
 	Seen        int // existing offers seen again (includes Reappeared)
 	Reappeared  int // disappeared -> active
 	Disappeared int
+	Ghosted     int // disappeared applied/interview offers closed automatically
 	Incomplete  int // items stored as incomplete offers
 }
 
@@ -172,6 +173,15 @@ func (s *Scanner) apply(ctx context.Context, src model.Source, raws []sources.Ra
 		return err
 	}
 	res.Disappeared = len(gone)
+	for _, o := range gone {
+		if o.ApplicationState != model.AppApplied && o.ApplicationState != model.AppInterview {
+			continue
+		}
+		if err := db.GhostDisappearedOffer(ctx, tx, o.ID, now); err != nil {
+			return err
+		}
+		res.Ghosted++
+	}
 
 	if err := db.UpdateSourceScan(ctx, tx, src.ID, now, model.ScanOK); err != nil {
 		return err

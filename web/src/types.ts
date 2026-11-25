@@ -13,14 +13,14 @@ export type SourceType =
 export type ScanStatus = 'ok' | 'error' | 'blocked'
 export type OfferState = 'active' | 'disappeared'
 export type ApplicationState =
-  | 'todo'
+  | 'none'
+  | 'saved'
   | 'applied'
-  | 'responded'
   | 'interview'
   | 'offer'
+  | 'accepted'
+  | 'turned_down'
   | 'negative'
-  | 'maybe'
-  | 'positive'
 export type RemotePolicy = 'remote' | 'hybrid' | 'onsite' | 'unknown'
 export type EventType =
   | 'cv_sent'
@@ -281,6 +281,7 @@ export interface ScanResult {
   seen: number
   reappeared: number
   disappeared: number
+  ghosted: number
   incomplete: number
   error?: string
 }
