@@ -35,9 +35,9 @@
 
 ## 6. Integration verification
 
-- [ ] 6.1 Run `go build ./...`, `go vet ./...`, `go test ./...`, `npm test` and `npm run build`; verify all pass.
-- [ ] 6.2 Apply migration 0017 to a copy of the backup and smoke-test: new offer is `none`, save sets `saved_at`, `cv_sent` opens, `rejected` closes, a scan ghosts an applied offer, and the dashboard filters and refresh scope behave; record the results.
-- [ ] 6.3 Run `openspec validate --change simplify-application-lifecycle`, verify every task is ticked, and confirm the docs listed in `AGENTS.md` are synchronized with the implemented behavior.
+- [x] 6.1 Run `go build ./...`, `go vet ./...`, `go test ./...`, `npm test` and `npm run build`; verify all pass. (Done: `go test -count=1 ./...` all packages ok; 69 Vitest tests; production build ok.)
+- [x] 6.2 Apply migration 0017 to a copy of the backup and smoke-test: new offer is `none`, save sets `saved_at`, `cv_sent` opens, `rejected` closes, a scan ghosts an applied offer, and the dashboard filters and refresh scope behave; record the results. (Results on `jobwatch.db.20261125T105502Z.bkp` copy: migration 17 applied; states `none` 3297, `saved` 6, `applied` 7, `negative` 4; `saved_at` invariant 0 violations; new imported offer `none`; save set `saved_at`; `cv_sent` -> `applied` with `saved_at` cleared; `rejected` -> `negative`; reopen `cv_sent` -> `applied`; saved filter total 6; hide-negative active total 8. Ghosting covered by `TestScanGhostsDisappearedApplications` and the other scan tests; dashboard filters/refresh by the 7 Dashboard Vitest tests.)
+- [x] 6.3 Run `openspec validate --change simplify-application-lifecycle`, verify every task is ticked, and confirm the docs listed in `AGENTS.md` are synchronized with the implemented behavior. (Done: `openspec validate simplify-application-lifecycle --type change` reports valid; all 21 tasks ticked; `DATA-MODEL`, `API`, `ARCHITECTURE`, `SPEC`, `USAGE`, `SMOKE-TEST`, `README` and `CHANGELOG` updated.)
 
 ## Workflow follow-up
 
