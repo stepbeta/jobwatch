@@ -100,17 +100,25 @@ func (s *Server) createEvent(w http.ResponseWriter, r *http.Request) {
 			desc = &d
 		}
 	}
-	e, err := db.InsertEvent(r.Context(), s.DB, model.Event{
+	e, state, changed, err := db.InsertEventWithTransition(r.Context(), s.DB, model.Event{
 		OfferID:     o.ID,
 		Type:        typ,
 		Description: desc,
 		OccurredAt:  occurred,
 	}, s.now())
+	if errors.Is(err, db.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", fmt.Sprintf("offer %d not found", o.ID))
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"event": eventToJSON(e)})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"event":             eventToJSON(e),
+		"application_state": string(state),
+		"state_changed":     changed,
+	})
 }
 
 type eventPatch struct {

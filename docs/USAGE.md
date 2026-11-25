@@ -259,7 +259,11 @@ Built with React + TypeScript (Vite). The pages are:
   Below it: a vertical timeline with backdating, notes optionally pinned to
   an event, and a single-version description browser (prev/next, version
   dropdown, Scan/Manual origin badge, diff against the previous version)
-  whose Add/Edit action uses the shared Edit/View editor.
+  whose Add/Edit action uses the shared Edit/View editor. Adding a
+  `CV sent` event opens the application (`applied`); adding `Rejected`
+  closes it (`negative`). When the state changes, the toast names the new
+  state. While the type is `Message received`, a **This is a rejection**
+  checkbox records a single `rejected` event instead of a message.
 - **Company detail** — one two-column header block: identity (name,
   website, offer count, created time, attested keys, Edit/Delete company)
   and the dismissible possible-duplicate banner on the left; company notes
@@ -379,8 +383,12 @@ behavior, is in [DATA-MODEL.md](DATA-MODEL.md#offer_state-written-by-scans-and-i
 `none` is the default. The other values are `saved`, `applied`,
 `interview`, `offer`, `accepted`, `turned_down` and `negative`. Manual
 transitions are free-form from the UI or `PATCH /api/offers/:id` and
-create no timeline event. `saved` maintains `saved_at`; `none` and
-`saved` are not applications. See
+create no timeline event. Creating a timeline event also applies its
+transition: `cv_sent` sets `applied` from `none`, `saved` or `negative`;
+`rejected` sets `negative` from any state; `ghosted` sets `negative` from
+`applied` or `interview`. Editing or deleting an event never recomputes
+the state. `saved` maintains `saved_at`; `none` and `saved` are not
+applications. See
 [DATA-MODEL.md](DATA-MODEL.md#application_state).
 
 ## Classification and search profiles

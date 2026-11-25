@@ -67,6 +67,7 @@ export function OfferPage({
   const [eventDate, setEventDate] = useState(() => splitLocalInput(toLocalInput(new Date())).date)
   const [eventTime, setEventTime] = useState(() => splitLocalInput(toLocalInput(new Date())).time)
   const [eventDesc, setEventDesc] = useState('')
+  const [rejectionShortcut, setRejectionShortcut] = useState(false)
   const [editingEvent, setEditingEvent] = useState<{
     id: number
     type: EventType
@@ -269,17 +270,27 @@ export function OfferPage({
       return
     }
     try {
-      await api.createEvent(id, {
-        type: eventType,
+      // The rejection shortcut records a single `rejected` event instead of
+      // a message_received, so the timeline has no duplicate entry.
+      const type: EventType =
+        eventType === 'message_received' && rejectionShortcut ? 'rejected' : eventType
+      const res = await api.createEvent(id, {
+        type,
         description: eventDesc.trim() || undefined,
         occurred_at: eventTimestamp(eventDate, eventTime) || undefined,
       })
       setEventDesc('')
+      setRejectionShortcut(false)
       const now = splitLocalInput(toLocalInput(new Date()))
       setEventDate(now.date)
       setEventTime(now.time)
       await load()
-      onNotice('success', 'Timeline event added.')
+      onNotice(
+        'success',
+        res.state_changed
+          ? `Timeline event added. Application state is now ${appLabel(res.application_state)}.`
+          : 'Timeline event added.',
+      )
     } catch (err) {
       const text = errorMessage(err)
       setError(text)
@@ -896,6 +907,16 @@ export function OfferPage({
                 placeholder="optional"
               />
             </label>
+            {eventType === 'message_received' && (
+              <label className="checkbox-inline">
+                <input
+                  type="checkbox"
+                  checked={rejectionShortcut}
+                  onChange={(e) => setRejectionShortcut(e.target.checked)}
+                />
+                This is a rejection
+              </label>
+            )}
             <button type="submit" className="primary">
               Add event
             </button>

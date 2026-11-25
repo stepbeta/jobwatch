@@ -568,17 +568,44 @@ from the stored row. The body accepts the same profile object returned by
 
 `type` is required. `occurred_at` is optional (defaults to now) and may
 be backdated; it accepts RFC3339, `YYYY-MM-DDTHH:MM` and `YYYY-MM-DD`
-(interpreted as UTC). `201 { "event": {...} }`.
+(interpreted as UTC).
+
+Creating an event applies its application-state transition atomically with
+the insert:
+
+- `cv_sent`: `none`, `saved` or `negative` → `applied`; every other state
+  is unchanged.
+- `rejected`: any state → `negative` (already `negative` is a no-op).
+- `ghosted`: `applied` or `interview` → `negative`; every other state is
+  unchanged.
+- Every other event type leaves the state unchanged.
+
+The transition depends on the state at creation time, not on
+`occurred_at`; a backdated `cv_sent` still reopens a `negative` offer.
+When the state changes, `saved_at` is cleared (the new state is never
+`saved`) and `updated_at` is bumped.
+
+`201`:
+
+```json
+{ "event": { "id": 12, "offer_id": 7, "type": "cv_sent", "...": "..." },
+  "application_state": "applied", "state_changed": true }
+```
+
+`state_changed` is `false` when the event was recorded without moving the
+state. `404 not_found` when the offer does not exist.
 
 ### PATCH /api/offers/:id/events/:eventID
 
 Any of `type`, `description`, `occurred_at`. `description: null` clears
-it. The event must belong to `:id`, otherwise `404 not_found`.
+it. The event must belong to `:id`, otherwise `404 not_found`. Editing an
+event never recomputes the application state.
 
 ### DELETE /api/offers/:id/events/:eventID
 
 `204`. Notes pinned to the event keep their text; `pinned_event_id`
-becomes `null` (`ON DELETE SET NULL`).
+becomes `null` (`ON DELETE SET NULL`). Deleting an event never recomputes
+the application state.
 
 ## Notes
 

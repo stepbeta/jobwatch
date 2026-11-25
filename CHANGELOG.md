@@ -9,6 +9,14 @@
   saved` and records the server time in `saved_at`. `saved_at` is set
   exactly when the state is `saved` and cleared for every other state.
 - `accepted` and `turned_down` application states.
+- Event-driven application transitions: creating a `cv_sent` event sets
+  `applied` from `none`, `saved` or `negative`; `rejected` sets `negative`
+  from any state; `ghosted` sets `negative` from `applied` or `interview`.
+  The transition is applied atomically with the event insert and depends
+  on the state at creation time, not on `occurred_at`.
+- "This is a rejection" shortcut on the inbound-message form: it records
+  one `rejected` event with the same description and time instead of a
+  `message_received`, and the toast names the resulting state.
 - Migration `0017_application_lifecycle.sql`: rebuilds `job_offers` with
   `application_state DEFAULT 'none'`, maps `todo`/`maybe` to `none`,
   `responded` to `applied` and `positive` to `accepted`, turns bookmarked
@@ -23,6 +31,9 @@
   are rejected.
 - `has_application` excludes both `none` and `saved`, so a saved offer is
   not an application.
+- `POST /api/offers/:id/events` now returns `application_state` and
+  `state_changed` alongside the event. Editing or deleting an event never
+  recomputes the state.
 - The dashboard Saved section queries `application_state=saved` with the
   existing `sort=saved` (`saved_at DESC`).
 - Offer merge uses `none` for an unset target, promotes a `saved` target

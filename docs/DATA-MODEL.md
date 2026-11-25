@@ -531,8 +531,14 @@ Default `none`. The vocabulary is `none`, `saved`, `applied`,
 `interview`, `offer`, `accepted`, `turned_down`, `negative`. Manual
 changes go through `PATCH /api/offers/:id`; the API validates the enum
 and bumps `updated_at` (the audit field). Manual changes are free-form
-and create no timeline event. `saved` maintains `saved_at` as described
-above; `none` and `saved` are not applications.
+and create no timeline event. Creating an event applies its transition in
+the same transaction: `cv_sent` sets `applied` from `none`, `saved` or
+`negative`; `rejected` sets `negative` from any state; `ghosted` sets
+`negative` from `applied` or `interview`; every other event leaves the
+state unchanged. The rule uses the state at creation time, not
+`occurred_at`. Event edits and deletions never recompute the state.
+`saved` maintains `saved_at` as described above; `none` and `saved` are
+not applications.
 
 ### last_scan_status
 `ok` after a committed scan; `blocked` when robots.txt disallows the URL

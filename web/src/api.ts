@@ -1,4 +1,5 @@
 import type {
+  ApplicationState,
   CompanyDetail,
   CompanyList,
   Event,
@@ -191,7 +192,11 @@ export const api = {
   createEvent: (
     offerId: number,
     input: { type: EventType; description?: string; occurred_at?: string },
-  ) => request<{ event: Event }>(`/offers/${offerId}/events`, body('POST', input)),
+  ) =>
+    request<{ event: Event; application_state: ApplicationState; state_changed: boolean }>(
+      `/offers/${offerId}/events`,
+      body('POST', input),
+    ),
   updateEvent: (
     offerId: number,
     eventId: number,

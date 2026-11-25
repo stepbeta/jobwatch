@@ -16,10 +16,10 @@
 
 ## 3. Event-driven transitions and rejection shortcut
 
-- [ ] 3.1 Implement the pure application-state transition helper for `cv_sent`, `rejected` and `ghosted`, with a table-driven test matrix covering every from/to pair and every no-op case.
-- [ ] 3.2 Make event creation apply the transition atomically with the event insert and return `application_state` and `state_changed`; add API tests for `cv_sent` from `none`/`saved`/`negative`, `rejected` from every state, no downgrade, and no state recomputation on event PATCH or DELETE.
-- [ ] 3.3 Show a state-change notice after adding an event and add the "this is a rejection" shortcut on the `message_received` form; verify with Vitest tests for the submitted `rejected` payload and the notice.
-- [ ] 3.4 Update `docs/API.md`, `docs/USAGE.md` and `CHANGELOG.md` for event-driven transitions, the event response fields and the rejection shortcut.
+- [x] 3.1 Implement the pure application-state transition helper for `cv_sent`, `rejected` and `ghosted`, with a table-driven test matrix covering every from/to pair and every no-op case. (Done: `model.NextApplicationState` + transition matrix test.)
+- [x] 3.2 Make event creation apply the transition atomically with the event insert and return `application_state` and `state_changed`; add API tests for `cv_sent` from `none`/`saved`/`negative`, `rejected` from every state, no downgrade, and no state recomputation on event PATCH or DELETE. (Done: `db.InsertEventWithTransition` + `TestEventApplicationTransitions`.)
+- [x] 3.3 Show a state-change notice after adding an event and add the "this is a rejection" shortcut on the `message_received` form; verify with Vitest tests for the submitted `rejected` payload and the notice. (Done: 65 Vitest tests pass, build ok.)
+- [x] 3.4 Update `docs/API.md`, `docs/USAGE.md` and `CHANGELOG.md` for event-driven transitions, the event response fields and the rejection shortcut. (Also updated `docs/DATA-MODEL.md`.)
 
 ## 4. Automatic ghosting on disappearance
 

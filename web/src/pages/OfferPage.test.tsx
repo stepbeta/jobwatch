@@ -90,12 +90,26 @@ function makeDetail(overrides: Partial<OfferDetail> = {}): OfferDetail {
 }
 
 function renderPage() {
-  return render(<OfferPage id={7} onNotice={vi.fn()} />)
+  const onNotice = vi.fn()
+  const view = render(<OfferPage id={7} onNotice={onNotice} />)
+  return { ...view, onNotice }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(api.getOffer).mockResolvedValue(makeDetail())
+  vi.mocked(api.createEvent).mockResolvedValue({
+    event: {
+      id: 9,
+      offer_id: 7,
+      type: 'cv_sent',
+      description: null,
+      occurred_at: '2026-11-01T00:00:00Z',
+      created_at: null,
+    },
+    application_state: 'none',
+    state_changed: false,
+  })
 })
 
 describe('OfferPage timeline events', () => {
@@ -139,6 +153,50 @@ describe('OfferPage timeline events', () => {
 
     expect(api.updateEvent).not.toHaveBeenCalled()
     expect(within(row).getByText('call with the team')).toBeTruthy()
+  })
+
+  it('records a rejection instead of a message when the shortcut is used', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByRole('button', { name: 'Add event' })
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'message_received' } })
+    await user.click(await screen.findByLabelText('This is a rejection'))
+    await user.click(screen.getByRole('button', { name: 'Add event' }))
+
+    await waitFor(() =>
+      expect(api.createEvent).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({ type: 'rejected' }),
+      ),
+    )
+  })
+
+  it('announces the application state change after adding an event', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.createEvent).mockResolvedValue({
+      event: {
+        id: 9,
+        offer_id: 7,
+        type: 'cv_sent',
+        description: null,
+        occurred_at: '2026-11-01T00:00:00Z',
+        created_at: null,
+      },
+      application_state: 'applied',
+      state_changed: true,
+    })
+    const { onNotice } = renderPage()
+
+    await screen.findByRole('button', { name: 'Add event' })
+    await user.click(screen.getByRole('button', { name: 'Add event' }))
+
+    await waitFor(() =>
+      expect(onNotice).toHaveBeenCalledWith(
+        'success',
+        'Timeline event added. Application state is now Applied.',
+      ),
+    )
   })
 
   it('shows a pinned-note cue with the event type and date and highlights the event', async () => {
