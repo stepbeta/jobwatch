@@ -177,6 +177,11 @@ moves one capability at a time.
 - **Never work on `main`.** Every session creates a branch or a worktree
   off `main` before its first edit; `main` only receives merged work. If
   a session opens on `main`, stop and create a branch immediately.
+- **Name branches after the commit type.** A branch is prefixed with the
+  conventional commit type that describes its work — `feat/<name>` for a
+  new feature, `fix/<name>` for a correction, `chore/`, `docs/`,
+  `refactor/` or `test/` when they fit better — followed by a short
+  kebab-case name (for example `feat/offer-documents`).
 - Work in the order given by the user's current milestone prompt. Do
   not jump ahead to later milestones.
 - When a milestone prompt conflicts with this file, stop and ask the
