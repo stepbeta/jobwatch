@@ -400,8 +400,8 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | Path | Content |
 |---|---|
 | `App.tsx` | application shell wiring, document title for list routes, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
-| `components/Shell.tsx` | persistent full-width header (brand mark and right-aligned controls) plus left sidebar navigation; maps the current route to the active section and renders the Incomplete pending count |
-| `brand.ts`, `components/BrandMark.tsx` | shared watch-mark geometry; the header mark follows the active palette through CSS variables |
+| `components/Shell.tsx` | persistent full-width header (brand mark and right-aligned controls) plus left sidebar navigation in a full-height column with a sticky inner nav; maps the current route to the active section and renders the Incomplete pending count |
+| `brand.ts`, `components/BrandMark.tsx` | shared radar-mark geometry; the header mark follows the active palette through CSS variables |
 | `title.ts` | route labels and `useDocumentTitle`; detail pages own their entity title |
 | `favicon.ts` | runtime SVG favicon with the application-state badges, plus the link writer and `useOfferFavicon` |
 | `router.ts` | hash routing (`#/`, `#/offers`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/settings`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
@@ -411,7 +411,7 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `pages/IncompletePage.tsx` | incomplete offers with the count, the source-reported company/title/location, the reason and source link; a repair modal reuses the manual import layout and company combobox and calls `POST /api/offers/:id/repair` |
 | `pages/SourcesPage.tsx` | source list with enabled/type/status/name filters, URL-restored client sorting and pagination, column picker, row selection with bulk refresh/delete, right-aligned enable switch, icon row actions, company links resolved from the local company list, header Refresh all, and an add/edit modal with type-dependent config fields (personio/workable/rss/html included) and explanatory notes on seeded sources |
 | `pages/OfferPage.tsx` | two-column header: identity (editable states/location, title/location affinity badges with term reasons, remote policy badge, merge/split actions, description version count) on the left and an always-visible compact provenance list on the right; timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save through the shared Edit/View editor) |
-| `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note, refresh) |
+| `components/icons.tsx` | dependency-free inline SVG event-type, action and theme icons (system, light, dark) |
 | `pages/CompanyPage.tsx` | one two-column header block: company identity (including its attested keys), actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; a separate offers panel below with URL-restored FTS search, server-side sorting, per-page selector and pagination. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
 | `pages/SettingsPage.tsx` | edits the default search profile in five tabs (Profile, Title terms, Location terms, Description, Remote) with one shared form state and one Save; the active tab lives in `tab=<id>` in the hash query. Name/labels and the 3/5 bucket scale are on Profile, title/location/description terms on their own tabs (bucket plus numeric weight), and remote policy checkboxes on Remote. Validation switches to the first offending tab and marks every invalid tab. It is a display/edit layer: the API computes affinity |
 | `pages/InterviewPrepPage.tsx` | personal interview FAQ grouped into category sections, with an empty-answer cue, native HTML5 drag-and-drop for entries and sections (persisting `display_order`/`category` through PATCH; section order in `localStorage`), per-entry Edit/Delete, and an Add/Edit modal with a category dropdown and the shared Edit/View answer editor |
@@ -424,18 +424,21 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `components/EditViewEditor.tsx` | shared Edit/View tabbed editor (textarea plus caller-rendered view), used by interview answers and offer descriptions |
 
 The shell (`components/Shell.tsx`) renders a full-width header with the
-brand and right-aligned controls, plus a 220px left sidebar. Offer and
+brand and right-aligned controls, plus a 220px left sidebar. The sidebar
+column paints the full page height; its inner nav is sticky under the
+header and scrolls on its own when the viewport is short. Offer and
 company detail routes highlight Offers. At `max-width: 900px` the sidebar
 becomes a horizontal scrollable nav row below the header while the header
 controls stay visible. `App.tsx` keeps data and scan state and passes the
 current route and incomplete count to the shell.
 
 The header theme control (`components/ThemeControl.tsx`, state in
-`theme.ts`) offers System, Light and Dark. The choice is stored in
-`localStorage` under `jobwatch.theme`; `index.html` applies it in a
-pre-paint inline script that sets `data-theme` and `color-scheme`, so a
-reload never flashes the other palette. System is the default and follows
-`prefers-color-scheme`.
+`theme.ts`) is a single icon button that cycles System → Light → Dark;
+its tooltip and accessible label name the current mode and the next one.
+The choice is stored in `localStorage` under `jobwatch.theme`;
+`index.html` applies it in a pre-paint inline script that sets
+`data-theme` and `color-scheme`, so a reload never flashes the other
+palette. System is the default and follows `prefers-color-scheme`.
 
 Browser identity has one owner per surface. `title.ts` maps every list
 route to `<label> — JobWatch` and `App.tsx` applies it; `OfferPage` and
@@ -443,7 +446,7 @@ route to `<label> — JobWatch` and `App.tsx` applies it; `OfferPage` and
 JobWatch` and `<company> — JobWatch`) and show `Offer — JobWatch` /
 `Company — JobWatch` until the entity loads. The application state never
 appears in the title. `favicon.ts` builds a data-URI SVG from the shared
-watch mark (`brand.ts`) plus the open offer's application-state badge;
+radar mark (`brand.ts`) plus the open offer's application-state badge;
 only `OfferPage` writes it, and its effect cleanup restores
 `public/favicon.svg` on unmount or state change. That static file is the
 no-JS default and is copied into `dist/` by Vite, so the embedded SPA

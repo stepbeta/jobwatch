@@ -332,10 +332,11 @@ you move it to `applied` (or another real stage).
 
 Success/error toasts, loading indicators and confirmation dialogs are
 shared across the pages; every destructive action asks first. The header
-offers a **Theme** control with **System**, **Light** and **Dark**;
-**System** is the default and follows the operating system, while the
-other two pin the palette. The choice is stored in `localStorage`
-(`jobwatch.theme`) and applied before the first paint, so a reload does
+theme button cycles **System → Light → Dark**; its tooltip names the
+current mode and the next one. **System** is the default and follows the
+operating system, while the other two pin the palette. The choice is
+stored in `localStorage` (`jobwatch.theme`) and applied before the first
+paint, so a reload does
 not flash the other palette. The sidebar navigates; scan actions live on
 the Sources page and in the Dashboard Applications section.
 

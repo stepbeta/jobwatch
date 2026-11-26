@@ -40,8 +40,8 @@ describe('faviconFor', () => {
       const svg = decode(faviconFor(state))
       expect(svg).toContain(FAVICON_BADGE_COLORS[state])
       expect(svg).toContain('viewBox="0 0 32 32"')
-      // The base watch mark stays behind every badge.
-      expect(svg).toContain('cx="16" cy="18" r="11"')
+      // The base radar mark stays behind every badge.
+      expect(svg).toContain('cx="16" cy="16" r="11.5"')
       // The badge has the white cut-out ring.
       expect(svg).toContain('cx="24" cy="24" r="8" fill="#ffffff"')
     }

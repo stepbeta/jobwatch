@@ -96,8 +96,17 @@ describe('Shell', () => {
 
   it('collapses the sidebar through the shared 900px breakpoint', () => {
     expect(styles).toMatch(
-      /@media \(max-width: 900px\) \{[\s\S]*?\.sidebar\s*\{[\s\S]*?flex-direction: row;/,
+      /@media \(max-width: 900px\) \{[\s\S]*?\.sidebar-inner\s*\{[\s\S]*?flex-direction: row;/,
     )
     expect(styles).toMatch(/\.sidebar\s*\{[\s\S]*?width: 220px;/)
+  })
+
+  it('paints the sidebar column separately from the sticky links', () => {
+    const { container } = renderShell({ name: 'dashboard' })
+    const nav = screen.getByRole('navigation', { name: 'Sections' })
+    expect(nav.querySelector('.sidebar-inner')).toBeTruthy()
+    expect(container.querySelector('.sidebar > .sidebar-inner')).toBeTruthy()
+    expect(styles).toMatch(/\.app-body\s*\{[\s\S]*?align-items: stretch;/)
+    expect(styles).toMatch(/\.sidebar-inner\s*\{[\s\S]*?position: sticky;/)
   })
 })

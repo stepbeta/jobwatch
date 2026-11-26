@@ -1,4 +1,4 @@
-// The JobWatch watch mark is shared by the header and the generated
+// The JobWatch radar mark is shared by the header and the generated
 // favicon. The shapes use explicit colours so the same geometry can be
 // serialized into an SVG data URI as well as rendered inline.
 export interface MarkColors {
@@ -9,12 +9,16 @@ export interface MarkColors {
 
 export function brandMarkShapes({ body, face, hand }: MarkColors): string {
   return (
-    `<rect x="13" y="2.5" width="6" height="3.5" rx="1.2" fill="${body}"/>` +
-    `<rect x="14.5" y="5" width="3" height="3.5" fill="${body}"/>` +
-    `<circle cx="16" cy="18" r="11" fill="${body}"/>` +
-    `<circle cx="16" cy="18" r="8" fill="${face}"/>` +
-    `<path d="M16 18V12.8M16 18l4.2 2.6" fill="none" stroke="${hand}" ` +
-    `stroke-width="2" stroke-linecap="round"/>`
+    `<circle cx="16" cy="16" r="11.5" fill="${body}"/>` +
+    `<circle cx="16" cy="16" r="8.5" fill="${face}"/>` +
+    `<circle cx="16" cy="16" r="5.5" fill="none" stroke="${hand}" ` +
+    `stroke-width="1.3" opacity="0.55"/>` +
+    `<circle cx="16" cy="16" r="2.8" fill="none" stroke="${hand}" ` +
+    `stroke-width="1.3" opacity="0.55"/>` +
+    `<path d="M16 16 22.4 9.6" fill="none" stroke="${hand}" ` +
+    `stroke-width="2" stroke-linecap="round"/>` +
+    `<circle cx="22.4" cy="9.6" r="1.8" fill="${hand}"/>` +
+    `<circle cx="16" cy="16" r="1.5" fill="${hand}"/>`
   )
 }
 

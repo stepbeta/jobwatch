@@ -73,27 +73,29 @@ export function Shell({
       </header>
       <div className="app-body">
         <nav className="sidebar" aria-label="Sections">
-          {NAV_ITEMS.map((item) => {
-            const current = active === item.section
-            return (
-              <a
-                key={item.section}
-                href={item.href}
-                className={current ? 'active' : undefined}
-                aria-current={current ? 'page' : undefined}
-              >
-                <span>{item.label}</span>
-                {item.section === 'incomplete' && incompleteCount > 0 && (
-                  <span
-                    className="nav-count"
-                    aria-label={`${incompleteCount} incomplete offers`}
-                  >
-                    {incompleteCount}
-                  </span>
-                )}
-              </a>
-            )
-          })}
+          <div className="sidebar-inner">
+            {NAV_ITEMS.map((item) => {
+              const current = active === item.section
+              return (
+                <a
+                  key={item.section}
+                  href={item.href}
+                  className={current ? 'active' : undefined}
+                  aria-current={current ? 'page' : undefined}
+                >
+                  <span>{item.label}</span>
+                  {item.section === 'incomplete' && incompleteCount > 0 && (
+                    <span
+                      className="nav-count"
+                      aria-label={`${incompleteCount} incomplete offers`}
+                    >
+                      {incompleteCount}
+                    </span>
+                  )}
+                </a>
+              )
+            })}
+          </div>
         </nav>
         <main>{children}</main>
       </div>

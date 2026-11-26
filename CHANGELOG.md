@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### UI shell follow-ups (OpenSpec change `ui-shell-followups`)
+
+#### Changed
+- The sidebar column now paints the full page height while its navigation
+  stays sticky below the header.
+- The theme select is now a single icon button that cycles
+  System → Light → Dark; its tooltip and accessible label name the next
+  mode.
+- The brand mark is a radar sweep with rings and a blip instead of a
+  stopwatch, in both the header and the static favicon.
+
+#### Fixed
+- The dashboard **Hide closed applications** control now uses the shared
+  toggle switch, is left-aligned, and no longer inherits the wide input
+  minimum.
+
 ### Refreshed application shell (OpenSpec change `ui-shell-refresh`)
 
 #### Added

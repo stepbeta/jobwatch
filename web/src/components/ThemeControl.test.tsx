@@ -55,7 +55,7 @@ describe('ThemeControl', () => {
     const media = installMatchMedia(false)
     render(<ThemeControl />)
 
-    expect((screen.getByLabelText('Theme') as HTMLSelectElement).value).toBe('system')
+    expect(screen.getByRole('button', { name: 'Theme: System. Switch to Light' })).toBeTruthy()
     expect(document.documentElement.dataset.theme).toBe('system')
     expect(document.documentElement.style.colorScheme).toBe('light')
     expect(window.localStorage.getItem(THEME_KEY)).toBe('system')
@@ -67,22 +67,31 @@ describe('ThemeControl', () => {
     window.localStorage.setItem(THEME_KEY, 'dark')
     render(<ThemeControl />)
 
-    expect((screen.getByLabelText('Theme') as HTMLSelectElement).value).toBe('dark')
+    expect(screen.getByRole('button', { name: 'Theme: Dark. Switch to System' })).toBeTruthy()
     expect(document.documentElement.dataset.theme).toBe('dark')
     expect(document.documentElement.style.colorScheme).toBe('dark')
     media.restore()
   })
 
-  it('persists a new choice immediately', async () => {
+  it('cycles through every theme on click', async () => {
     const media = installMatchMedia(false)
     const user = userEvent.setup()
     render(<ThemeControl />)
 
-    await user.selectOptions(screen.getByLabelText('Theme'), 'dark')
+    await user.click(screen.getByRole('button', { name: 'Theme: System. Switch to Light' }))
+    expect(document.documentElement.dataset.theme).toBe('light')
+    expect(document.documentElement.style.colorScheme).toBe('light')
+    expect(window.localStorage.getItem(THEME_KEY)).toBe('light')
 
+    await user.click(screen.getByRole('button', { name: 'Theme: Light. Switch to Dark' }))
     expect(document.documentElement.dataset.theme).toBe('dark')
     expect(document.documentElement.style.colorScheme).toBe('dark')
     expect(window.localStorage.getItem(THEME_KEY)).toBe('dark')
+
+    await user.click(screen.getByRole('button', { name: 'Theme: Dark. Switch to System' }))
+    expect(document.documentElement.dataset.theme).toBe('system')
+    expect(document.documentElement.style.colorScheme).toBe('light')
+    expect(window.localStorage.getItem(THEME_KEY)).toBe('system')
     media.restore()
   })
 
@@ -92,7 +101,7 @@ describe('ThemeControl', () => {
     const user = userEvent.setup()
     render(<ThemeControl />)
 
-    await user.selectOptions(screen.getByLabelText('Theme'), 'system')
+    await user.click(screen.getByRole('button', { name: 'Theme: Dark. Switch to System' }))
 
     expect(document.documentElement.dataset.theme).toBe('system')
     expect(document.documentElement.style.colorScheme).toBe('dark')

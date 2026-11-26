@@ -1,27 +1,34 @@
 import { useTheme, type Theme } from '../theme'
+import { ThemeIcon } from './icons'
 
-const OPTIONS: { value: Theme; label: string }[] = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-]
+const LABELS: Record<Theme, string> = {
+  system: 'System',
+  light: 'Light',
+  dark: 'Dark',
+}
+
+// The icon cycles in a fixed order so a click always has a predictable
+// result and the control never needs a menu.
+const NEXT: Record<Theme, Theme> = {
+  system: 'light',
+  light: 'dark',
+  dark: 'system',
+}
 
 export function ThemeControl() {
   const { theme, setTheme } = useTheme()
+  const next = NEXT[theme]
+  const label = `Theme: ${LABELS[theme]}. Switch to ${LABELS[next]}`
+
   return (
-    <label className="theme-control">
-      <span>Theme</span>
-      <select
-        aria-label="Theme"
-        value={theme}
-        onChange={(e) => setTheme(e.target.value as Theme)}
-      >
-        {OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <button
+      type="button"
+      className="icon-button theme-toggle"
+      aria-label={label}
+      title={label}
+      onClick={() => setTheme(next)}
+    >
+      <ThemeIcon theme={theme} />
+    </button>
   )
 }

@@ -156,16 +156,16 @@ export function Dashboard({
             {refreshing || scanning ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
-        <div className="filters">
-          <label className="checkbox-inline">
-            <input
-              type="checkbox"
-              checked={hideClosed}
-              onChange={(e) => setHideClosed(e.target.checked)}
-            />
-            Hide closed applications
-          </label>
-        </div>
+        <label className="toggle-switch filter-toggle">
+          <input
+            type="checkbox"
+            role="switch"
+            checked={hideClosed}
+            onChange={(e) => setHideClosed(e.target.checked)}
+          />
+          <span className="toggle-track" aria-hidden="true" />
+          <span>Hide closed applications</span>
+        </label>
         {error && <div className="error-box">{error}</div>}
         {applications.length === 0 ? (
           <p className="empty">
