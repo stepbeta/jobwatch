@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stepbeta/jobwatch/internal/model"
 )
@@ -55,7 +56,15 @@ type attachmentEnvelope struct {
 }
 
 type offerDetailEnvelope struct {
+	Offer struct {
+		ApplicationState string `json:"application_state"`
+	} `json:"offer"`
 	Attachments []attachmentPayload `json:"attachments"`
+	Events      []struct {
+		ID         int64  `json:"id"`
+		Type       string `json:"type"`
+		OccurredAt string `json:"occurred_at"`
+	} `json:"events"`
 }
 
 type documentReferencePayload struct {
@@ -153,6 +162,9 @@ func TestUploadOfferAttachment(t *testing.T) {
 	if len(detail.Attachments) != 1 || detail.Attachments[0].Filename != "cv.pdf" {
 		t.Errorf("detail attachments = %+v", detail.Attachments)
 	}
+	if detail.Offer.ApplicationState != "none" {
+		t.Errorf("application_state after upload = %q, want none", detail.Offer.ApplicationState)
+	}
 	if n := countTable(t, ts, `SELECT COUNT(*) FROM events WHERE offer_id = ?`, offer.ID); n != 0 {
 		t.Errorf("attaching created %d timeline events", n)
 	}
@@ -196,6 +208,9 @@ func TestAttachmentDownloadAndDetach(t *testing.T) {
 	content := testPDF("Shared CV")
 	digest := digestOf(content)
 
+	cvEvent := ts.seedEvent(t, first.ID, model.EventCVSent, ts.clock.now(), "sent")
+	interviewEvent := ts.seedEvent(t, first.ID, model.EventInterview, ts.clock.now().Add(time.Hour), "call")
+
 	rec := ts.uploadAttachment(t, first.ID, "cv", "cv.pdf", content)
 	wantCode(t, rec, http.StatusCreated)
 	att := decodeBody[attachmentEnvelope](t, rec).Attachment
@@ -234,6 +249,19 @@ func TestAttachmentDownloadAndDetach(t *testing.T) {
 	wantCode(t, rec, http.StatusNoContent)
 	rec = ts.do(t, http.MethodGet, "/api/documents/"+digest+"/file", nil)
 	wantCode(t, rec, http.StatusOK)
+
+	// Detaching leaves the offer's timeline exactly as it was.
+	firstDetail := decodeBody[offerDetailEnvelope](t,
+		ts.do(t, http.MethodGet, fmt.Sprintf("/api/offers/%d", first.ID), nil))
+	if len(firstDetail.Events) != 2 ||
+		firstDetail.Events[0].ID != cvEvent.ID ||
+		firstDetail.Events[0].Type != string(model.EventCVSent) ||
+		firstDetail.Events[0].OccurredAt != model.FormatTime(cvEvent.OccurredAt) ||
+		firstDetail.Events[1].ID != interviewEvent.ID ||
+		firstDetail.Events[1].Type != string(model.EventInterview) ||
+		firstDetail.Events[1].OccurredAt != model.FormatTime(interviewEvent.OccurredAt) {
+		t.Errorf("timeline changed by detach: %+v", firstDetail.Events)
+	}
 
 	docs := decodeBody[documentsEnvelope](t, ts.do(t, http.MethodGet, "/api/documents", nil))
 	if len(docs.Documents) != 1 || len(docs.Documents[0].Offers) != 1 {

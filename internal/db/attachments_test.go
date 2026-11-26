@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -347,5 +348,57 @@ func TestMergeOffersMovesAttachments(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestBackupCarriesDocuments proves the restore path: a validated backup
+// is a complete database that still lists and downloads an attached PDF.
+func TestBackupCarriesDocuments(t *testing.T) {
+	sqlDB := openTest(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC)
+	company, err := CreateCompany(ctx, sqlDB, "Acme", nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offer := seedMergeOffer(t, sqlDB, company, "SRE", "")
+	content := attachmentContent("backup")
+	att, err := AttachOfferDocument(ctx, sqlDB, offer.ID, model.AttachmentCV, "cv.pdf",
+		content, model.PDFMetadata{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dest := filepath.Join(t.TempDir(), "backup.db")
+	if err := Backup(ctx, sqlDB, dest); err != nil {
+		t.Fatalf("backup: %v", err)
+	}
+	restored, err := Open(ctx, dest)
+	if err != nil {
+		t.Fatalf("open backup: %v", err)
+	}
+	defer restored.Close()
+
+	attachments, err := ListOfferAttachments(ctx, restored, offer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attachments) != 1 || attachments[0].SHA256 != att.SHA256 ||
+		attachments[0].Filename != "cv.pdf" {
+		t.Errorf("attachments in the restored copy = %+v", attachments)
+	}
+	file, err := GetOfferAttachmentFile(ctx, restored, offer.ID, att.ID)
+	if err != nil {
+		t.Fatalf("download from backup: %v", err)
+	}
+	if !bytes.Equal(file.Bytes, content) {
+		t.Error("document bytes differ after restore")
+	}
+	docs, err := ListDocuments(ctx, restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 1 || len(docs[0].References) != 1 {
+		t.Errorf("documents aggregate after restore = %+v", docs)
 	}
 }

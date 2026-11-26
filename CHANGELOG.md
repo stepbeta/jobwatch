@@ -26,6 +26,8 @@
   modification time is never stored or displayed.
 
 #### Changed
+- The Documents page shows the PDF author alongside its other intrinsic
+  metadata (title, producer, dates, page count and version).
 - Offer merge moves the absorbed offer's documents to the kept offer and
   collapses a file both offers already referenced; its response reports
   `moved_attachments`.

@@ -155,6 +155,12 @@ export function fmtDate(iso: string | null | undefined): string {
   return d.toLocaleDateString(undefined, { dateStyle: 'medium' })
 }
 
+// fmtPDFDate renders a PDF's own metadata date, or "Unknown" when the file
+// did not carry one, so it is never confused with a JobWatch time.
+export function fmtPDFDate(iso: string | null): string {
+  return iso ? fmtDateTime(iso) : 'Unknown'
+}
+
 export function relativeTime(iso: string | null | undefined): string {
   if (!iso) return 'never'
   const d = new Date(iso)

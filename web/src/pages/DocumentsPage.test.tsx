@@ -69,7 +69,7 @@ describe('DocumentsPage', () => {
     })
     const other = makeDocument({
       sha256: 'aaaa4d5e6f708192a3b4c5d6e7f80912a3b4c5d6e7f80912a3b4c5d6e7f80912',
-      pdf: { ...makeDocument().pdf, title: 'Cover letter' },
+      pdf: { ...makeDocument().pdf, title: 'Cover letter', author: null },
       download_url: '/api/documents/aaaa/file',
       offers: [
         {
@@ -88,6 +88,7 @@ describe('DocumentsPage', () => {
     await screen.findByText('Acme CV')
     expect(screen.getAllByText('Acme CV')).toHaveLength(1)
     expect(screen.getByText('2 files')).toBeTruthy()
+    expect(screen.getByText(/Author: Alice Martin/)).toBeTruthy()
 
     const offerLink = screen.getByRole('link', { name: 'Site Reliability Engineer' })
     expect(offerLink.getAttribute('href')).toBe('#/offers/7')

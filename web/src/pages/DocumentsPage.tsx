@@ -5,12 +5,9 @@ import {
   attachmentKindLabel,
   fmtBytes,
   fmtDateTime,
+  fmtPDFDate,
 } from '../format'
 import type { DocumentItem } from '../types'
-
-function documentDate(iso: string | null): string {
-  return iso ? fmtDateTime(iso) : 'Unknown'
-}
 
 // DocumentsPage is the read-only aggregate over stored files. Uploads,
 // re-tagging and detaching stay on the offer page; this page only lists,
@@ -79,9 +76,10 @@ export function DocumentsPage() {
                 <span>Size: {fmtBytes(d.size)}</span>
                 <span>Pages: {d.pdf.page_count ?? 'Unknown'}</span>
                 <span>PDF version: {d.pdf.version ?? 'Unknown'}</span>
+                <span>Author: {d.pdf.author ?? 'Unknown'}</span>
                 <span>Producer: {d.pdf.producer ?? 'Unknown'}</span>
-                <span>PDF creation: {documentDate(d.pdf.creation_date)}</span>
-                <span>PDF modified: {documentDate(d.pdf.modification_date)}</span>
+                <span>PDF creation: {fmtPDFDate(d.pdf.creation_date)}</span>
+                <span>PDF modified: {fmtPDFDate(d.pdf.modification_date)}</span>
                 <span>First uploaded: {fmtDateTime(d.first_uploaded_at)}</span>
               </div>
 

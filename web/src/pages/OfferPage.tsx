@@ -19,6 +19,7 @@ import {
   fmtBytes,
   fmtDate,
   fmtDateTime,
+  fmtPDFDate,
   remoteLabel,
   splitLocalInput,
   toLocalInput,
@@ -52,12 +53,6 @@ function diffPrefix(op: 'equal' | 'added' | 'removed'): string {
 
 function originLabel(origin: SnapshotOrigin): string {
   return origin === 'manual' ? 'Manual' : 'Scan'
-}
-
-// documentDate shows the PDF's own date when it exists and "Unknown"
-// otherwise, so a missing file date is never confused with an upload time.
-function documentDate(iso: string | null): string {
-  return iso ? fmtDateTime(iso) : 'Unknown'
 }
 
 export function OfferPage({
@@ -810,8 +805,8 @@ export function OfferPage({
                 </div>
                 {a.pdf.title && <div className="muted small">PDF title: {a.pdf.title}</div>}
                 <div className="document-dates small">
-                  <span>PDF creation: {documentDate(a.pdf.creation_date)}</span>
-                  <span>PDF modified: {documentDate(a.pdf.modification_date)}</span>
+                  <span>PDF creation: {fmtPDFDate(a.pdf.creation_date)}</span>
+                  <span>PDF modified: {fmtPDFDate(a.pdf.modification_date)}</span>
                   <span>First uploaded: {fmtDateTime(a.first_uploaded_at)}</span>
                   <span>Attached: {fmtDateTime(a.attached_at)}</span>
                 </div>
