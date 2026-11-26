@@ -404,7 +404,7 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `brand.ts`, `components/BrandMark.tsx` | shared watch-mark geometry; the header mark follows the active palette through CSS variables |
 | `title.ts` | route labels and `useDocumentTitle`; detail pages own their entity title |
 | `favicon.ts` | runtime SVG favicon with the application-state badges, plus the link writer and `useOfferFavicon` |
-| `router.ts` | hash routing (`#/`, `#/offers`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/search-profile`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
+| `router.ts` | hash routing (`#/`, `#/offers`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/settings`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with one default-off `Hide closed applications` toggle (`closed=1`; sends the explicit non-negative state set when on), a Refresh button that fans out over the enabled sources behind the visible applications, and a Saved section (`application_state=saved`, `sort=saved`) with no filter |
 | `pages/OffersPage.tsx` | full offers table: URL-restored filters (including remote acceptance, minimum title/location affinity and a searchable company combobox), debounced FTS search, header-click server sorting (including `title_affinity`/`location_affinity`), column picker, per-page selector and pagination, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
@@ -413,7 +413,7 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `pages/OfferPage.tsx` | two-column header: identity (editable states/location, title/location affinity badges with term reasons, remote policy badge, merge/split actions, description version count) on the left and an always-visible compact provenance list on the right; timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save through the shared Edit/View editor) |
 | `components/icons.tsx` | dependency-free inline SVG event-type and action icons (edit, delete, note, refresh) |
 | `pages/CompanyPage.tsx` | one two-column header block: company identity (including its attested keys), actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; a separate offers panel below with URL-restored FTS search, server-side sorting, per-page selector and pagination. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
-| `pages/SearchProfilePage.tsx` | edits the default search profile: name and labels, 3/5 bucket scale, title/location term rows (bucket plus numeric weight), an advanced description-terms section, and remote policy checkboxes; explanatory text states what each signal changes. It is a display/edit layer: the API computes affinity |
+| `pages/SettingsPage.tsx` | edits the default search profile in five tabs (Profile, Title terms, Location terms, Description, Remote) with one shared form state and one Save; the active tab lives in `tab=<id>` in the hash query. Name/labels and the 3/5 bucket scale are on Profile, title/location/description terms on their own tabs (bucket plus numeric weight), and remote policy checkboxes on Remote. Validation switches to the first offending tab and marks every invalid tab. It is a display/edit layer: the API computes affinity |
 | `pages/InterviewPrepPage.tsx` | personal interview FAQ grouped into category sections, with an empty-answer cue, native HTML5 drag-and-drop for entries and sections (persisting `display_order`/`category` through PATCH; section order in `localStorage`), per-entry Edit/Delete, and an Add/Edit modal with a category dropdown and the shared Edit/View answer editor |
 | `components/Markdown.tsx` | deliberately small markdown renderer for interview answers: headings, bold, italic, inline code, fenced code blocks and lists, emitted as React elements (never HTML) |
 | `components/ConfirmDialog.tsx` | shared confirmation dialog used for every destructive action (delete source(s)/event/note/company) |
@@ -449,15 +449,20 @@ only `OfferPage` writes it, and its effect cleanup restores
 no-JS default and is copied into `dist/` by Vite, so the embedded SPA
 serves it at `/favicon.svg`.
 
-The Search profile page (`#/search-profile`) edits the default profile
-through `GET`/`PUT /api/search-profiles`. Choosing a bucket sets a
-default numeric weight and the number stays editable; switching the
-bucket scale maps existing buckets (strong/mild positives collapse to
-`positive`, strong/mild negatives to `negative`). Description terms live
-in an advanced disclosure and the copy states that they affect location
-affinity only, never remote detection. Saving a profile does not rewrite
-offers: the SPA reloads affinities from the API, which computes them
-from the current profile.
+The Settings page (`#/settings`) edits the default profile through
+`GET`/`PUT /api/search-profiles`. The editor is split into Profile,
+Title terms, Location terms, Description and Remote tabs while keeping
+one form state and one Save; switching tabs preserves unsaved edits and
+the active tab is stored as `tab=<id>` in the hash query. Choosing a
+bucket sets a default numeric weight and the number stays editable;
+switching the bucket scale maps existing buckets (strong/mild positives
+collapse to `positive`, strong/mild negatives to `negative`). Description
+terms live on their own tab and the copy states that they affect
+location affinity only, never remote detection. Client validation
+switches to the first offending tab and marks every tab that has an
+error; a server validation message is mapped to its tab by term type.
+Saving a profile does not rewrite offers: the SPA reloads affinities from
+the API, which computes them from the current profile.
 
 The dashboard (`#/`) contains only Applications and Saved. The full
 filtered/paginated offers table and the manual import dialog live on

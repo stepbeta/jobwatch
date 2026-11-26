@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
 import { BUCKET_LABELS, remoteLabel } from '../format'
+import { currentRouteQuery, replaceRouteQuery } from '../router'
 import type {
   BucketScale,
   RemotePolicy,
@@ -19,6 +20,40 @@ const FIVE_BUCKETS: TermBucket[] = [
   'strong_negative',
 ]
 const REMOTE_POLICIES_UI: RemotePolicy[] = ['remote', 'hybrid', 'onsite', 'unknown']
+
+type TabID = 'profile' | 'title' | 'location' | 'description' | 'remote'
+
+const TABS: { id: TabID; label: string }[] = [
+  { id: 'profile', label: 'Profile' },
+  { id: 'title', label: 'Title terms' },
+  { id: 'location', label: 'Location terms' },
+  { id: 'description', label: 'Description' },
+  { id: 'remote', label: 'Remote' },
+]
+
+const TAB_IDS = TABS.map((tab) => tab.id)
+
+function readTab(): TabID {
+  const raw = currentRouteQuery().get('tab')
+  return TAB_IDS.includes(raw as TabID) ? (raw as TabID) : 'profile'
+}
+
+function writeTab(tab: TabID): void {
+  const params = new URLSearchParams()
+  params.set('tab', tab)
+  replaceRouteQuery(params)
+}
+
+// tabForServerError maps the API's validation message to the tab that owns
+// the offending field, so the error is never hidden behind another tab.
+function tabForServerError(message: string): TabID | null {
+  if (/title term/i.test(message)) return 'title'
+  if (/location term/i.test(message)) return 'location'
+  if (/description term/i.test(message)) return 'description'
+  if (/remote/i.test(message)) return 'remote'
+  if (/profile name|\bname\b/i.test(message)) return 'profile'
+  return null
+}
 
 // profileBuckets is the bucket list offered for a scale. The editor uses
 // the profile's buckets; the stored weight stays authoritative.
@@ -93,7 +128,7 @@ function remoteMap(p: SearchProfile): Record<RemotePolicy, boolean> {
   return out
 }
 
-export function SearchProfilePage({
+export function SettingsPage({
   onNotice,
 }: {
   onNotice: (kind: 'info' | 'success' | 'error', text: string) => void
@@ -111,7 +146,13 @@ export function SearchProfilePage({
     unknown: true,
   })
   const [error, setError] = useState('')
+  const [tabErrors, setTabErrors] = useState<Partial<Record<TabID, string>>>({})
+  const [activeTab, setActiveTab] = useState<TabID>(readTab)
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    writeTab(activeTab)
+  }, [activeTab])
 
   useEffect(() => {
     let cancelled = false
@@ -168,15 +209,28 @@ export function SearchProfilePage({
   async function save(e: FormEvent) {
     e.preventDefault()
     if (!profile) return
-    setError('')
+    const problems: { tab: TabID; message: string }[] = []
     if (name.trim() === '') {
-      setError('Profile name is required.')
+      problems.push({ tab: 'profile', message: 'Profile name is required.' })
+    }
+    for (const affinity of ['title', 'location', 'description'] as TermAffinity[]) {
+      if (terms.some((t) => t.affinity === affinity && t.term.trim() === '')) {
+        problems.push({
+          tab: affinity,
+          message: 'Every term needs a value; remove empty rows or fill them in.',
+        })
+      }
+    }
+    if (problems.length > 0) {
+      const next: Partial<Record<TabID, string>> = {}
+      for (const problem of problems) {
+        if (!next[problem.tab]) next[problem.tab] = problem.message
+      }
+      setTabErrors(next)
+      setActiveTab(problems[0].tab)
       return
     }
-    if (terms.some((t) => t.term.trim() === '')) {
-      setError('Every term needs a value; remove empty rows or fill them in.')
-      return
-    }
+    setTabErrors({})
     const input: SearchProfileInput = {
       name: name.trim(),
       title_label: titleLabel.trim(),
@@ -197,10 +251,13 @@ export function SearchProfilePage({
       setName(r.profile.name)
       setTerms(editableTerms(r.profile))
       setRemote(remoteMap(r.profile))
+      setTabErrors({})
       onNotice('success', 'Search profile saved. Offer affinities update on the next view.')
     } catch (err) {
       const text = errorMessage(err)
-      setError(text)
+      const tab = tabForServerError(text) ?? activeTab
+      setTabErrors({ [tab]: text })
+      setActiveTab(tab)
       onNotice('error', text)
     } finally {
       setSaving(false)
@@ -290,79 +347,130 @@ export function SearchProfilePage({
     <div className="page">
       <section className="panel">
         <div className="section-head">
-          <h2>Search profile</h2>
+          <h2>Settings</h2>
           <span className="muted">
             Affinity is computed from this profile on every read; no reclassification is needed.
           </span>
         </div>
         {error && <div className="error-box">{error}</div>}
         <form className="profile-form" onSubmit={(e) => void save(e)}>
-          <div className="filters">
-            <label>
-              Name
-              <input value={name} onChange={(e) => setName(e.target.value)} />
-            </label>
-            <label>
-              Title label
-              <input value={titleLabel} onChange={(e) => setTitleLabel(e.target.value)} />
-            </label>
-            <label>
-              Location label
-              <input value={locationLabel} onChange={(e) => setLocationLabel(e.target.value)} />
-            </label>
-            <label>
-              Bucket scale
-              <select value={scale} onChange={(e) => changeScale(e.target.value as BucketScale)}>
-                <option value="five">5 buckets</option>
-                <option value="three">3 buckets</option>
-              </select>
-            </label>
+          <div className="settings-tabs" role="tablist" aria-label="Settings sections">
+            {TABS.map((tab) => {
+              const selected = activeTab === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  id={`settings-tab-${tab.id}`}
+                  aria-selected={selected}
+                  aria-controls={`settings-panel-${tab.id}`}
+                  className={selected ? 'active' : undefined}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  {tab.label}
+                  {tabErrors[tab.id] && (
+                    <span className="tab-error-marker" aria-label="has errors">
+                      !
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
-          <p className="hint">
-            Buckets are editor labels. Choosing one sets a default weight; the numeric weight next
-            to each term is the value used for scoring, so advanced users can fine-tune it.
-          </p>
 
-          {section(
-            'title',
-            'Positive title terms raise title affinity, negative terms lower it. Neutral terms only appear in the reasons.',
-          )}
-          {section(
-            'location',
-            'Location terms match the offer location. Positive terms add evidence for the target geography, negative terms subtract it.',
-          )}
+          <div
+            className="settings-panel"
+            role="tabpanel"
+            id={`settings-panel-${activeTab}`}
+            aria-labelledby={`settings-tab-${activeTab}`}
+          >
+            {tabErrors[activeTab] && <div className="error-box">{tabErrors[activeTab]}</div>}
 
-          <details className="profile-advanced">
-            <summary>Advanced: description terms</summary>
-            <p className="hint">
-              Description terms add weaker location evidence only. They never change the detected
-              remote policy.
-            </p>
-            {section(
-              'description',
-              'Description terms are matched against the offer description and add to location affinity. They do not affect remote detection.',
+            {activeTab === 'profile' && (
+              <>
+                <div className="filters">
+                  <label>
+                    Name
+                    <input value={name} onChange={(e) => setName(e.target.value)} />
+                  </label>
+                  <label>
+                    Title label
+                    <input value={titleLabel} onChange={(e) => setTitleLabel(e.target.value)} />
+                  </label>
+                  <label>
+                    Location label
+                    <input
+                      value={locationLabel}
+                      onChange={(e) => setLocationLabel(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Bucket scale
+                    <select
+                      value={scale}
+                      onChange={(e) => changeScale(e.target.value as BucketScale)}
+                    >
+                      <option value="five">5 buckets</option>
+                      <option value="three">3 buckets</option>
+                    </select>
+                  </label>
+                </div>
+                <p className="hint">
+                  Buckets are editor labels. Choosing one sets a default weight; the numeric weight
+                  next to each term is the value used for scoring, so advanced users can fine-tune
+                  it.
+                </p>
+              </>
             )}
-          </details>
 
-          <fieldset className="profile-section">
-            <legend>Remote policy</legend>
-            <p className="hint">
-              The policy is detected from the offer text. Check the policies you accept; this is a
-              membership check, not a weighted score.
-            </p>
-            <div className="remote-choices">
-              {REMOTE_POLICIES_UI.map((policy) => (
-                <label key={policy} className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={remote[policy]}
-                    onChange={(e) => setRemote((r) => ({ ...r, [policy]: e.target.checked }))}
-                  />
-                  {remoteLabel(policy)}
-                </label>
-              ))}
-            </div>
-          </fieldset>
+            {activeTab === 'title' &&
+              section(
+                'title',
+                'Positive title terms raise title affinity, negative terms lower it. Neutral terms only appear in the reasons.',
+              )}
+
+            {activeTab === 'location' &&
+              section(
+                'location',
+                'Location terms match the offer location. Positive terms add evidence for the target geography, negative terms subtract it.',
+              )}
+
+            {activeTab === 'description' && (
+              <>
+                <p className="hint">
+                  Description terms add weaker location evidence only. They never change the
+                  detected remote policy.
+                </p>
+                {section(
+                  'description',
+                  'Description terms are matched against the offer description and add to location affinity. They do not affect remote detection.',
+                )}
+              </>
+            )}
+
+            {activeTab === 'remote' && (
+              <fieldset className="profile-section">
+                <legend>Remote policy</legend>
+                <p className="hint">
+                  The policy is detected from the offer text. Check the policies you accept; this is
+                  a membership check, not a weighted score.
+                </p>
+                <div className="remote-choices">
+                  {REMOTE_POLICIES_UI.map((policy) => (
+                    <label key={policy} className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={remote[policy]}
+                        onChange={(e) => setRemote((r) => ({ ...r, [policy]: e.target.checked }))}
+                      />
+                      {remoteLabel(policy)}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+          </div>
 
           <div className="form-actions">
             <button type="submit" className="primary" disabled={saving}>

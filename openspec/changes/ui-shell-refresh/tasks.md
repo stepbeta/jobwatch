@@ -31,11 +31,11 @@
 
 ## 5. Settings page
 
-- [ ] 5.1 Rename the route and sidebar label to Settings (`#/settings`) and update the page heading; remove the old `search-profile` route and label. Verify the route test and the sidebar link.
-- [ ] 5.2 Split the editor into Profile, Title terms, Location terms, Description and Remote tabs while keeping one form state and one Save. Verify switching tabs preserves edits.
-- [ ] 5.3 Write the active tab to the URL as `tab=<id>` and restore it on load. Verify reload and direct-link tests.
-- [ ] 5.4 Map validation errors to tabs and switch to the first offending tab on save; mark tabs with errors. Verify hidden-tab validation tests.
-- [ ] 5.5 Update `docs/USAGE.md` for the Settings page and tabs; verify the labels match the UI.
+- [x] 5.1 Rename the route and sidebar label to Settings (`#/settings`) and update the page heading; remove the old `search-profile` route and label. Verify the route test and the sidebar link.
+- [x] 5.2 Split the editor into Profile, Title terms, Location terms, Description and Remote tabs while keeping one form state and one Save. Verify switching tabs preserves edits.
+- [x] 5.3 Write the active tab to the URL as `tab=<id>` and restore it on load. Verify reload and direct-link tests.
+- [x] 5.4 Map validation errors to tabs and switch to the first offending tab on save; mark tabs with errors. Verify hidden-tab validation tests.
+- [x] 5.5 Update `docs/USAGE.md` for the Settings page and tabs; verify the labels match the UI.
 
 ## 6. Integration and release notes
 

@@ -265,19 +265,22 @@ dashboard. Optionally trigger via `jobwatch scan`.
 
 Local-only dashboard. Sections:
 
-- **Top bar**: navigation only (Dashboard, Offers, Sources, Incomplete
-  with a pending count). Scan actions live on the Sources page and in the
-  dashboard Applications section.
+- **Header and sidebar**: a full-width header carries the brand mark, the
+  System/Light/Dark theme control and the page controls; the left sidebar
+  navigates to Dashboard, Offers, Sources, Incomplete with a pending
+  count, Interview prep and Settings. Scan actions live on the Sources
+  page and in the dashboard Applications section. At `max-width: 900px`
+  the sidebar becomes a horizontal scrollable row.
 - **Dashboard** (`#/`): the Applications section — all offers whose
   application state is neither `none` nor `saved`, sorted by most recent
   timeline activity ("where did I send my CV") — with a Refresh button
   scoped to the enabled sources behind the currently visible
   applications; and the Saved section — every offer in the `saved`
-  application state, sorted by most recent save. Both sections offer a
-  listing filter (`all` / `active only`); Applications also offers an
-  application filter (`all` / `hide negative`). The choices persist in the
-  dashboard hash query as `listing=active` and
-  `application=hide_negative`.
+  application state, sorted by most recent save. Both sections show
+  offers regardless of listing state. Applications has one default-off
+  **Hide closed applications** toggle that hides `negative` offers while
+  keeping `accepted` and `turned_down`; the choice persists in the
+  dashboard hash query as `closed=1`.
 - **Offers** (`#/offers`): filterable/sortable table. Filters on
   `application_state`, `offer_state`, `remote_policy`,
   `title_confidence`, `location_confidence`, a searchable company
@@ -319,6 +322,18 @@ Local-only dashboard. Sections:
   selection for sequential bulk refresh/delete, per-source icon actions,
   company links, header "Refresh all", and add/edit in a modal (config
   form adapts to source_type).
+- **Settings** (`#/settings`): the default search profile editor in five
+  tabs — Profile (name, labels, 3/5 bucket scale), Title terms, Location
+  terms, Description and Remote. One form state and one Save span every
+  tab; switching preserves edits and the active tab is `tab=<id>` in the
+  URL. Validation opens the first offending tab and marks every invalid
+  tab.
+- **Browser identity**: list pages title the document as
+  `<page> — JobWatch`; offer detail uses
+  `<offer title> — <company> · JobWatch` and company detail uses
+  `<company> — JobWatch`. The application state never appears in the
+  title. An open offer adds a coloured state badge to the favicon; leaving
+  the page restores the default brand mark.
 
 Design goals: dense, fast, keyboard-friendly; no framework ceremony —
 plain React + a lightweight table component is fine.
@@ -532,3 +547,10 @@ plain React + a lightweight table component is fine.
   gone. Event-driven transitions and automatic ghosting are specified by
   the `application-lifecycle` capability delta and documented in
   `docs/API.md` and `docs/USAGE.md`.
+- 2026-11-26 (OpenSpec change `ui-shell-refresh`): the SPA shell is a
+  full-width header plus sidebar, with System/Light/Dark theme selection,
+  per-page document titles, an application-state favicon and a brand mark.
+  The dashboard listing filter is gone and Applications has a default-off
+  `closed=1` hide-closed toggle. The profile editor moved to `#/settings`
+  with five URL-restored tabs and tab-mapped validation. Behavior is
+  specified by the change's deltas until archiving replaces section 9.

@@ -11,7 +11,7 @@ export type Section =
   | 'incomplete'
   | 'sources'
   | 'interviewPrep'
-  | 'profile'
+  | 'settings'
 
 export function activeSection(route: Route): Section | null {
   switch (route.name) {
@@ -27,8 +27,8 @@ export function activeSection(route: Route): Section | null {
       return 'sources'
     case 'interviewPrep':
       return 'interviewPrep'
-    case 'profile':
-      return 'profile'
+    case 'settings':
+      return 'settings'
     default:
       return null
   }
@@ -46,7 +46,7 @@ const NAV_ITEMS: NavItem[] = [
   { section: 'incomplete', href: '#/incomplete', label: 'Incomplete' },
   { section: 'sources', href: '#/sources', label: 'Sources' },
   { section: 'interviewPrep', href: '#/interview-prep', label: 'Interview prep' },
-  { section: 'profile', href: '#/search-profile', label: 'Settings' },
+  { section: 'settings', href: '#/settings', label: 'Settings' },
 ]
 
 export function Shell({

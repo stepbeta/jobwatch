@@ -12,7 +12,7 @@ const cases: { route: Route; active: string | null }[] = [
   { route: { name: 'incomplete' }, active: 'Incomplete' },
   { route: { name: 'sources' }, active: 'Sources' },
   { route: { name: 'interviewPrep' }, active: 'Interview prep' },
-  { route: { name: 'profile' }, active: 'Settings' },
+  { route: { name: 'settings' }, active: 'Settings' },
   { route: { name: 'notfound' }, active: null },
 ]
 
@@ -67,7 +67,7 @@ describe('Shell', () => {
       '#/incomplete',
       '#/sources',
       '#/interview-prep',
-      '#/search-profile',
+      '#/settings',
     ])
   })
 

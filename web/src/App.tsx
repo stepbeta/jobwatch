@@ -7,7 +7,7 @@ import { IncompletePage } from './pages/IncompletePage'
 import { InterviewPrepPage } from './pages/InterviewPrepPage'
 import { OfferPage } from './pages/OfferPage'
 import { OffersPage } from './pages/OffersPage'
-import { SearchProfilePage } from './pages/SearchProfilePage'
+import { SettingsPage } from './pages/SettingsPage'
 import { SourcesPage } from './pages/SourcesPage'
 import { useRoute } from './router'
 import { routeTitle, useDocumentTitle } from './title'
@@ -151,7 +151,7 @@ export default function App() {
         )}
         {route.name === 'offer' && <OfferPage id={route.id} onNotice={notify} />}
         {route.name === 'interviewPrep' && <InterviewPrepPage onNotice={notify} />}
-        {route.name === 'profile' && <SearchProfilePage onNotice={notify} />}
+        {route.name === 'settings' && <SettingsPage onNotice={notify} />}
         {route.name === 'company' && <CompanyPage id={route.id} onNotice={notify} />}
         {route.name === 'notfound' && (
           <div className="page">

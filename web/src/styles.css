@@ -1931,8 +1931,64 @@ details.panel > summary {
   width: 100%;
 }
 
-.profile-advanced {
-  margin: 12px 0;
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 4px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+}
+
+.settings-tabs button:hover:not(:disabled) {
+  background: var(--panel-alt);
+  color: var(--text);
+}
+
+.settings-tabs button.active {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tab-error-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--red-bg);
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.settings-panel {
+  min-height: 120px;
+}
+
+@media (max-width: 900px) {
+  .settings-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .settings-tabs button {
+    white-space: nowrap;
+  }
 }
 
 .remote-choices {

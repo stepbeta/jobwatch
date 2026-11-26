@@ -30,7 +30,7 @@ export function routeTitle(route: Route): string | null {
       return pageTitle('Sources')
     case 'interviewPrep':
       return pageTitle('Interview prep')
-    case 'profile':
+    case 'settings':
       return pageTitle('Settings')
     case 'notfound':
       return pageTitle('Page not found')
