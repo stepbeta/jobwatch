@@ -6,6 +6,7 @@ import { OFFER_SORT_LABELS, OFFER_SORT_VALUES, OfferTable, defaultOfferSortOrder
 import { PageSizeSelect, isPageSize, toggleSort, useDebouncedValue, type SortOrder } from '../components/TableControls'
 import { fmtDateTime } from '../format'
 import { currentRouteQuery, enumParam, intParam, replaceRouteQuery } from '../router'
+import { companyDocumentTitle, useDocumentTitle } from '../title'
 import type { NoticeKind } from '../App'
 import type { CompanyCandidate, CompanyDetail, OfferList } from '../types'
 
@@ -89,6 +90,12 @@ export function CompanyPage({
   const [mergeBusy, setMergeBusy] = useState(false)
   const [mergeError, setMergeError] = useState('')
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
+
+  useDocumentTitle(
+    detail && detail.company.id === id
+      ? companyDocumentTitle(detail.company.name)
+      : 'Company — JobWatch',
+  )
 
   const load = useCallback(async () => {
     try {

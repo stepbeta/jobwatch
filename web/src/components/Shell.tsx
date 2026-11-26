@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { Route } from '../router'
+import { BrandMark } from './BrandMark'
 import { ThemeControl } from './ThemeControl'
 
 // Section identifies the sidebar entry a route belongs to. Detail pages
@@ -62,7 +63,8 @@ export function Shell({
     <>
       <header className="app-header">
         <a className="brand" href="#/">
-          JobWatch
+          <BrandMark />
+          <span>JobWatch</span>
         </a>
         <span className="spacer" />
         <div className="header-controls">

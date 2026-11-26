@@ -10,6 +10,7 @@ import { OffersPage } from './pages/OffersPage'
 import { SearchProfilePage } from './pages/SearchProfilePage'
 import { SourcesPage } from './pages/SourcesPage'
 import { useRoute } from './router'
+import { routeTitle, useDocumentTitle } from './title'
 import type { ScanResponse, Source } from './types'
 
 export type NoticeKind = 'info' | 'success' | 'error'
@@ -31,6 +32,7 @@ const toastTTL = 8000
 
 export default function App() {
   const route = useRoute()
+  useDocumentTitle(routeTitle(route))
   const [sources, setSources] = useState<Source[]>([])
   const [loadError, setLoadError] = useState('')
   const [toasts, setToasts] = useState<Toast[]>([])

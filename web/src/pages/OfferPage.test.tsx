@@ -348,8 +348,7 @@ describe('OfferPage header and description editor', () => {
 })
 
 describe('OfferPage classification signals', () => {
-  it('shows title and location affinity with term reasons and the remote badge', async () => {
-    const base = makeDetail()
+  it('shows title and location affinity with term reasons and the remote badge', async () => {    const base = makeDetail()
     vi.mocked(api.getOffer).mockResolvedValue({
       ...base,
       offer: {
@@ -379,5 +378,70 @@ describe('OfferPage classification signals', () => {
     renderPage()
 
     expect(await screen.findByTitle(/Hybrid — not accepted/)).toBeTruthy()
+  })
+})
+
+describe('OfferPage browser identity', () => {
+  it('titles the page with the offer and company but never the state', async () => {
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'Site Reliability Engineer' })
+    await waitFor(() =>
+      expect(document.title).toBe('Site Reliability Engineer — Acme · JobWatch'),
+    )
+    expect(document.title).not.toContain('Applied')
+  })
+
+  it('uses the loading fallback title until the offer is known', () => {
+    vi.mocked(api.getOffer).mockReturnValue(new Promise(() => {}))
+    renderPage()
+
+    expect(document.title).toBe('Offer — JobWatch')
+  })
+
+  it('shows the state favicon and restores the default on unmount', async () => {
+    const base = makeDetail()
+    vi.mocked(api.getOffer).mockResolvedValue({
+      ...base,
+      offer: { ...base.offer, application_state: 'interview' },
+    })
+    const { unmount } = renderPage()
+
+    await screen.findByRole('heading', { name: 'Site Reliability Engineer' })
+    const link = document.querySelector('link[rel~="icon"]') as HTMLLinkElement
+    await waitFor(() =>
+      expect(decodeURIComponent(link.getAttribute('href') ?? '')).toContain('#d97706'),
+    )
+
+    unmount()
+    expect(link.getAttribute('href')).toBe('/favicon.svg')
+  })
+
+  it('updates the favicon when the application state changes', async () => {
+    const user = userEvent.setup()
+    const base = makeDetail()
+    vi.mocked(api.getOffer)
+      .mockResolvedValueOnce(base)
+      .mockResolvedValueOnce({
+        ...base,
+        offer: { ...base.offer, application_state: 'interview' },
+      })
+    vi.mocked(api.patchOffer).mockResolvedValue({ offer: base.offer })
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'Site Reliability Engineer' })
+    const link = document.querySelector('link[rel~="icon"]') as HTMLLinkElement
+    expect(link.getAttribute('href')).toMatch(/^data:image\/svg\+xml,/)
+
+    await user.selectOptions(screen.getByLabelText('Application'), 'interview')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(decodeURIComponent(link.getAttribute('href') ?? '')).toContain('#d97706'),
+    )
+    expect(api.patchOffer).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ application_state: 'interview' }),
+    )
   })
 })

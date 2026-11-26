@@ -162,9 +162,16 @@ textarea {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text);
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+
+.brand svg {
+  flex: none;
 }
 
 .brand:hover {

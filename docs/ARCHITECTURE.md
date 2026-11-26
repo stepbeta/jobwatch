@@ -399,8 +399,11 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 
 | Path | Content |
 |---|---|
-| `App.tsx` | application shell wiring, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
-| `components/Shell.tsx` | persistent full-width header (brand and right-aligned controls) plus left sidebar navigation; maps the current route to the active section and renders the Incomplete pending count |
+| `App.tsx` | application shell wiring, document title for list routes, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
+| `components/Shell.tsx` | persistent full-width header (brand mark and right-aligned controls) plus left sidebar navigation; maps the current route to the active section and renders the Incomplete pending count |
+| `brand.ts`, `components/BrandMark.tsx` | shared watch-mark geometry; the header mark follows the active palette through CSS variables |
+| `title.ts` | route labels and `useDocumentTitle`; detail pages own their entity title |
+| `favicon.ts` | runtime SVG favicon with the application-state badges, plus the link writer and `useOfferFavicon` |
 | `router.ts` | hash routing (`#/`, `#/offers`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/search-profile`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with listing (`all`/`active only`) and application (`all`/`hide negative`) filters persisted in the hash query, a Refresh button that fans out over the enabled sources behind the visible applications, and a Saved section (`application_state=saved`, `sort=saved`) with the listing filter |
@@ -433,6 +436,18 @@ The header theme control (`components/ThemeControl.tsx`, state in
 pre-paint inline script that sets `data-theme` and `color-scheme`, so a
 reload never flashes the other palette. System is the default and follows
 `prefers-color-scheme`.
+
+Browser identity has one owner per surface. `title.ts` maps every list
+route to `<label> — JobWatch` and `App.tsx` applies it; `OfferPage` and
+`CompanyPage` own their detail titles (`<offer title> — <company> ·
+JobWatch` and `<company> — JobWatch`) and show `Offer — JobWatch` /
+`Company — JobWatch` until the entity loads. The application state never
+appears in the title. `favicon.ts` builds a data-URI SVG from the shared
+watch mark (`brand.ts`) plus the open offer's application-state badge;
+only `OfferPage` writes it, and its effect cleanup restores
+`public/favicon.svg` on unmount or state change. That static file is the
+no-JS default and is copied into `dist/` by Vite, so the embedded SPA
+serves it at `/favicon.svg`.
 
 The Search profile page (`#/search-profile`) edits the default profile
 through `GET`/`PUT /api/search-profiles`. Choosing a bucket sets a

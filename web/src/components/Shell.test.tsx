@@ -90,6 +90,7 @@ describe('Shell', () => {
 
     expect(container.querySelector('.app-header .header-controls')).toBeTruthy()
     expect(container.querySelector('.app-header .brand')?.textContent).toBe('JobWatch')
+    expect(container.querySelector('.app-header .brand svg')).toBeTruthy()
     expect(within(screen.getByRole('navigation')).getAllByRole('link')).toHaveLength(6)
   })
 

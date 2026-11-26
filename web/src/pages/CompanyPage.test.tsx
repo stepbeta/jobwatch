@@ -117,8 +117,23 @@ describe('CompanyPage header layout', () => {
   })
 })
 
-describe('CompanyPage offers table', () => {
-  it('loads offers server-side with the company filter and restores URL controls', async () => {
+describe('CompanyPage browser identity', () => {
+  it('titles the page with the loaded company name', async () => {
+    render(<CompanyPage id={5} onNotice={vi.fn()} />)
+
+    await screen.findByRole('heading', { name: 'Acme' })
+    await waitFor(() => expect(document.title).toBe('Acme — JobWatch'))
+  })
+
+  it('uses the loading fallback title until the company is known', () => {
+    vi.mocked(api.getCompany).mockReturnValue(new Promise(() => {}))
+    render(<CompanyPage id={5} onNotice={vi.fn()} />)
+
+    expect(document.title).toBe('Company — JobWatch')
+  })
+})
+
+describe('CompanyPage offers table', () => {  it('loads offers server-side with the company filter and restores URL controls', async () => {
     window.location.hash = '#/companies/5?q=sre&sort=title&order=asc&page=2&per_page=20'
     render(<CompanyPage id={5} onNotice={vi.fn()} />)
 

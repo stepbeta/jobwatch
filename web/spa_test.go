@@ -12,6 +12,7 @@ func testFS() fs.FS {
 	return fstest.MapFS{
 		"index.html":    {Data: []byte("<html>index</html>")},
 		"assets/app.js": {Data: []byte("console.log(1)")},
+		"favicon.svg":   {Data: []byte("<svg></svg>")},
 	}
 }
 
@@ -27,6 +28,7 @@ func TestSPAHandler(t *testing.T) {
 	}{
 		{"index", "GET", "/", 200, "<html>index</html>", "no-cache"},
 		{"asset", "GET", "/assets/app.js", 200, "console.log(1)", "public, max-age=31536000, immutable"},
+		{"favicon", "GET", "/favicon.svg", 200, "<svg></svg>", "no-cache"},
 		{"client route falls back to index", "GET", "/offers/1", 200, "<html>index</html>", "no-cache"},
 		{"unknown file falls back to index", "GET", "/missing.txt", 200, "<html>index</html>", "no-cache"},
 	}

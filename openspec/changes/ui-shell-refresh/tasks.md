@@ -16,11 +16,11 @@
 
 ## 3. Browser identity
 
-- [ ] 3.1 Add `web/public/favicon.svg` and the `<link rel="icon">` default, and add the brand mark to the header beside the JobWatch name. Verify the icon is served by the embedded SPA and renders at 16px in both palettes.
-- [ ] 3.2 Add a document-title hook and route labels: `Dashboard — JobWatch`, `Offers — JobWatch`, `Incomplete — JobWatch`, `Sources — JobWatch`, `Interview prep — JobWatch`, `Settings — JobWatch`, `Page not found — JobWatch`. Verify with tests.
-- [ ] 3.3 Use the loaded data for detail titles: `<offer title> — <company> · JobWatch` and `<company> — JobWatch`, with loading fallbacks, and never include the application state. Verify with tests.
-- [ ] 3.4 Add the runtime SVG favicon module with the base mark and the eight application-state badges, and wire it to the open offer; restore the default on unmount and on state change. Verify with tests for the state map, the live update, and the reset.
-- [ ] 3.5 Update `docs/ARCHITECTURE.md` for the title and favicon ownership; verify the described owner matches the implementation.
+- [x] 3.1 Add `web/public/favicon.svg` and the `<link rel="icon">` default, and add the brand mark to the header beside the JobWatch name. Verify the icon is served by the embedded SPA and renders at 16px in both palettes.
+- [x] 3.2 Add a document-title hook and route labels: `Dashboard — JobWatch`, `Offers — JobWatch`, `Incomplete — JobWatch`, `Sources — JobWatch`, `Interview prep — JobWatch`, `Settings — JobWatch`, `Page not found — JobWatch`. Verify with tests.
+- [x] 3.3 Use the loaded data for detail titles: `<offer title> — <company> · JobWatch` and `<company> — JobWatch`, with loading fallbacks, and never include the application state. Verify with tests.
+- [x] 3.4 Add the runtime SVG favicon module with the base mark and the eight application-state badges, and wire it to the open offer; restore the default on unmount and on state change. Verify with tests for the state map, the live update, and the reset.
+- [x] 3.5 Update `docs/ARCHITECTURE.md` for the title and favicon ownership; verify the described owner matches the implementation.
 
 ## 4. Dashboard filters
 
