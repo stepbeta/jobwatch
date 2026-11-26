@@ -474,6 +474,13 @@ export function OfferPage({
     setUploadFile(file ? { name: file.name, size: file.size } : null)
   }
 
+  // Clearing resets the input value too, so choosing the same file again
+  // still fires a change event.
+  function clearUploadFile() {
+    if (uploadInput.current) uploadInput.current.value = ''
+    setUploadFile(null)
+  }
+
   function detachDocument(a: Attachment) {
     setConfirm({
       title: 'Detach document',
@@ -893,7 +900,7 @@ export function OfferPage({
                 ))}
               </select>
             </label>
-            <label className="file-picker">
+            <label className={`file-picker${uploadFile ? ' file-picker-chosen' : ''}`}>
               <input
                 ref={uploadInput}
                 type="file"
@@ -901,10 +908,30 @@ export function OfferPage({
                 aria-label="PDF file"
                 onChange={chooseUploadFile}
               />
-              <span className="file-picker-button">Choose PDF…</span>
-              <span className="file-picker-name" aria-live="polite">
-                {uploadFile ? `${uploadFile.name} · ${fmtBytes(uploadFile.size)}` : 'No file chosen'}
-              </span>
+              {!uploadFile && <span className="file-picker-button">Choose PDF…</span>}
+              {uploadFile && (
+                <span className="file-chip" aria-live="polite" title={uploadFile.name}>
+                  <span className="file-chip-name">{uploadFile.name}</span>
+                  <span className="file-chip-size">
+                    {fmtBytes(uploadFile.size)}
+                  </span>
+                </span>
+              )}
+              {uploadFile && (
+                <button
+                  type="button"
+                  className="file-chip-remove"
+                  aria-label="Remove chosen file"
+                  title="Remove chosen file"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    clearUploadFile()
+                  }}
+                >
+                  ×
+                </button>
+              )}
             </label>
             <button type="submit" className="primary" disabled={uploading || !uploadFile}>
               {uploading ? 'Uploading…' : 'Upload'}

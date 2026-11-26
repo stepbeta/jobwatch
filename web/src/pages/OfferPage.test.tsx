@@ -488,19 +488,28 @@ describe('OfferPage documents', () => {
     expect(screen.queryByRole('button', { name: 'Detach' })).toBeNull()
   })
 
-  it('enables the upload action only once a PDF is chosen', async () => {
+  it('enables the upload action only once a PDF is chosen, and can clear the choice', async () => {
     const user = userEvent.setup()
     renderPage()
 
     const upload = (await screen.findByRole('button', { name: 'Upload' })) as HTMLButtonElement
     expect(upload.disabled).toBe(true)
-    expect(screen.getByText('No file chosen')).toBeTruthy()
+    expect(screen.getByText('Choose PDF…')).toBeTruthy()
 
     const file = new File(['%PDF-1.7\n'], 'letter.pdf', { type: 'application/pdf' })
     await user.upload(screen.getByLabelText('PDF file') as HTMLInputElement, file)
 
     expect(upload.disabled).toBe(false)
-    expect(screen.getByText(/letter\.pdf/)).toBeTruthy()
+    const chip = screen.getByText('letter.pdf').closest('.file-chip') as HTMLElement
+    expect(chip).toBeTruthy()
+    expect(within(chip).getByText('9 B')).toBeTruthy()
+    // The chooser button is replaced by the chip.
+    expect(screen.queryByText('Choose PDF…')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Remove chosen file' }))
+    expect(upload.disabled).toBe(true)
+    expect(screen.queryByText('letter.pdf')).toBeNull()
+    expect(screen.getByText('Choose PDF…')).toBeTruthy()
   })
 
   it('reveals the upload row through Add another when documents exist', async () => {

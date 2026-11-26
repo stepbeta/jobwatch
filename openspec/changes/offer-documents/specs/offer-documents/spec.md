@@ -151,8 +151,9 @@ attached.
 The upload control SHALL place the kind selector and the file picker on one
 compact row, with the upload action beside them. The upload action MUST stay
 disabled until a file has been chosen, so an empty submission can never be sent.
-When the offer already has a document, the row SHALL be revealed by an "Add
-another" control instead of being shown by default.
+A chosen file SHALL be shown as a chip naming it, with a control that clears the
+choice. When the offer already has a document, the row SHALL be revealed by an
+"Add another" control instead of being shown by default.
 
 #### Scenario: Upload disabled before a file is chosen
 
@@ -163,6 +164,16 @@ another" control instead of being shown by default.
 
 - **WHEN** the user chooses a PDF
 - **THEN** the upload action becomes enabled and shows the chosen filename
+
+#### Scenario: A wrong pick can be removed
+
+- **WHEN** the user activates the chosen file chip's remove control
+- **THEN** the picker returns to its initial state and the upload action is disabled again
+
+#### Scenario: The same file can be chosen again
+
+- **WHEN** the user removes a chosen file and selects the same file again
+- **THEN** the chip shows it and the upload action is enabled
 
 #### Scenario: Add another reveals the row
 

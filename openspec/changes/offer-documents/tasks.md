@@ -32,6 +32,7 @@
 - [x] 5.2 Add the date help text that separates the PDF's own dates from the first upload time and this offer's attach time, and verify a test asserts all three labels render and that no browser modification time is displayed
 - [x] 5.3 Compact the upload control: kind selector and file picker on one row, a styled picker showing the chosen filename, the upload action disabled until a file is chosen, and an `Add another` entry point once the offer has documents; verify tests cover the disabled state, the enabled state after choosing, and `Add another` revealing the row
 - [x] 5.4 Add kind filter chips with file counts on the offer page, hidden when only one kind is present; verify a test filters a two-CV/one-cover-letter offer down to the CVs and that the default shows everything
+- [x] 5.5 Replace the chosen file's button with a removable filename chip; verify a test clears the choice, sees the upload action disabled again, and can choose the same file a second time
 
 ## 6. Documents page
 

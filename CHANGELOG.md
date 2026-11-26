@@ -27,9 +27,10 @@
 
 #### Changed
 - The offer page's upload control is a single compact row: kind selector,
-  styled `Choose PDF…` picker showing the chosen filename and size, and an
-  `Upload` action that stays disabled until a file is chosen. With
-  documents already attached, the row is revealed by `+ Add another`.
+  a styled `Choose PDF…` picker that turns into a chip naming the chosen
+  file (with a remove control), and an `Upload` action that stays disabled
+  until a file is chosen. With documents already attached, the row is
+  revealed by `+ Add another`.
 - Documents are grouped by kind: the offer page and the Documents page
   show filter chips with counts when more than one kind is present. On the
   Documents page a chip counts distinct files whose references carry that

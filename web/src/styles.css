@@ -1069,13 +1069,49 @@ details.panel > summary {
   outline-offset: 1px;
 }
 
-.file-picker-name {
-  color: var(--muted);
+.file-picker:focus-within .file-chip {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Once a file is chosen the button is replaced by a chip naming it, with a
+   remove control so a wrong pick can be undone before uploading. */
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 30ch;
+  padding: 1px 4px 1px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-alt, var(--panel));
   font-size: 12px;
-  max-width: 22ch;
+}
+
+.file-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-chip-size {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.file-chip-remove {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.file-chip-remove:hover:not(:disabled) {
+  color: var(--text, inherit);
+  border: none;
 }
 
 .documents-meta {
