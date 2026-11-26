@@ -146,6 +146,79 @@ attached.
 - **WHEN** the user detaches a document and confirms
 - **THEN** it disappears from the offer and the rest of the page is unchanged
 
+### Requirement: Upload requires a chosen file
+
+The upload control SHALL place the kind selector and the file picker on one
+compact row, with the upload action beside them. The upload action MUST stay
+disabled until a file has been chosen, so an empty submission can never be sent.
+When the offer already has a document, the row SHALL be revealed by an "Add
+another" control instead of being shown by default.
+
+#### Scenario: Upload disabled before a file is chosen
+
+- **WHEN** the upload row is open and no file is selected
+- **THEN** the upload action is disabled
+
+#### Scenario: Upload enabled after choosing a file
+
+- **WHEN** the user chooses a PDF
+- **THEN** the upload action becomes enabled and shows the chosen filename
+
+#### Scenario: Add another reveals the row
+
+- **WHEN** the offer already has a document and the user activates "Add another"
+- **THEN** the upload row appears once
+
+#### Scenario: First upload needs no extra click
+
+- **WHEN** the offer has no document
+- **THEN** the upload row is open without activating "Add another"
+
+### Requirement: Kind filters on the offer page
+
+When an offer holds documents of more than one kind, the offer page SHALL offer
+kind filters with a count of files per kind, unfiltered by default. Selecting a
+kind SHALL list only that kind's attachments. The filter row MUST be hidden when
+only one kind is present.
+
+#### Scenario: Offer page shows the CVs
+
+- **WHEN** an offer has two CVs and one cover letter and the user selects CV
+- **THEN** only the two CVs are listed
+
+#### Scenario: Single kind needs no filter
+
+- **WHEN** every document attached to the offer has the same kind
+- **THEN** no filter row is shown
+
+#### Scenario: Default shows everything
+
+- **WHEN** the offer page opens
+- **THEN** every attached document is visible
+
+### Requirement: Kind filters on the documents overview
+
+When stored files cover more than one kind, the Documents page SHALL offer kind
+filters whose counts are distinct files, unfiltered by default. A filter SHALL
+select the files referenced at least once with that kind, so a file used with
+two kinds appears under both. The filter row MUST be hidden when only one kind is
+present.
+
+#### Scenario: Documents page counts distinct files
+
+- **WHEN** one file is attached to three offers and another file to one offer
+- **THEN** the file filters show two distinct files, not the attachment count
+
+#### Scenario: A mixed file is reachable from both kinds
+
+- **WHEN** a stored file is referenced as `cv` by one offer and as `cover_letter` by another
+- **THEN** selecting either kind lists that file
+
+#### Scenario: Overview defaults to every file
+
+- **WHEN** the Documents page opens
+- **THEN** every stored file is visible
+
 ### Requirement: Dates are labelled without ambiguity
 
 The user interface SHALL present three distinct times under labels that cannot

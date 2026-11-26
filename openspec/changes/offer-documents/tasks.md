@@ -30,11 +30,14 @@
 
 - [x] 5.1 Add the documents section to `web/src/pages/OfferPage.tsx` (list with kind badge, filename, size, pages, dates, download, detach with confirmation, upload form with kind select) and verify `OfferPage.test.tsx` covers empty state, two documents, upload, and detach
 - [x] 5.2 Add the date help text that separates the PDF's own dates from the first upload time and this offer's attach time, and verify a test asserts all three labels render and that no browser modification time is displayed
+- [x] 5.3 Compact the upload control: kind selector and file picker on one row, a styled picker showing the chosen filename, the upload action disabled until a file is chosen, and an `Add another` entry point once the offer has documents; verify tests cover the disabled state, the enabled state after choosing, and `Add another` revealing the row
+- [x] 5.4 Add kind filter chips with file counts on the offer page, hidden when only one kind is present; verify a test filters a two-CV/one-cover-letter offer down to the CVs and that the default shows everything
 
 ## 6. Documents page
 
 - [x] 6.1 Add `DocumentsPage.tsx`, the `documents` route in `router.ts` and the sidebar entry, with title `Documents — JobWatch`; verify `router.test.ts`, a page test for one-row-per-file with multiple offers and the unknown-metadata placeholders, and a sidebar active-section assertion
 - [x] 6.2 Verify the page exposes no upload, rename or delete action (absence assertion in the page test) and that each row downloads and links to its offers
+- [x] 6.3 Add kind filter chips with counts of distinct files, where a file used with two kinds appears under both; verify a test proves the mixed-file behavior, that counts are files rather than attachments, and that the row is hidden for a single kind
 
 ## 7. Integration and project documentation
 
