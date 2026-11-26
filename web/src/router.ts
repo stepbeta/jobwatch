@@ -5,6 +5,7 @@ export type Route =
   | { name: 'offers' }
   | { name: 'incomplete' }
   | { name: 'sources' }
+  | { name: 'documents' }
   | { name: 'interviewPrep' }
   | { name: 'settings' }
   | { name: 'offer'; id: number }
@@ -18,6 +19,7 @@ export function parseRoute(hash: string): Route {
   if (parts.length === 0) return { name: 'dashboard' }
   if (parts[0] === 'offers' && parts.length === 1) return { name: 'offers' }
   if (parts[0] === 'sources' && parts.length === 1) return { name: 'sources' }
+  if (parts[0] === 'documents' && parts.length === 1) return { name: 'documents' }
   if (parts[0] === 'incomplete' && parts.length === 1) return { name: 'incomplete' }
   if (parts[0] === 'interview-prep' && parts.length === 1) return { name: 'interviewPrep' }
   if (parts[0] === 'settings' && parts.length === 1) return { name: 'settings' }

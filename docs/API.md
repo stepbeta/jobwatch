@@ -44,6 +44,7 @@ the project overview is the [README](../README.md).
 | `remote_policy` | `remote` (labelled "Full remote" in the UI) `hybrid` `onsite` `unknown` |
 | profile `bucket_scale` | `three` (`positive` `neutral` `negative`) `five` (`strong_positive` `mild_positive` `neutral` `mild_negative` `strong_negative`) |
 | event `type` | `cv_sent` `message_received` `message_sent` `interview` `offer` `rejected` `ghosted` `other` |
+| attachment `kind` | `cv` `cover_letter` `other` |
 | snapshot `origin` | `scan` `manual` |
 | interview `answer_format` | `markdown` |
 | note `entity_type` | `offer` `company` |
@@ -311,6 +312,17 @@ returns `404 not_found`.
   "notes": [ { "id": 2, "entity_type": "offer", "entity_id": 7,
                "body": "...", "pinned_event_id": 4,
                "created_at": "...", "updated_at": "..." } ],
+  "attachments": [ {
+    "id": 3, "offer_id": 7, "sha256": "9f2c…", "kind": "cv",
+    "filename": "cv-2026.pdf", "size": 122880, "mime": "application/pdf",
+    "attached_at": "2026-11-20T10:00:00Z",
+    "first_uploaded_at": "2026-10-02T09:00:00Z",
+    "pdf": { "title": "Acme CV", "author": "Alice Martin",
+             "producer": "Test Producer 1.0",
+             "creation_date": "2026-10-02T08:30:00Z",
+             "modification_date": null, "page_count": 2, "version": "1.7" },
+    "download_url": "/api/offers/7/attachments/3/file"
+  } ],
   "snapshots": [
     { "id": 7, "origin": "scan",   "captured_at": "2026-11-10T09:00:00Z", "text_length": 812 },
     { "id": 8, "origin": "scan",   "captured_at": "2026-11-12T09:00:00Z", "text_length": 845 },
@@ -341,6 +353,13 @@ chronological order. For an incomplete offer with no company,
 `offer.company_id` and `company` are `null`. `404 not_found` for an
 unknown offer or a `snapshot_id` that does not belong to it; `400
 validation_failed` for a malformed `snapshot_id`.
+
+`attachments` is the offer's document list, oldest attachment first. Every
+entry has its own `attached_at` (when this offer got the file) and the
+blob's `first_uploaded_at` (when those bytes first entered JobWatch).
+`pdf` carries the file's intrinsic metadata; every field may be `null`
+(`page_count` and `version` included). `download_url` is the
+offer-scoped download route.
 
 ### GET /api/offers/:id/snapshot-diff
 
@@ -403,9 +422,10 @@ Explicitly merges offer `:id` **into** `into_id` after user confirmation.
 { "into_id": 12 }
 ```
 
-In one transaction: every provenance row, event, offer note and snapshot
-of `:id` moves to `into_id`; earliest `first_seen_at`/latest
-`last_seen_at` are kept; duplicate provenance URLs are collapsed; the
+In one transaction: every provenance row, event, offer note, snapshot and
+attachment of `:id` moves to `into_id`; earliest `first_seen_at`/latest
+`last_seen_at` are kept; duplicate provenance URLs are collapsed; a file
+both offers referenced stays once on the kept offer; the
 target adopts the source application state when it is still `none`, and
 a `saved` target yields to a real application carried by the absorbed
 offer; `saved_at` follows the resulting state. An active offer stays
@@ -417,7 +437,7 @@ moved.
   "offer": { "id": 12, "...": "..." },
   "merged_offer_id": 7,
   "moved_provenance": 2, "moved_events": 3,
-  "moved_notes": 1, "moved_snapshots": 4
+  "moved_notes": 1, "moved_snapshots": 4, "moved_attachments": 1
 }
 ```
 
@@ -482,6 +502,102 @@ later scans preserve the user's title and location.
 - `400 validation_failed` when `company_id`/`title` is missing or the
   offer is not incomplete.
 - `404 not_found` for an unknown offer or company.
+
+### POST /api/offers/:id/attachments
+
+Uploads one PDF as a document of the offer. The body is
+`multipart/form-data` with two parts:
+
+| Part | Required | Meaning |
+|---|---|---|
+| `file` | yes | the PDF bytes (at most 2 MiB). Only the content decides the type: it must start with `%PDF-` |
+| `kind` | yes | `cv`, `cover_letter` or `other` |
+
+The filename sent by the client is reduced to its basename (both `/` and
+`\` are treated as separators). The server computes the SHA-256 of the
+received bytes, stores one blob per distinct byte sequence and reuses an
+existing copy, so `first_uploaded_at` stays the original upload time. A
+PDF the offer already references is rejected and changes nothing.
+
+`201`:
+
+```json
+{ "attachment": {
+  "id": 3, "offer_id": 7, "sha256": "9f2c…", "kind": "cv",
+  "filename": "cv-2026.pdf", "size": 122880, "mime": "application/pdf",
+  "attached_at": "2026-11-26T22:00:00Z",
+  "first_uploaded_at": "2026-11-26T22:00:00Z",
+  "pdf": { "title": "Acme CV", "author": null, "producer": "…",
+           "creation_date": "…", "modification_date": null,
+           "page_count": 2, "version": "1.7" },
+  "download_url": "/api/offers/7/attachments/3/file"
+} }
+```
+
+Every `pdf` field is optional: a missing or unreadable information
+dictionary leaves it `null` and never fails the upload. Attaching a
+document creates no timeline event and does not change either state.
+
+Errors:
+
+- `400 unsupported_file_type` when the content does not start with `%PDF-`,
+  whatever the filename says.
+- `413 file_too_large` when the uploaded file exceeds 2 MiB. Nothing is
+  stored.
+- `400 validation_failed` when `file` is missing, `kind` is missing or not
+  one of the three values, or the multipart body is malformed.
+- `404 not_found` for an unknown offer.
+- `409 already_attached` when the offer already references those exact
+  bytes.
+
+### DELETE /api/offers/:id/attachments/:attachmentID
+
+`204`. Detaches the document from that offer. The stored content is
+deleted when no other offer references it; a shared file stays available.
+`404 not_found` when the attachment id is unknown or belongs to another
+offer.
+
+### GET /api/offers/:id/attachments/:attachmentID/file
+
+Streams the stored bytes as a download. The response is always
+`Content-Type: application/pdf`, `Content-Disposition: attachment;
+filename="<stored name>"` and `X-Content-Type-Options: nosniff`; nothing
+is rendered inline. `404 not_found` for an unknown attachment or an
+attachment of another offer.
+
+## Documents
+
+### GET /api/documents
+
+Read-only aggregate over the stored files: one entry per distinct byte
+sequence, newest first upload first. It is not a managed resource; uploads
+and detachments stay on the offer routes.
+
+```json
+{ "documents": [ {
+  "sha256": "9f2c…", "size": 122880, "mime": "application/pdf",
+  "first_uploaded_at": "2026-10-02T09:00:00Z",
+  "pdf": { "title": "Acme CV", "author": null, "producer": "…",
+           "creation_date": "…", "modification_date": null,
+           "page_count": 2, "version": "1.7" },
+  "download_url": "/api/documents/9f2c…/file",
+  "offers": [ {
+    "attachment_id": 3, "offer_id": 7, "offer_title": "Site Reliability Engineer",
+    "company_name": "Acme", "kind": "cv",
+    "attached_at": "2026-11-20T10:00:00Z"
+  } ]
+} ] }
+```
+
+A file referenced by three offers appears once, with three `offers`
+entries. A file whose last attachment is detached disappears from the
+list. `pdf` fields are `null` when unknown.
+
+### GET /api/documents/:sha256/file
+
+Streams a stored file by its content hash, with the same forced-download
+headers as the offer-scoped route. `404 not_found` when the hash is
+unknown or malformed.
 
 ## Search profiles
 
@@ -813,9 +929,12 @@ Any of `question`, `answer`, `category`, `display_order`.
 | 400 | `invalid_id` | path ID is not a positive integer |
 | 400 | `validation_failed` | missing/invalid field, empty patch, self-merge |
 | 400 | `invalid_query` | invalid FTS5 search expression |
+| 400 | `unsupported_file_type` | an attachment upload does not start with the PDF header |
+| 413 | `file_too_large` | an attachment upload exceeds 2 MiB |
 | 422 | `metadata_incomplete` | URL import fetched the page but needs company/title from the user; response includes `metadata` |
 | 422 | `metadata_unavailable` | URL import could not fetch or parse the page; response includes `metadata` |
-| 404 | `not_found` | unknown endpoint, entity or child entity |
+| 404 | `not_found` | unknown endpoint, entity, child entity or document |
 | 409 | `duplicate_source` | another source uses the URL |
 | 409 | `company_has_offers` | deleting a company that still owns offers |
+| 409 | `already_attached` | the offer already references those exact document bytes |
 | 500 | `internal` | unexpected storage error |

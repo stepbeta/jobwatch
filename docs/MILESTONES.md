@@ -31,8 +31,13 @@ section/entry drag-and-drop, the redesigned answer dialog and a slightly
 larger base font. Milestone 10a adds the Welcome to the Jungle company
 page adapter and seeds the Fabriq source. Milestone 11 adds shared table
 controls, the sources bulk workflow, the two-column offer header and the
-root Makefile. Open items and deliberate limitations remain in the
-known-gaps table below.
+root Makefile. The OpenSpec change `offer-documents` is implemented: an
+offer can store its CV, cover letter and other PDFs (2 MiB each) inside
+the database, every file is deduplicated by content hash, the offer page
+labels the PDF's own dates apart from the upload and attach times, and a
+read-only Documents page lists each stored file with the offers that use
+it. Open items and deliberate limitations remain in the known-gaps table
+below.
 
 ## Classification profiles — DONE
 
@@ -955,6 +960,45 @@ Done criteria (all met):
 | Company-page offers default to 20 rows; Offers keeps 50 and Sources uses 20 | the company panel previously showed every offer and had no page size; 20 keeps it compact, while Offers preserves the existing default |
 | Company-page offers reuse the `offers.perPage` row size only through its own `companyOffers.perPage` key | the company panel is a different table and its per-page choice should not silently change the full Offers page |
 
+## Offer documents — DONE
+
+OpenSpec change `offer-documents`, implemented in task groups 1-7.
+
+Done criteria:
+
+- [x] Migration `0018_offer_documents.sql` adds `attachment_blobs` and
+      `offer_attachments`; every existing row count is unchanged.
+- [x] PDF bytes live in SQLite and are deduplicated by a server-computed
+      SHA-256; detach deletes a blob only after its last reference, and
+      `jobwatch backup` carries every document.
+- [x] Upload accepts only content beginning with `%PDF-`, caps the file at
+      2 MiB, requires a valid kind and stores the client's basename.
+- [x] `internal/pdfmeta` extracts title, author, producer, creation and
+      modification date, page count and PDF version best-effort; no parse
+      failure can reject an upload.
+- [x] Offer detail embeds the document list and serves byte-identical
+      downloads with `Content-Disposition: attachment` and `nosniff`.
+- [x] The offer page uploads, lists, downloads and detaches documents and
+      labels the PDF's own dates apart from the JobWatch upload and attach
+      times.
+- [x] The read-only Documents page (`#/documents`) lists each stored file
+      once with its referencing offers, and the sidebar marks it active.
+- [x] Offer merge moves attachments, collapses a duplicate file/offer pair
+      and keeps every referenced blob.
+- [x] `go build ./...`, `go vet ./...`, `go test ./...` and the frontend
+      suite pass; a manual smoke test on a backup copy covered upload,
+      both download routes, shared content, detach and `/documents`.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| Only PDFs are accepted, with a 2 MiB hard cap | the feature exists to keep the exact CV/cover letter sent; a magic-byte check makes the stored media type a fact, and the cap bounds database and backup growth |
+| Deduplication is exact bytes, not normalized content | two exports of the same CV are genuinely different documents; normalization could hide the version actually sent |
+| The PDF's information dictionary is read with a small in-repo scanner instead of a PDF library | no new dependency, and the fields are presentational; PDFs hiding `/Info` in a compressed object stream report unknown metadata |
+| Browser file modification time is not stored | it is a claim about the local disk, unrecoverable later, and the three meaningful dates already come from the PDF or JobWatch |
+| The Documents page is a read-only aggregate over blobs | attachment management already belongs to the offer page; a separate managed library entity would duplicate ownership |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -986,3 +1030,7 @@ Done criteria (all met):
 | Murena "Other positions" table is not tracked | §7 | By design. The second table has a different column layout; the engineering table is tracked |
 | No scheduled scans or notifications | §10 | Out of scope for v1 |
 | Empty-but-`ok` scan can ghost real applications | §5, §9 | Open risk. A parser regression that returns an empty successful scan marks offers `disappeared` and now also ghosts `applied`/`interview` ones (one `ghosted` event + `negative`). Mitigation: only successful scans trigger it and the user can restore the state; the event records what happened. No consecutive-empty-scan guard (explicitly out of scope) |
+| Documents are PDF-only and capped at 2 MiB | §9 | By design. The upload checks the `%PDF-` header and rejects anything else; DOCX, images and larger files are not stored. The cap bounds the database and every `VACUUM INTO` backup |
+| PDF metadata can be unknown | §9 | Open, by design. `/Info` values inside a compressed object stream are not decompressed, so title/author/dates/page count may be null while the file itself is stored and downloadable. The UI shows "Unknown" rather than guessing |
+| No document re-tagging, renaming or version history | §9 | By design. A document's kind/filename belong to one attachment; detaching and re-uploading is the way to change them. Two exports with different bytes are separate documents, which is the point of keeping the exact file sent |
+| Stored documents are not scanned for malware | §9 | By design for a local single-user tool. Downloads are always forced attachments with `nosniff` and never rendered inline |

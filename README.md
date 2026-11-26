@@ -10,7 +10,9 @@ deterministic and rule-based — there is no LLM in the scan loop — and
 offers, states, timeline events, notes and description versions all live
 in one SQLite file. The server binds to localhost, honors `robots.txt`,
 rate-limits each host, and ships as a single Go binary with the React UI
-embedded.
+embedded. The exact CV, cover letter and other PDFs sent with an
+application can be attached to the offer (2 MiB per file) and stay inside
+the same database.
 
 ## Requirements
 
@@ -95,7 +97,10 @@ choose another file.
    acceptance and both affinities.
 4. **Save and apply.** Set the offer's application state to `saved` to
    shortlist it, then move it to `applied` and keep its timeline events
-   and notes on the offer detail page.
+   and notes on the offer detail page. Attach the exact CV, cover letter
+   or other PDF (up to 2 MiB) so the version sent stays next to the
+   offer; downloads are byte-identical, and one `jobwatch backup` copy
+   carries every attached file.
 
 ```mermaid
 flowchart TD
@@ -144,13 +149,19 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
 - **Incomplete** (`#/incomplete`) — items a source could not normalize,
   with the item count, the reported values and a repair form that assigns
   a company and title while keeping the source link and history.
+- **Documents** (`#/documents`) — every stored PDF once, with its own
+  metadata, first upload time and the offers that reference it. The page
+  is read-only: upload and detach live on the offer page.
 - **Sources** — enable/disable switch, filters, scan status, selectable
   rows with bulk refresh/delete, icon row actions, Refresh all, and
   add/edit in a modal with type-dependent config fields.
 - **Offer detail** — two-column identity/provenance header with title and
   location affinity badges, the remote policy badge and its profile
-  acceptance, timeline, notes and a single-version description browser with
-  Scan/Manual origin and diffs.
+  acceptance, timeline, notes, a single-version description browser with
+  Scan/Manual origin and diffs, and a documents section: PDF upload
+  (2 MiB limit) with a `cv` / `cover_letter` / `other` kind, download,
+  detach after confirmation, and the PDF's own dates shown separately
+  from the JobWatch upload and attach times.
 - **Company detail** — identity and company notes in one two-column
   header, a searchable/sortable/paginated offers panel below, and an
   explicit possible-duplicate merge prompt.
@@ -187,8 +198,8 @@ Page-by-page behavior and the saved-state semantics are in
   [docs/API.md](docs/API.md). Errors use
   `{"error":{"code":"...","message":"..."}}`; `GET /api/health` is the
   liveness check.
-- **Backups** — a validated copy that is safe while `serve` runs:
-  [docs/USAGE.md](docs/USAGE.md#backups).
+- **Backups** — a validated copy that is safe while `serve` runs and
+  includes every attached PDF: [docs/USAGE.md](docs/USAGE.md#backups).
 - **Architecture and data model** — components, adapters, scan pipeline
   and tables: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
   [docs/DATA-MODEL.md](docs/DATA-MODEL.md).

@@ -61,6 +61,7 @@ function makeDetail(offer: Offer, sourceIDs: (number | null)[]): OfferDetail {
     })),
     events: [],
     notes: [],
+    attachments: [],
     snapshots: [],
     latest_snapshot: null,
     snapshot_diff: null,

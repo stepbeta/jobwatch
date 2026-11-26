@@ -61,6 +61,7 @@ internal/db/         sqlite setup, migrations runner, queries
 internal/sources/    Fetcher interface + per-type adapters
 internal/scan/       scan pipeline + manual import + classifier backfill (uses db + sources + classify)
 internal/importmeta/ URL job-page metadata extraction for manual import
+internal/pdfmeta/    best-effort PDF metadata extraction for offer documents
 internal/classify/   scoring engine + keyword tables
 internal/diff/       line diff for changed-offer snapshots
 internal/api/        REST handlers
@@ -174,6 +175,16 @@ moves one capability at a time.
 
 ## Working style
 
+- **Never work on `main`.** Every session creates a branch or a worktree
+  off `main` before its first edit; `main` only receives merged work, and
+  no branch stems from another unmerged branch. When a change genuinely
+  needs unmerged work, merge that work first. If a session opens on
+  `main`, stop and create a branch immediately.
+- **Name branches after the commit type.** A branch is prefixed with the
+  conventional commit type that describes its work — `feat/<name>` for a
+  new feature, `fix/<name>` for a correction, `chore/`, `docs/`,
+  `refactor/` or `test/` when they fit better — followed by a short
+  kebab-case name (for example `feat/offer-documents`).
 - Work in the order given by the user's current milestone prompt. Do
   not jump ahead to later milestones.
 - When a milestone prompt conflicts with this file, stop and ask the

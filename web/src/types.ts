@@ -96,6 +96,51 @@ export interface IncompleteRaw {
   external_uid?: string
 }
 
+export type AttachmentKind = 'cv' | 'cover_letter' | 'other'
+
+export interface PDFMetadata {
+  title: string | null
+  author: string | null
+  producer: string | null
+  creation_date: string | null
+  modification_date: string | null
+  page_count: number | null
+  version: string | null
+}
+
+export interface Attachment {
+  id: number
+  offer_id: number
+  sha256: string
+  kind: AttachmentKind
+  filename: string
+  size: number
+  mime: string
+  attached_at: string
+  first_uploaded_at: string
+  pdf: PDFMetadata
+  download_url: string
+}
+
+export interface DocumentReference {
+  attachment_id: number
+  offer_id: number
+  offer_title: string
+  company_name: string
+  kind: AttachmentKind
+  attached_at: string
+}
+
+export interface DocumentItem {
+  sha256: string
+  size: number
+  mime: string
+  first_uploaded_at: string
+  pdf: PDFMetadata
+  download_url: string
+  offers: DocumentReference[]
+}
+
 export type TermAffinity = 'title' | 'location' | 'description'
 
 export type TermBucket =
@@ -243,6 +288,7 @@ export interface OfferDetail {
   provenance: Provenance[]
   events: Event[]
   notes: Note[]
+  attachments: Attachment[]
   snapshots: SnapshotSummary[]
   latest_snapshot: Snapshot | null
   snapshot_diff: SnapshotDiff | null

@@ -343,6 +343,11 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	attachments, err := db.ListOfferAttachments(ctx, s.DB, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
 	snapCount, err := db.CountSnapshots(ctx, s.DB, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -400,6 +405,10 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 	for _, n := range notes {
 		notesOut = append(notesOut, noteToJSON(n))
 	}
+	attachmentsOut := make([]attachmentJSON, 0, len(attachments))
+	for _, a := range attachments {
+		attachmentsOut = append(attachmentsOut, attachmentToJSON(a))
+	}
 	offerOut := offerModelToJSON(o, companyName, profile)
 	offerOut.RawText = o.RawText
 	if len(events) > 0 {
@@ -412,6 +421,7 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request) {
 		"provenance":      provOut,
 		"events":          eventsOut,
 		"notes":           notesOut,
+		"attachments":     attachmentsOut,
 		"snapshots":       snapshotsOut,
 		"latest_snapshot": snapshot,
 		"snapshot_diff":   snapshotDiff,
@@ -696,12 +706,13 @@ func (s *Server) mergeOffer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"offer":            offerModelToJSON(res.Offer, companyName, profile),
-		"merged_offer_id":  res.MergedOfferID,
-		"moved_provenance": res.MovedProvenance,
-		"moved_events":     res.MovedEvents,
-		"moved_notes":      res.MovedNotes,
-		"moved_snapshots":  res.MovedSnapshots,
+		"offer":             offerModelToJSON(res.Offer, companyName, profile),
+		"merged_offer_id":   res.MergedOfferID,
+		"moved_provenance":  res.MovedProvenance,
+		"moved_events":      res.MovedEvents,
+		"moved_notes":       res.MovedNotes,
+		"moved_snapshots":   res.MovedSnapshots,
+		"moved_attachments": res.MovedAttachments,
 	})
 }
 

@@ -11,6 +11,7 @@ const cases: { route: Route; active: string | null }[] = [
   { route: { name: 'company', id: 3 }, active: 'Offers' },
   { route: { name: 'incomplete' }, active: 'Incomplete' },
   { route: { name: 'sources' }, active: 'Sources' },
+  { route: { name: 'documents' }, active: 'Documents' },
   { route: { name: 'interviewPrep' }, active: 'Interview prep' },
   { route: { name: 'settings' }, active: 'Settings' },
   { route: { name: 'notfound' }, active: null },
@@ -39,6 +40,7 @@ describe('Shell', () => {
         'Offers',
         'Incomplete',
         'Sources',
+        'Documents',
         'Interview prep',
         'Settings',
       ])
@@ -66,6 +68,7 @@ describe('Shell', () => {
       '#/offers',
       '#/incomplete',
       '#/sources',
+      '#/documents',
       '#/interview-prep',
       '#/settings',
     ])
@@ -91,7 +94,7 @@ describe('Shell', () => {
     expect(container.querySelector('.app-header .header-controls')).toBeTruthy()
     expect(container.querySelector('.app-header .brand')?.textContent).toBe('JobWatch')
     expect(container.querySelector('.app-header .brand svg')).toBeTruthy()
-    expect(within(screen.getByRole('navigation')).getAllByRole('link')).toHaveLength(6)
+    expect(within(screen.getByRole('navigation')).getAllByRole('link')).toHaveLength(7)
   })
 
   it('collapses the sidebar through the shared 900px breakpoint', () => {

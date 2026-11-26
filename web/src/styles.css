@@ -977,6 +977,201 @@ details.panel > summary {
   }
 }
 
+/* offer documents */
+.documents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.document {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+
+.document-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kind-badge {
+  display: inline-block;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-alt, var(--panel));
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.document-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--muted);
+}
+
+.document-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  border-top: 1px solid var(--border);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.document-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The native file input stays focusable but invisible; the label's button
+   is what the user sees, and the chosen file is announced politely. */
+.file-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.file-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.file-picker-button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 9px;
+  background: var(--panel);
+  white-space: nowrap;
+}
+
+.file-picker:hover .file-picker-button {
+  border-color: var(--accent);
+}
+
+.file-picker:focus-within .file-picker-button {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.file-picker:focus-within .file-chip {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Once a file is chosen the button is replaced by a chip naming it, with a
+   remove control so a wrong pick can be undone before uploading. */
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 30ch;
+  padding: 1px 4px 1px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-alt, var(--panel));
+  font-size: 12px;
+}
+
+.file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-chip-size {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.file-chip-remove {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.file-chip-remove:hover:not(:disabled) {
+  color: var(--text, inherit);
+  border: none;
+}
+
+.documents-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.kind-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 10px;
+}
+
+.kind-filter {
+  border-radius: 999px;
+  padding: 1px 10px;
+  font-size: 12px;
+}
+
+.kind-filter[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/* read-only documents aggregate */
+.documents-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.document-card h2 {
+  margin: 0;
+}
+
+.document-offers h3 {
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
+
+.document-offers ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.document-offers li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .offer-title {
   display: flex;
   flex-direction: column;

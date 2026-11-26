@@ -10,6 +10,7 @@ export type Section =
   | 'offers'
   | 'incomplete'
   | 'sources'
+  | 'documents'
   | 'interviewPrep'
   | 'settings'
 
@@ -25,6 +26,8 @@ export function activeSection(route: Route): Section | null {
       return 'incomplete'
     case 'sources':
       return 'sources'
+    case 'documents':
+      return 'documents'
     case 'interviewPrep':
       return 'interviewPrep'
     case 'settings':
@@ -45,6 +48,7 @@ const NAV_ITEMS: NavItem[] = [
   { section: 'offers', href: '#/offers', label: 'Offers' },
   { section: 'incomplete', href: '#/incomplete', label: 'Incomplete' },
   { section: 'sources', href: '#/sources', label: 'Sources' },
+  { section: 'documents', href: '#/documents', label: 'Documents' },
   { section: 'interviewPrep', href: '#/interview-prep', label: 'Interview prep' },
   { section: 'settings', href: '#/settings', label: 'Settings' },
 ]

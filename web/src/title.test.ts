@@ -14,6 +14,7 @@ describe('routeTitle', () => {
     [{ name: 'offers' }, 'Offers — JobWatch'],
     [{ name: 'incomplete' }, 'Incomplete — JobWatch'],
     [{ name: 'sources' }, 'Sources — JobWatch'],
+    [{ name: 'documents' }, 'Documents — JobWatch'],
     [{ name: 'interviewPrep' }, 'Interview prep — JobWatch'],
     [{ name: 'settings' }, 'Settings — JobWatch'],
     [{ name: 'notfound' }, 'Page not found — JobWatch'],
