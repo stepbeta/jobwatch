@@ -211,12 +211,13 @@ Built with React + TypeScript (Vite). The pages are:
 - **Dashboard** (`#/`) — the Applications section (offers whose
   application state is neither `none` nor `saved`, most recent timeline
   activity first) and the Saved section (offers in the `saved` application
-  state, most recently saved first). Both sections have a **Listing**
-  filter (`All` / `Active only`); Applications also has an **Application**
-  filter (`All` / `Hide negative`, which keeps `applied`, `interview`,
-  `offer`, `accepted` and `turned_down`). Filters live in the dashboard
-  hash query (`#/?listing=active&application=hide_negative`) and survive a
-  reload. Applications has a Refresh button that scans only the enabled
+  state, most recently saved first). Both sections show offers regardless
+  of listing state. Applications has one default-off **Hide closed
+  applications** toggle that hides `negative` offers while keeping
+  `applied`, `interview`, `offer`, `accepted` and `turned_down`. The
+  toggle lives in the dashboard hash query as `#/?closed=1` and survives a
+  reload; the old `listing` and `application` parameters are ignored.
+  Applications has a Refresh button that scans only the enabled
   sources behind the currently visible applications: hidden applications,
   sources with only `none` or `saved` offers, and manual imports
   (`source_id` NULL) contribute no source. The button fans out over the

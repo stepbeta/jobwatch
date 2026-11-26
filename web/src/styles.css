@@ -577,6 +577,13 @@ td.scores {
   color: var(--text);
 }
 
+.filters label.checkbox-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+
 .filters input,
 .filters select {
   min-width: 110px;

@@ -134,7 +134,8 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
 
 - **Dashboard** (`#/`) — Applications (offers with an application state
   other than `none` or `saved`, most recent timeline activity first) and
-  Saved (offers in the `saved` state).
+  Saved (offers in the `saved` state). A default-off **Hide closed
+  applications** toggle (`#/?closed=1`) hides `negative` applications.
 - **Offers** (`#/offers`) — the full filterable, sortable table with title
   and location affinity badges, a remote policy badge, a searchable
   company filter, persisted column picker, per-page selector, URL-restored

@@ -14,36 +14,21 @@ const applicationPageSize = 200
 // explicit set of states that remain visible.
 const HIDE_NEGATIVE_STATES = 'applied,interview,offer,accepted,turned_down'
 
-type ListingFilter = 'all' | 'active'
-type ApplicationFilter = 'all' | 'hide_negative'
-
-interface DashboardFilters {
-  listing: ListingFilter
-  application: ApplicationFilter
+function readHideClosed(): boolean {
+  return currentRouteQuery().get('closed') === '1'
 }
 
-function readFilters(): DashboardFilters {
-  const params = currentRouteQuery()
-  return {
-    listing: params.get('listing') === 'active' ? 'active' : 'all',
-    application: params.get('application') === 'hide_negative' ? 'hide_negative' : 'all',
-  }
-}
-
-function writeFilters(filters: DashboardFilters): void {
+function writeHideClosed(hideClosed: boolean): void {
   const params = new URLSearchParams()
-  if (filters.listing === 'active') params.set('listing', 'active')
-  if (filters.application === 'hide_negative') params.set('application', 'hide_negative')
+  if (hideClosed) params.set('closed', '1')
   replaceRouteQuery(params)
 }
 
-function queryFor(filters: DashboardFilters): {
+function queryFor(hideClosed: boolean): {
   application_state?: string
-  offer_state?: string
 } {
   return {
-    application_state: filters.application === 'hide_negative' ? HIDE_NEGATIVE_STATES : undefined,
-    offer_state: filters.listing === 'active' ? 'active' : undefined,
+    application_state: hideClosed ? HIDE_NEGATIVE_STATES : undefined,
   }
 }
 
@@ -60,25 +45,23 @@ export function Dashboard({
   onScanBatch: (targets: Source[]) => Promise<BatchScanOutcome[]>
   scanning: boolean
 }) {
-  const [filters, setFilters] = useState<DashboardFilters>(readFilters)
+  const [hideClosed, setHideClosed] = useState<boolean>(readHideClosed)
   const [applications, setApplications] = useState<Offer[]>([])
   const [saved, setSaved] = useState<Offer[]>([])
   const [savedTotal, setSavedTotal] = useState(0)
   const [error, setError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
 
-  const filtersActive = filters.listing !== 'all' || filters.application !== 'all'
-
   useEffect(() => {
-    writeFilters(filters)
-  }, [filters])
+    writeHideClosed(hideClosed)
+  }, [hideClosed])
 
   useEffect(() => {
     let cancelled = false
     api
       .listOffers({
         has_application: true,
-        ...queryFor(filters),
+        ...queryFor(hideClosed),
         sort: 'recent_event',
         limit: 20,
       })
@@ -91,14 +74,13 @@ export function Dashboard({
     return () => {
       cancelled = true
     }
-  }, [refreshToken, filters])
+  }, [refreshToken, hideClosed])
 
   useEffect(() => {
     let cancelled = false
     api
       .listOffers({
         application_state: 'saved',
-        offer_state: filters.listing === 'active' ? 'active' : undefined,
         sort: 'saved',
         limit: 200,
       })
@@ -114,14 +96,14 @@ export function Dashboard({
     return () => {
       cancelled = true
     }
-  }, [refreshToken, filters.listing])
+  }, [refreshToken])
 
   // refreshApplications fans out over the existing per-source scan endpoint
   // for every enabled source that owns at least one visible application.
   async function refreshApplications() {
     setRefreshing(true)
     try {
-      const all = await fetchAllApplications(filters)
+      const all = await fetchAllApplications(hideClosed)
       const sourceIDs = new Set<number>()
       let manualLinks = 0
       await Promise.all(
@@ -138,8 +120,8 @@ export function Dashboard({
         onNotice(
           'info',
           all.length === 0
-            ? filtersActive
-              ? 'No applications match these filters.'
+            ? hideClosed
+              ? 'No applications match this filter.'
               : 'No applications to refresh yet.'
             : 'No enabled source is behind these applications; manual imports have no fetchable source.',
         )
@@ -152,22 +134,6 @@ export function Dashboard({
     } finally {
       setRefreshing(false)
     }
-  }
-
-  function listingSelect(ariaLabel: string) {
-    return (
-      <label>
-        Listing
-        <select
-          aria-label={ariaLabel}
-          value={filters.listing}
-          onChange={(e) => setFilters((f) => ({ ...f, listing: e.target.value as ListingFilter }))}
-        >
-          <option value="all">All</option>
-          <option value="active">Active only</option>
-        </select>
-      </label>
-    )
   }
 
   return (
@@ -191,26 +157,20 @@ export function Dashboard({
           </button>
         </div>
         <div className="filters">
-          {listingSelect('Applications listing')}
-          <label>
-            Application
-            <select
-              aria-label="Application filter"
-              value={filters.application}
-              onChange={(e) =>
-                setFilters((f) => ({ ...f, application: e.target.value as ApplicationFilter }))
-              }
-            >
-              <option value="all">All</option>
-              <option value="hide_negative">Hide negative</option>
-            </select>
+          <label className="checkbox-inline">
+            <input
+              type="checkbox"
+              checked={hideClosed}
+              onChange={(e) => setHideClosed(e.target.checked)}
+            />
+            Hide closed applications
           </label>
         </div>
         {error && <div className="error-box">{error}</div>}
         {applications.length === 0 ? (
           <p className="empty">
-            {filtersActive
-              ? 'No applications match these filters.'
+            {hideClosed
+              ? 'No applications match this filter.'
               : "No applications yet. Set an offer's application state to track it here."}
           </p>
         ) : (
@@ -259,20 +219,13 @@ export function Dashboard({
               Offers shortlisted before applying — the Saved application state
             </span>
           </div>
-          <a
-            href={`#/offers?application_state=saved&sort=saved${
-              filters.listing === 'active' ? '&offer_state=active' : ''
-            }`}
-          >
+          <a href="#/offers?application_state=saved&sort=saved">
             Show all ({savedTotal})
           </a>
         </div>
-        <div className="filters">{listingSelect('Saved listing')}</div>
         {saved.length === 0 ? (
           <p className="empty">
-            {filters.listing === 'active'
-              ? 'No saved offers match this filter.'
-              : "No saved offers yet. Set an offer's application state to Saved to shortlist it."}
+            No saved offers yet. Set an offer's application state to Saved to shortlist it.
           </p>
         ) : (
           <div className="saved-list">
@@ -285,14 +238,14 @@ export function Dashboard({
 }
 
 // fetchAllApplications pages through the same filtered query as the visible
-// Applications section, so the refresh scope follows the filters.
-async function fetchAllApplications(filters: DashboardFilters): Promise<Offer[]> {
+// Applications section, so the refresh scope follows the hide-closed toggle.
+async function fetchAllApplications(hideClosed: boolean): Promise<Offer[]> {
   const out: Offer[] = []
   let offset = 0
   for (;;) {
     const page = await api.listOffers({
       has_application: true,
-      ...queryFor(filters),
+      ...queryFor(hideClosed),
       sort: 'recent_event',
       limit: applicationPageSize,
       offset,

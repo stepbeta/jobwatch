@@ -139,8 +139,22 @@ describe('Dashboard', () => {
     )
   })
 
-  it('restores dashboard filters from the URL and applies them to both sections', async () => {
-    window.location.hash = '#/?listing=active&application=hide_negative'
+  it('shows every application by default with no application-state filter', async () => {
+    renderDashboard([makeSource()])
+
+    expect(await screen.findByText('Applied role')).toBeTruthy()
+    const applicationsCall = vi
+      .mocked(api.listOffers)
+      .mock.calls.map(([query]) => query)
+      .find((query) => query?.has_application)
+    expect(applicationsCall?.application_state).toBeUndefined()
+    expect(
+      (screen.getByLabelText('Hide closed applications') as HTMLInputElement).checked,
+    ).toBe(false)
+  })
+
+  it('restores the hide-closed toggle from the URL and applies it to Applications only', async () => {
+    window.location.hash = '#/?closed=1'
     renderDashboard([makeSource()])
 
     await screen.findByText('Applied role')
@@ -148,47 +162,79 @@ describe('Dashboard', () => {
       expect.objectContaining({
         has_application: true,
         application_state: 'applied,interview,offer,accepted,turned_down',
-        offer_state: 'active',
       }),
     )
     expect(api.listOffers).toHaveBeenCalledWith(
       expect.objectContaining({
         application_state: 'saved',
-        offer_state: 'active',
         sort: 'saved',
       }),
     )
-    expect((screen.getByLabelText('Applications listing') as HTMLSelectElement).value).toBe('active')
-    expect((screen.getByLabelText('Saved listing') as HTMLSelectElement).value).toBe('active')
-    expect((screen.getByLabelText('Application filter') as HTMLSelectElement).value).toBe(
-      'hide_negative',
-    )
-    // The Saved count comes from the filtered query, so the link keeps the
-    // same listing filter.
-    expect(screen.getByRole('link', { name: /Show all/ }).getAttribute('href')).toContain(
-      'offer_state=active',
+    const savedCall = vi
+      .mocked(api.listOffers)
+      .mock.calls.map(([query]) => query)
+      .find((query) => query?.application_state === 'saved')
+    expect(savedCall).not.toHaveProperty('offer_state')
+    expect(
+      (screen.getByLabelText('Hide closed applications') as HTMLInputElement).checked,
+    ).toBe(true)
+    expect(screen.getByRole('link', { name: /Show all/ }).getAttribute('href')).toBe(
+      '#/offers?application_state=saved&sort=saved',
     )
   })
 
-  it('persists filter changes in the dashboard URL', async () => {
+  it('ignores the old listing and application parameters', async () => {
+    window.location.hash = '#/?listing=active&application=hide_negative'
+    renderDashboard([makeSource()])
+
+    await screen.findByText('Applied role')
+    const applicationsCall = vi
+      .mocked(api.listOffers)
+      .mock.calls.map(([query]) => query)
+      .find((query) => query?.has_application)
+    expect(applicationsCall?.application_state).toBeUndefined()
+    expect(
+      (screen.getByLabelText('Hide closed applications') as HTMLInputElement).checked,
+    ).toBe(false)
+    await waitFor(() => expect(window.location.hash).toBe('#/'))
+  })
+
+  it('persists the hide-closed toggle as closed=1', async () => {
     const user = userEvent.setup()
     renderDashboard([makeSource()])
     await screen.findByText('Applied role')
 
-    await user.selectOptions(screen.getByLabelText('Application filter'), 'hide_negative')
-    await waitFor(() => expect(window.location.hash).toContain('application=hide_negative'))
-
-    await user.selectOptions(screen.getByLabelText('Applications listing'), 'active')
-    await waitFor(() => expect(window.location.hash).toContain('listing=active'))
-    expect(window.location.hash).toContain('application=hide_negative')
+    await user.click(screen.getByLabelText('Hide closed applications'))
+    await waitFor(() => expect(window.location.hash).toContain('closed=1'))
     expect(api.listOffers).toHaveBeenCalledWith(
-      expect.objectContaining({ offer_state: 'active' }),
+      expect.objectContaining({
+        has_application: true,
+        application_state: 'applied,interview,offer,accepted,turned_down',
+      }),
     )
+
+    await user.click(screen.getByLabelText('Hide closed applications'))
+    await waitFor(() => expect(window.location.hash).not.toContain('closed=1'))
+  })
+
+  it('restores the toggle after a reload or history navigation', async () => {
+    window.location.hash = '#/?closed=1'
+    const first = renderDashboard([makeSource()])
+    expect(
+      (await screen.findByLabelText('Hide closed applications') as HTMLInputElement).checked,
+    ).toBe(true)
+    first.unmount()
+
+    window.location.hash = '#/'
+    renderDashboard([makeSource()])
+    expect(
+      (await screen.findByLabelText('Hide closed applications') as HTMLInputElement).checked,
+    ).toBe(false)
   })
 
   it('refreshes only the sources behind the visible applications', async () => {
     const user = userEvent.setup()
-    window.location.hash = '#/?application=hide_negative'
+    window.location.hash = '#/?closed=1'
     const negative = makeOffer({ id: 11, title: 'Negative role', application_state: 'negative' })
     vi.mocked(api.listOffers).mockImplementation(async (query = {}) => {
       if (query.application_state === 'saved') {
@@ -217,14 +263,14 @@ describe('Dashboard', () => {
 
   it('uses a filter-aware empty state and refresh notice', async () => {
     const user = userEvent.setup()
-    window.location.hash = '#/?application=hide_negative'
+    window.location.hash = '#/?closed=1'
     vi.mocked(api.listOffers).mockResolvedValue({ offers: [], total: 0, limit: 20, offset: 0 })
     const { onNotice } = renderDashboard([makeSource()])
 
-    expect(await screen.findByText('No applications match these filters.')).toBeTruthy()
+    expect(await screen.findByText('No applications match this filter.')).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Refresh' }))
     await waitFor(() =>
-      expect(onNotice).toHaveBeenCalledWith('info', 'No applications match these filters.'),
+      expect(onNotice).toHaveBeenCalledWith('info', 'No applications match this filter.'),
     )
   })
 

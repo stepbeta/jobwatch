@@ -24,10 +24,10 @@
 
 ## 4. Dashboard filters
 
-- [ ] 4.1 Remove the listing filter from both dashboard sections and replace the Applications application filter with a default-off `Hide closed applications` toggle. Verify the Applications query omits the application-state filter when off and sends the positive-state set when on.
-- [ ] 4.2 Persist the toggle as `closed=1` and ignore the old `listing` and `application` parameters. Verify reload and back/forward restore the toggle.
-- [ ] 4.3 Keep the refresh scope aligned with the visible applications and update the Dashboard tests for the new query and URL. Verify the whole dashboard test file passes.
-- [ ] 4.4 Update the dashboard description in `docs/ARCHITECTURE.md`; confirm it no longer mentions a listing filter.
+- [x] 4.1 Remove the listing filter from both dashboard sections and replace the Applications application filter with a default-off `Hide closed applications` toggle. Verify the Applications query omits the application-state filter when off and sends the positive-state set when on.
+- [x] 4.2 Persist the toggle as `closed=1` and ignore the old `listing` and `application` parameters. Verify reload and back/forward restore the toggle.
+- [x] 4.3 Keep the refresh scope aligned with the visible applications and update the Dashboard tests for the new query and URL. Verify the whole dashboard test file passes.
+- [x] 4.4 Update the dashboard description in `docs/ARCHITECTURE.md`; confirm it no longer mentions a listing filter.
 
 ## 5. Settings page
 
