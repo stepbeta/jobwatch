@@ -2,10 +2,10 @@
 
 ## 1. Application shell
 
-- [ ] 1.1 Replace the top-bar links with a full-width header and a left sidebar nav (Dashboard, Offers, Incomplete with count, Sources, Interview prep, Settings); mark the active section, including offer and company detail routes as Offers. Verify with a shell test covering every route and the active marker.
-- [ ] 1.2 Move the Incomplete count badge into the sidebar and keep it refreshed with the existing count fetch. Verify the badge appears and disappears in tests.
-- [ ] 1.3 Collapse the sidebar to a horizontal scrollable nav row at `max-width: 900px` while keeping the header controls. Verify via a CSS breakpoint check and a narrow-viewport render test.
-- [ ] 1.4 Update `docs/ARCHITECTURE.md` (component shell and navigation) and confirm it matches the new `App.tsx` structure.
+- [x] 1.1 Replace the top-bar links with a full-width header and a left sidebar nav (Dashboard, Offers, Incomplete with count, Sources, Interview prep, Settings); mark the active section, including offer and company detail routes as Offers. Verify with a shell test covering every route and the active marker.
+- [x] 1.2 Move the Incomplete count badge into the sidebar and keep it refreshed with the existing count fetch. Verify the badge appears and disappears in tests.
+- [x] 1.3 Collapse the sidebar to a horizontal scrollable nav row at `max-width: 900px` while keeping the header controls. Verify via a CSS breakpoint check and a narrow-viewport render test.
+- [x] 1.4 Update `docs/ARCHITECTURE.md` (component shell and navigation) and confirm it matches the new `App.tsx` structure.
 
 ## 2. Theme selection
 

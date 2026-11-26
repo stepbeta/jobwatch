@@ -127,8 +127,8 @@ textarea {
   width: 100%;
 }
 
-/* top bar */
-.topbar {
+/* application shell */
+.app-header {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -138,33 +138,122 @@ textarea {
   position: sticky;
   top: 0;
   z-index: 10;
+  min-height: 43px;
 }
 
 .brand {
+  color: var(--text);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
-.topbar nav {
+.brand:hover {
+  text-decoration: none;
+}
+
+.header-controls {
   display: flex;
-  gap: 12px;
-}
-
-.topbar nav a {
-  color: var(--muted);
-  font-weight: 500;
-}
-
-.topbar nav a.active {
-  color: var(--text);
+  align-items: center;
+  gap: 8px;
 }
 
 .spacer {
   flex: 1;
 }
 
+.app-body {
+  display: flex;
+  align-items: flex-start;
+  min-height: calc(100vh - 43px);
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 0 0 220px;
+  width: 220px;
+  max-height: calc(100vh - 43px);
+  overflow-y: auto;
+  padding: 12px 8px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  position: sticky;
+  top: 43px;
+}
+
+.sidebar a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.sidebar a:hover {
+  background: var(--panel-alt);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.sidebar a.active {
+  background: var(--panel-alt);
+  border-left-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.nav-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--blue-bg);
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* Same 900px breakpoint as the detail grids: the sidebar becomes a
+   horizontal, scrollable nav row and the header controls stay put. */
+@media (max-width: 900px) {
+  .app-body {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    flex: 0 0 auto;
+    flex-direction: row;
+    width: 100%;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding: 4px 8px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    position: static;
+  }
+
+  .sidebar a {
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+    white-space: nowrap;
+  }
+
+  .sidebar a.active {
+    border-bottom-color: var(--accent);
+  }
+}
+
 /* layout */
 main {
+  flex: 1;
+  min-width: 0;
   padding: 14px 16px 48px;
 }
 
@@ -228,7 +317,7 @@ main {
 }
 
 .top-error {
-  margin: 10px 16px 0;
+  margin: 0 0 12px;
 }
 
 .notice {

@@ -399,7 +399,8 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 
 | Path | Content |
 |---|---|
-| `App.tsx` | top bar with navigation (including the incomplete count), source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
+| `App.tsx` | application shell wiring, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
+| `components/Shell.tsx` | persistent full-width header (brand and right-aligned controls) plus left sidebar navigation; maps the current route to the active section and renders the Incomplete pending count |
 | `router.ts` | hash routing (`#/`, `#/offers`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/search-profile`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with listing (`all`/`active only`) and application (`all`/`hide negative`) filters persisted in the hash query, a Refresh button that fans out over the enabled sources behind the visible applications, and a Saved section (`application_state=saved`, `sort=saved`) with the listing filter |
@@ -418,6 +419,13 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `components/TableControls.tsx` | shared column picker with localStorage persistence of hidden columns, `SortHeader`, per-page selector, debounced-value hook and sort toggle helper |
 | `components/CompanyCombobox.tsx` | searchable client-side company selector for the offers filter; keeps the `company_id` parameter unchanged |
 | `components/EditViewEditor.tsx` | shared Edit/View tabbed editor (textarea plus caller-rendered view), used by interview answers and offer descriptions |
+
+The shell (`components/Shell.tsx`) renders a full-width header with the
+brand and right-aligned controls, plus a 220px left sidebar. Offer and
+company detail routes highlight Offers. At `max-width: 900px` the sidebar
+becomes a horizontal scrollable nav row below the header while the header
+controls stay visible. `App.tsx` keeps data and scan state and passes the
+current route and incomplete count to the shell.
 
 The Search profile page (`#/search-profile`) edits the default profile
 through `GET`/`PUT /api/search-profiles`. Choosing a bucket sets a
@@ -500,7 +508,8 @@ lists, and returns React text nodes instead of HTML, so raw HTML in an
 answer is shown literally and never executed. Delete goes through the
 shared `ConfirmDialog`.
 
-The Sources header owns "Refresh all"; the top bar only navigates. The
+The Sources header owns "Refresh all"; the sidebar only navigates and the
+application header carries the brand and its controls. The
 Dashboard's Applications Refresh is a client-side fan-out over
 `POST /api/sources/:id/scan`: it pages through the same filtered query as
 the visible Applications section (`has_application`, the listing filter as
