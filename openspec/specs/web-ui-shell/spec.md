@@ -12,7 +12,9 @@ for each page, and the user's theme selection.
 The application SHALL present a full-width header and a left sidebar. The
 header SHALL contain the brand mark and right-aligned controls. The sidebar
 SHALL link to Dashboard, Offers, Incomplete (with a pending count), Sources,
-Interview prep and Settings. It SHALL mark the section of the current route.
+Documents, Interview prep and Settings. It SHALL mark the section of the current
+route, and the Documents route SHALL mark Documents. The sidebar order SHALL
+place Documents next to the other record-browsing sections, not among settings.
 
 #### Scenario: Offer detail marks Offers
 
@@ -23,6 +25,11 @@ Interview prep and Settings. It SHALL mark the section of the current route.
 
 - **WHEN** the current route is a company detail page
 - **THEN** the sidebar marks Offers as the active section
+
+#### Scenario: Documents page marks Documents
+
+- **WHEN** the current route is the Documents page
+- **THEN** the sidebar marks Documents as the active section
 
 #### Scenario: Incomplete badge shows the pending count
 
