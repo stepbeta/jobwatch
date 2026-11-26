@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+### Refreshed application shell (OpenSpec change `ui-shell-refresh`)
+
+#### Added
+- A persistent full-width header with the JobWatch brand mark and a left
+  sidebar for Dashboard, Offers, Incomplete (with the pending count),
+  Sources, Interview prep and Settings. The current section is marked,
+  offer/company detail pages highlight Offers, and the sidebar collapses
+  to a horizontal scrollable row at 900px.
+- A **Theme** control with **System**, **Light** and **Dark**. System is
+  the default and follows the operating system; the choice is stored in
+  `localStorage` and applied before the first paint, so reloads do not
+  flash the other palette.
+- Per-page browser titles: list pages use `<page> — JobWatch`, offer
+  detail uses `<offer> — <company> · JobWatch`, and company detail uses
+  `<company> — JobWatch`. The application state never appears in the
+  title.
+- A runtime favicon badge for the open offer's application state
+  (saved, applied, interview, offer, accepted, turned_down, negative);
+  leaving the offer restores the default brand mark.
+- A tabbed Settings editor with **Profile**, **Title terms**,
+  **Location terms**, **Description** and **Remote** tabs. One form state
+  and one Save span every tab, the active tab is kept as `?tab=<id>`,
+  and validation opens the first offending tab and marks every invalid
+  tab.
+
+#### Changed
+- The search profile page is now **Settings** at `#/settings`; its
+  heading, sidebar label and document title use the new name.
+- Description terms moved from an advanced disclosure into their own
+  Settings tab.
+- The dashboard has one default-off **Hide closed applications** toggle
+  (`?closed=1`) on Applications. Both sections now show offers regardless
+  of listing state; the toggle hides `negative` applications while
+  keeping `accepted` and `turned_down`. Refresh follows the visible
+  applications.
+- The header theme control replaces the old implicit
+  `prefers-color-scheme`-only palette switch; light remains the default
+  when the OS has no dark preference.
+
+#### Removed
+- The `#/search-profile` route and the old **Search profile** label.
+- The dashboard listing filter and application filter. The `listing` and
+  `application` query parameters are ignored and removed from the URL;
+  use `closed=1` for the hide-closed toggle.
+
 ### Simplified application lifecycle (OpenSpec change `simplify-application-lifecycle`)
 
 #### Added

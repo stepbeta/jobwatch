@@ -39,9 +39,9 @@
 
 ## 6. Integration and release notes
 
-- [ ] 6.1 Run `npm test`, `npm run build`, `go build ./...`, `go vet ./...` and `go test ./...`; verify all pass.
-- [ ] 6.2 Manually smoke-test the shell, active states, titles, favicon state changes, theme switching, dashboard toggle and Settings tabs against a fresh build.
-- [ ] 6.3 Add the `CHANGELOG.md` Unreleased entry for the shell, theme, titles/favicon, dashboard and Settings changes; verify it reads as a user-facing summary.
+- [x] 6.1 Run `npm test`, `npm run build`, `go build ./...`, `go vet ./...` and `go test ./...`; verify all pass.
+- [x] 6.2 Manually smoke-test the shell, active states, titles, favicon state changes, theme switching, dashboard toggle and Settings tabs against a fresh build.
+- [x] 6.3 Add the `CHANGELOG.md` Unreleased entry for the shell, theme, titles/favicon, dashboard and Settings changes; verify it reads as a user-facing summary.
 
 ## Workflow follow-up
 
