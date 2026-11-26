@@ -175,8 +175,10 @@ moves one capability at a time.
 ## Working style
 
 - **Never work on `main`.** Every session creates a branch or a worktree
-  off `main` before its first edit; `main` only receives merged work. If
-  a session opens on `main`, stop and create a branch immediately.
+  off `main` before its first edit; `main` only receives merged work, and
+  no branch stems from another unmerged branch. When a change genuinely
+  needs unmerged work, merge that work first. If a session opens on
+  `main`, stop and create a branch immediately.
 - **Name branches after the commit type.** A branch is prefixed with the
   conventional commit type that describes its work — `feat/<name>` for a
   new feature, `fix/<name>` for a correction, `chore/`, `docs/`,
