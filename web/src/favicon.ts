@@ -29,7 +29,7 @@ const BADGES: Record<Exclude<ApplicationState, 'none'>, Badge> = {
       '<path d="M24 24v-1.6M24 20.5v.8" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>',
   },
   interview: {
-    color: '#d97706',
+    color: '#7c3aed',
     glyph: '<path d="M21.5 22h5v3.2h-2.6L22 26.8v-1.6h-.5z" fill="#fff"/>',
   },
   offer: {
@@ -38,7 +38,7 @@ const BADGES: Record<Exclude<ApplicationState, 'none'>, Badge> = {
       '<path d="m24 20.6 1.1 2.2 2.4.4-1.8 1.7.4 2.4-2.1-1.1-2.1 1.1.4-2.4-1.8-1.7 2.4-.4z" fill="#fff"/>',
   },
   accepted: {
-    color: '#12805c',
+    color: '#0e7490',
     glyph:
       '<path d="m21.3 24 1.9 1.9 3.6-4" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
   },

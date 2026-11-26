@@ -77,9 +77,9 @@ Glyph choices are colour-first because a 7px badge cannot carry detail:
 | `none` | — | no badge |
 | `saved` | amber | bookmark |
 | `applied` | blue | stopwatch |
-| `interview` | amber | speech dot |
+| `interview` | violet | speech dot |
 | `offer` | green | star |
-| `accepted` | green | check |
+| `accepted` | cyan | check |
 | `turned_down` | muted | minus |
 | `negative` | red | cross |
 

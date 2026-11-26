@@ -410,7 +410,7 @@ describe('OfferPage browser identity', () => {
     await screen.findByRole('heading', { name: 'Site Reliability Engineer' })
     const link = document.querySelector('link[rel~="icon"]') as HTMLLinkElement
     await waitFor(() =>
-      expect(decodeURIComponent(link.getAttribute('href') ?? '')).toContain('#d97706'),
+      expect(decodeURIComponent(link.getAttribute('href') ?? '')).toContain('#7c3aed'),
     )
 
     unmount()
@@ -437,7 +437,7 @@ describe('OfferPage browser identity', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
-      expect(decodeURIComponent(link.getAttribute('href') ?? '')).toContain('#d97706'),
+      expect(decodeURIComponent(link.getAttribute('href') ?? '')).toContain('#7c3aed'),
     )
     expect(api.patchOffer).toHaveBeenCalledWith(
       7,

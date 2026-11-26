@@ -34,6 +34,8 @@ describe('faviconFor', () => {
   it('maps every application state to a distinct badge colour', () => {
     const uris = BADGED_STATES.map((state) => faviconFor(state))
     expect(new Set(uris).size).toBe(BADGED_STATES.length)
+    const colors = BADGED_STATES.map((state) => FAVICON_BADGE_COLORS[state])
+    expect(new Set(colors).size).toBe(BADGED_STATES.length)
     for (const state of BADGED_STATES) {
       const svg = decode(faviconFor(state))
       expect(svg).toContain(FAVICON_BADGE_COLORS[state])
