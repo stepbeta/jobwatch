@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { Route } from '../router'
+import { ThemeControl } from './ThemeControl'
 
 // Section identifies the sidebar entry a route belongs to. Detail pages
 // (offer and company) belong to Offers.
@@ -64,7 +65,9 @@ export function Shell({
           JobWatch
         </a>
         <span className="spacer" />
-        <div className="header-controls" />
+        <div className="header-controls">
+          <ThemeControl />
+        </div>
       </header>
       <div className="app-body">
         <nav className="sidebar" aria-label="Sections">

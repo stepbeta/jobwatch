@@ -18,8 +18,28 @@
   --radius: 6px;
 }
 
+/* An explicit dark choice wins regardless of the operating system. */
+:root[data-theme='dark'] {
+  --bg: #14161a;
+  --panel: #1c1f25;
+  --panel-alt: #242830;
+  --text: #e6e8ec;
+  --muted: #98a2b3;
+  --border: #343a45;
+  --accent: #6b9bff;
+  --accent-text: #0b1220;
+  --green: #6fe0b8;
+  --green-bg: #143a2e;
+  --amber: #ffcf70;
+  --amber-bg: #3d2f12;
+  --red: #ff9a90;
+  --red-bg: #44211d;
+  --blue-bg: #1d2a44;
+}
+
+/* System mode follows the OS, but an explicit light choice opts out. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #14161a;
     --panel: #1c1f25;
     --panel-alt: #242830;
@@ -155,6 +175,18 @@ textarea {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.theme-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.theme-control select {
+  min-width: 0;
 }
 
 .spacer {

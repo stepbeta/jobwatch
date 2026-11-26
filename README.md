@@ -161,6 +161,10 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
   description terms, and explanatory text. Affinity is recomputed from
   the profile on every read; no reclassification command exists.
 
+The header **Theme** control offers **System**, **Light** and **Dark**.
+**System** is the default and follows the operating system; the choice is
+remembered across reloads and applied before the first paint.
+
 Page-by-page behavior and the saved-state semantics are in
 [docs/USAGE.md](docs/USAGE.md#web-ui).
 

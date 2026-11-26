@@ -325,9 +325,13 @@ so it stays out of the Applications section and its refresh scope until
 you move it to `applied` (or another real stage).
 
 Success/error toasts, loading indicators and confirmation dialogs are
-shared across the pages; every destructive action asks first. The top bar
-only navigates; scan actions live on the Sources page and in the
-Dashboard Applications section.
+shared across the pages; every destructive action asks first. The header
+offers a **Theme** control with **System**, **Light** and **Dark**;
+**System** is the default and follows the operating system, while the
+other two pin the palette. The choice is stored in `localStorage`
+(`jobwatch.theme`) and applied before the first paint, so a reload does
+not flash the other palette. The sidebar navigates; scan actions live on
+the Sources page and in the Dashboard Applications section.
 
 For the two-process development setup, see the Development section of the
 [README](../README.md#development).

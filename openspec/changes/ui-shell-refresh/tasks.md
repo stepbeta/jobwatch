@@ -9,10 +9,10 @@
 
 ## 2. Theme selection
 
-- [ ] 2.1 Rework the palette selectors so light is the `:root` default, dark applies for `:root[data-theme='dark']`, and the system dark palette is scoped to `:root:not([data-theme='light'])`. Verify both palettes still resolve and no unstyled state appears.
-- [ ] 2.2 Add the pre-paint inline script in `web/index.html` that reads the stored theme, sets `data-theme` and `color-scheme`, and defaults to `system`. Verify a reload in each stored mode paints correctly with no flash.
-- [ ] 2.3 Add the header theme control for `system` / `light` / `dark`, persist the choice, and update immediately. Verify with tests for default, explicit persisted choice, and returning to system.
-- [ ] 2.4 Document the theme control and default in `docs/USAGE.md` and `README.md`; verify the wording matches the control labels.
+- [x] 2.1 Rework the palette selectors so light is the `:root` default, dark applies for `:root[data-theme='dark']`, and the system dark palette is scoped to `:root:not([data-theme='light'])`. Verify both palettes still resolve and no unstyled state appears.
+- [x] 2.2 Add the pre-paint inline script in `web/index.html` that reads the stored theme, sets `data-theme` and `color-scheme`, and defaults to `system`. Verify a reload in each stored mode paints correctly with no flash.
+- [x] 2.3 Add the header theme control for `system` / `light` / `dark`, persist the choice, and update immediately. Verify with tests for default, explicit persisted choice, and returning to system.
+- [x] 2.4 Document the theme control and default in `docs/USAGE.md` and `README.md`; verify the wording matches the control labels.
 
 ## 3. Browser identity
 

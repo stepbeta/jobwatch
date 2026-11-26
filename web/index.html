@@ -5,6 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>JobWatch</title>
+    <script>
+      // Set the theme before the first paint so a stored choice never
+      // flashes the other palette. Keep the key and values in sync with
+      // src/theme.ts.
+      ;(function () {
+        try {
+          var stored = window.localStorage.getItem('jobwatch.theme')
+          var theme =
+            stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
+          var dark =
+            theme === 'dark' ||
+            (theme === 'system' &&
+              typeof window.matchMedia === 'function' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          var root = document.documentElement
+          root.setAttribute('data-theme', theme)
+          root.style.colorScheme = dark ? 'dark' : 'light'
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'system')
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

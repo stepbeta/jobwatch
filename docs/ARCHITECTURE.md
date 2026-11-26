@@ -427,6 +427,13 @@ becomes a horizontal scrollable nav row below the header while the header
 controls stay visible. `App.tsx` keeps data and scan state and passes the
 current route and incomplete count to the shell.
 
+The header theme control (`components/ThemeControl.tsx`, state in
+`theme.ts`) offers System, Light and Dark. The choice is stored in
+`localStorage` under `jobwatch.theme`; `index.html` applies it in a
+pre-paint inline script that sets `data-theme` and `color-scheme`, so a
+reload never flashes the other palette. System is the default and follows
+`prefers-color-scheme`.
+
 The Search profile page (`#/search-profile`) edits the default profile
 through `GET`/`PUT /api/search-profiles`. Choosing a bucket sets a
 default numeric weight and the number stays editable; switching the
