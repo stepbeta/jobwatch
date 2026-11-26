@@ -174,6 +174,9 @@ moves one capability at a time.
 
 ## Working style
 
+- **Never work on `main`.** Every session creates a branch or a worktree
+  off `main` before its first edit; `main` only receives merged work. If
+  a session opens on `main`, stop and create a branch immediately.
 - Work in the order given by the user's current milestone prompt. Do
   not jump ahead to later milestones.
 - When a milestone prompt conflicts with this file, stop and ask the
