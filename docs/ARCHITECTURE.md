@@ -14,6 +14,7 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 | `internal/sources` | `Fetcher` interface, `RawOffer`, `Config` (config_json), `Registry`, polite HTTP `Client`, robots.txt parser, URL type detection, adapters |
 | `internal/scan` | Scan pipeline and manual import; depends on `db`, `classify` and `sources`, shared by CLI and API |
 | `internal/importmeta` | Lightweight metadata extraction from a job page (JSON-LD, Open Graph, meta tags, title) for URL imports |
+| `internal/pdfmeta` | Best-effort PDF metadata extraction for offer documents: header version, `/Info` strings and dates, page count. Standard library only; never fails an upload |
 | `internal/classify` | Pure read-time scoring: title affinity, location affinity, fixed remote-policy detector and term reasons, from a search-profile value |
 | `internal/diff` | Small line diff used for snapshot version comparisons |
 | `internal/api` | REST handlers under `/api`: sources, offers, events, notes, companies, import, health |
@@ -284,6 +285,22 @@ If metadata is incomplete the API returns `422` with the extracted fields
 for the UI's manual fallback; the CLI asks for `--company`/`--title` or
 `--no-fetch`. Import never scans a source.
 
+## PDF metadata (`internal/pdfmeta`)
+
+`pdfmeta.Extract(data)` runs at upload and returns a
+`model.PDFMetadata`; it has no error return, so malformed input yields an
+empty result instead of failing the request. It reads the `%PDF-x.y`
+header, scans the information dictionary for `/Title`, `/Author`,
+`/Producer`, `/CreationDate` and `/ModDate`, decodes literal and hex
+strings (including UTF-16BE/LE BOMs and PDF escapes), converts
+`D:YYYYMMDDHHmmSS±hh'mm'` dates to RFC3339 UTC, and counts `/Type /Page`
+objects for the page count. Indirect `/Info` values (`/Title 12 0 R`) are
+resolved one level deep. A missing value stays nil and the page count is
+0 when no page object is visible; metadata inside a compressed object
+stream is therefore reported as unknown rather than guessed. The package
+depends only on the standard library and `internal/model` and makes no
+network or filesystem call.
+
 ## REST API (`internal/api`)
 
 `api.Server{DB, Version, Fetcher, Now}` mounts Go 1.22 `ServeMux`
@@ -297,7 +314,8 @@ Errors always use `{"error":{"code","message"}}`.
 |---|---|
 | health | `GET /api/health` |
 | sources | `GET/POST /api/sources`, `GET/PATCH/DELETE /api/sources/{id}`, `POST /api/sources/{id}/scan` |
-| offers | `GET /api/offers`, `POST /api/offers/import`, `GET/PATCH /api/offers/{id}`, `GET /api/offers/{id}/snapshot-diff`, `POST /api/offers/{id}/merge`, `POST /api/offers/{id}/split` |
+| offers | `GET /api/offers`, `POST /api/offers/import`, `GET/PATCH /api/offers/{id}`, `POST /api/offers/{id}/attachments`, `DELETE /api/offers/{id}/attachments/{attachmentID}`, `GET /api/offers/{id}/attachments/{attachmentID}/file`, `GET /api/offers/{id}/snapshot-diff`, `POST /api/offers/{id}/merge`, `POST /api/offers/{id}/split` |
+| documents | `GET /api/documents`, `GET /api/documents/{sha256}/file` |
 | events | `GET/POST /api/offers/{id}/events`, `PATCH/DELETE /api/offers/{id}/events/{eventID}` |
 | notes | `GET/POST /api/notes`, `GET/PATCH/DELETE /api/notes/{id}` |
 | companies | `GET/POST /api/companies`, `GET/PATCH/DELETE /api/companies/{id}`, `POST /api/companies/{id}/merge` |
@@ -342,6 +360,31 @@ the insert (`cv_sent`, `rejected`, `ghosted`; see
 transitions an `applied` or `interview` offer to `disappeared` inserts one
 `ghosted` event and sets `negative` in the same transaction, and the count
 is always a subset of `disappeared`.
+
+### Offer documents (`internal/api`, `internal/db`, `internal/pdfmeta`)
+
+`POST /api/offers/{id}/attachments` reads a multipart body through
+`http.MaxBytesReader` with a 2 MiB file cap plus a small multipart
+allowance, sniffs the `%PDF-` header, requires `kind` to be `cv`,
+`cover_letter` or `other`, and reduces the client filename to its basename.
+The JSON endpoints keep their 1 MiB cap; uploads have their own route and
+limit. `db.AttachOfferDocument` computes the SHA-256 server-side, inserts
+the blob with `ON CONFLICT DO NOTHING` and then the attachment row in one
+transaction, so identical bytes are stored once and the first upload time
+survives reuse. `pdfmeta.Extract` fills the nullable metadata columns; no
+parse failure can reject the upload. A duplicate `(offer, blob_sha256)` is
+`409 already_attached`.
+
+`GET /api/offers/{id}` embeds the attachment list joined with the blob
+metadata (never the bytes). Downloads come from the offer-scoped alias or
+`GET /api/documents/{sha256}/file` and always stream with
+`Content-Disposition: attachment`, the PDF media type and `nosniff`.
+`DELETE` removes the attachment and then the blob only when no other row
+references it. `GET /api/documents` is a read-only aggregate over the same
+two tables, one entry per referenced blob with the offers that use it.
+Offer merge moves attachment rows to the kept offer, collapses a file both
+offers already referenced, and leaves every blob that still has a
+reference in place.
 
 ## Offer merge and split (`internal/db`)
 
@@ -410,7 +453,8 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 | `pages/OffersPage.tsx` | full offers table: URL-restored filters (including remote acceptance, minimum title/location affinity and a searchable company combobox), debounced FTS search, header-click server sorting (including `title_affinity`/`location_affinity`), column picker, per-page selector and pagination, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
 | `pages/IncompletePage.tsx` | incomplete offers with the count, the source-reported company/title/location, the reason and source link; a repair modal reuses the manual import layout and company combobox and calls `POST /api/offers/:id/repair` |
 | `pages/SourcesPage.tsx` | source list with enabled/type/status/name filters, URL-restored client sorting and pagination, column picker, row selection with bulk refresh/delete, right-aligned enable switch, icon row actions, company links resolved from the local company list, header Refresh all, and an add/edit modal with type-dependent config fields (personio/workable/rss/html included) and explanatory notes on seeded sources |
-| `pages/OfferPage.tsx` | two-column header: identity (editable states/location, title/location affinity badges with term reasons, remote policy badge, merge/split actions, description version count) on the left and an always-visible compact provenance list on the right; timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), and a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save through the shared Edit/View editor) |
+| `pages/OfferPage.tsx` | two-column header: identity (editable states/location, title/location affinity badges with term reasons, remote policy badge, merge/split actions, description version count) on the left and an always-visible compact provenance list on the right; timeline with backdating, inline event editing and message event labels, notes with event pin, bidirectional note↔event cues (pinned-note badge scrolls to and highlights the event; an event's note-count marker expands its pinned notes inline), a single-version description browser (prev/next, version dropdown, scan/manual origin badge, on-demand diff against the previous version, Add/Edit manual save through the shared Edit/View editor), and a documents section that lists each attached PDF with kind, size, pages and the three labelled dates, downloads it, detaches it after confirmation, and uploads a new PDF with a kind select |
+| `pages/DocumentsPage.tsx` | read-only Documents aggregate: one card per stored file with its intrinsic PDF metadata, first upload time, download link and every referencing offer (title link, company, kind, attach time); no upload, rename or delete action |
 | `components/icons.tsx` | dependency-free inline SVG event-type, action and theme icons (system, light, dark) |
 | `pages/CompanyPage.tsx` | one two-column header block: company identity (including its attested keys), actions and possible-duplicate banner on the left, company notes (list, new-note form, add/delete) on the right; a separate offers panel below with URL-restored FTS search, server-side sorting, per-page selector and pagination. The grid collapses at 900px (same breakpoint as `.detail-columns`) |
 | `pages/SettingsPage.tsx` | edits the default search profile in five tabs (Profile, Title terms, Location terms, Description, Remote) with one shared form state and one Save; the active tab lives in `tab=<id>` in the hash query. Name/labels and the 3/5 bucket scale are on Profile, title/location/description terms on their own tabs (bucket plus numeric weight), and remote policy checkboxes on Remote. Validation switches to the first offending tab and marks every invalid tab. It is a display/edit layer: the API computes affinity |
@@ -427,7 +471,8 @@ The shell (`components/Shell.tsx`) renders a full-width header with the
 brand and right-aligned controls, plus a 220px left sidebar. The sidebar
 column paints the full page height; its inner nav is sticky under the
 header and scrolls on its own when the viewport is short. Offer and
-company detail routes highlight Offers. At `max-width: 900px` the sidebar
+company detail routes highlight Offers, and the Documents route highlights
+Documents. At `max-width: 900px` the sidebar
 becomes a horizontal scrollable nav row below the header while the header
 controls stay visible. `App.tsx` keeps data and scan state and passes the
 current route and incomplete count to the shell.
@@ -568,7 +613,8 @@ placeholder page explaining how to build the SPA, so plain
 not exist), then reopens the copy read-only and runs `PRAGMA
 integrity_check`, `PRAGMA foreign_key_check` and a `schema_migrations`
 check. A copy that fails validation is removed and the command exits
-non-zero.
+non-zero. Document bytes live in `attachment_blobs` inside the same
+database file, so one backup copy carries every attached PDF.
 
 ## Server
 

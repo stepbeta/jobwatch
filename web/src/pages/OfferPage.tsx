@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
 import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
 import { EditViewEditor } from '../components/EditViewEditor'
@@ -9,11 +9,14 @@ import { useOfferFavicon } from '../favicon'
 import { offerDocumentTitle, useDocumentTitle } from '../title'
 import {
   APP_STATES,
+  ATTACHMENT_KINDS,
   EVENT_TYPES,
   OFFER_STATES,
   appLabel,
+  attachmentKindLabel,
   eventLabel,
   eventTimestamp,
+  fmtBytes,
   fmtDate,
   fmtDateTime,
   remoteLabel,
@@ -23,6 +26,8 @@ import {
 import type { NoticeKind } from '../App'
 import type {
   ApplicationState,
+  Attachment,
+  AttachmentKind,
   EventType,
   Offer,
   OfferDetail,
@@ -47,6 +52,12 @@ function diffPrefix(op: 'equal' | 'added' | 'removed'): string {
 
 function originLabel(origin: SnapshotOrigin): string {
   return origin === 'manual' ? 'Manual' : 'Scan'
+}
+
+// documentDate shows the PDF's own date when it exists and "Unknown"
+// otherwise, so a missing file date is never confused with an upload time.
+function documentDate(iso: string | null): string {
+  return iso ? fmtDateTime(iso) : 'Unknown'
 }
 
 export function OfferPage({
@@ -102,6 +113,10 @@ export function OfferPage({
   const [editingDescription, setEditingDescription] = useState(false)
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [savingDescription, setSavingDescription] = useState(false)
+
+  const [uploadKind, setUploadKind] = useState<AttachmentKind>('cv')
+  const [uploading, setUploading] = useState(false)
+  const uploadInput = useRef<HTMLInputElement>(null)
 
   const [selectedSnapshotID, setSelectedSnapshotID] = useState<number | null>(null)
   const [snapshotTexts, setSnapshotTexts] = useState<Record<number, string>>({})
@@ -432,6 +447,41 @@ export function OfferPage({
     })
   }
 
+  async function uploadDocument(e: FormEvent) {
+    e.preventDefault()
+    const file = uploadInput.current?.files?.[0]
+    if (!file) {
+      onNotice('error', 'Choose a PDF to upload.')
+      return
+    }
+    setUploading(true)
+    try {
+      await api.uploadAttachment(id, file, uploadKind)
+      if (uploadInput.current) uploadInput.current.value = ''
+      await load()
+      onNotice('success', 'Document attached.')
+    } catch (err) {
+      const text = errorMessage(err)
+      setError(text)
+      onNotice('error', text)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function detachDocument(a: Attachment) {
+    setConfirm({
+      title: 'Detach document',
+      message: `Detach "${a.filename}" from this offer? The stored file is deleted only when no other offer references it.`,
+      confirmLabel: 'Detach document',
+      onConfirm: async () => {
+        await api.deleteAttachment(id, a.id)
+        await load()
+        onNotice('success', 'Document detached.')
+      },
+    })
+  }
+
   function startSplit() {
     if (!detail) return
     setSplitMode(true)
@@ -728,6 +778,82 @@ export function OfferPage({
             </div>
           )}
         </div>
+      </section>
+
+      <section className="panel documents">
+        <div className="section-head">
+          <h2>Documents</h2>
+          <span className="muted">
+            {detail.attachments.length} file{detail.attachments.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        <p className="muted small">
+          PDFs attached to this offer. The PDF creation and modification dates come from the file
+          itself; the first upload and attach times are recorded by JobWatch. The browser's file
+          modification time is never stored or shown.
+        </p>
+        {detail.attachments.length === 0 ? (
+          <p className="empty">No document is attached.</p>
+        ) : (
+          <div className="documents-list">
+            {detail.attachments.map((a) => (
+              <article className="document" key={a.id}>
+                <div className="document-head">
+                  <span className={`kind-badge kind-${a.kind}`}>{attachmentKindLabel(a.kind)}</span>
+                  <strong>{a.filename}</strong>
+                  <span className="muted small">{fmtBytes(a.size)}</span>
+                  {a.pdf.page_count !== null && (
+                    <span className="muted small">
+                      {a.pdf.page_count} page{a.pdf.page_count === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </div>
+                {a.pdf.title && <div className="muted small">PDF title: {a.pdf.title}</div>}
+                <div className="document-dates small">
+                  <span>PDF creation: {documentDate(a.pdf.creation_date)}</span>
+                  <span>PDF modified: {documentDate(a.pdf.modification_date)}</span>
+                  <span>First uploaded: {fmtDateTime(a.first_uploaded_at)}</span>
+                  <span>Attached: {fmtDateTime(a.attached_at)}</span>
+                </div>
+                <div className="actions">
+                  <a href={a.download_url} download={a.filename}>
+                    Download
+                  </a>
+                  <button type="button" onClick={() => detachDocument(a)}>
+                    Detach
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+        <form className="document-upload" onSubmit={(e) => void uploadDocument(e)}>
+          <div className="row">
+            <label>
+              Kind
+              <select
+                value={uploadKind}
+                onChange={(e) => setUploadKind(e.target.value as AttachmentKind)}
+              >
+                {ATTACHMENT_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {attachmentKindLabel(kind)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              PDF file
+              <input ref={uploadInput} type="file" accept="application/pdf,.pdf" aria-label="PDF file" />
+            </label>
+          </div>
+          <div className="actions">
+            <button type="submit" className="primary" disabled={uploading}>
+              {uploading ? 'Uploading…' : 'Upload document'}
+            </button>
+            <span className="muted small">PDF only, up to 2 MiB.</span>
+          </div>
+        </form>
       </section>
 
       <div className="detail-columns">

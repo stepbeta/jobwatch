@@ -58,6 +58,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/offers/import", s.importOffer)
 	mux.HandleFunc("GET /api/offers/{id}", s.getOffer)
 	mux.HandleFunc("PATCH /api/offers/{id}", s.patchOffer)
+	mux.HandleFunc("POST /api/offers/{id}/attachments", s.uploadOfferAttachment)
+	mux.HandleFunc("DELETE /api/offers/{id}/attachments/{attachmentID}", s.deleteOfferAttachment)
+	mux.HandleFunc("GET /api/offers/{id}/attachments/{attachmentID}/file", s.downloadOfferAttachment)
 	mux.HandleFunc("GET /api/offers/{id}/snapshot-diff", s.snapshotDiff)
 	mux.HandleFunc("POST /api/offers/{id}/merge", s.mergeOffer)
 	mux.HandleFunc("POST /api/offers/{id}/split", s.splitOffer)
@@ -85,6 +88,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/companies/{id}", s.patchCompany)
 	mux.HandleFunc("DELETE /api/companies/{id}", s.deleteCompany)
 	mux.HandleFunc("POST /api/companies/{id}/merge", s.mergeCompany)
+
+	mux.HandleFunc("GET /api/documents", s.listDocuments)
+	mux.HandleFunc("GET /api/documents/{sha256}/file", s.downloadDocument)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.Method+" "+r.URL.Path)

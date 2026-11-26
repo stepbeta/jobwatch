@@ -241,6 +241,10 @@ Built with React + TypeScript (Vite). The pages are:
   and title (and optionally a location) while keeping the provenance,
   snapshots and notes. The top navigation shows the incomplete count and
   refreshes after scans and repairs.
+- **Documents** (`#/documents`) — every stored PDF once, with its intrinsic
+  metadata, first upload time and the offers that reference it. The page
+  only lists, downloads and links back to offers; it offers no upload,
+  rename or delete action.
 - **Sources** — enable/disable with a row-end toggle switch, scan status,
   filters (enabled/disabled/all, type, scan status, debounced name search),
   a column picker, client-side header sorting, and a per-page selector.
@@ -270,6 +274,12 @@ Built with React + TypeScript (Vite). The pages are:
   closes it (`negative`). When the state changes, the toast names the new
   state. While the type is `Message received`, a **This is a rejection**
   checkbox records a single `rejected` event instead of a message.
+  A **Documents** section attaches a PDF (2 MiB, kind `cv`,
+  `cover_letter` or `other`), lists the documents with size, pages and the
+  PDF's own dates, downloads them byte-for-byte, and detaches them after
+  confirmation. The PDF's dates are labelled apart from the JobWatch first
+  upload time and the time the file was attached to this offer; the
+  browser's file modification time is never stored.
 - **Company detail** — one two-column header block: identity (name,
   website, offer count, created time, attested keys, Edit/Delete company)
   and the dismissible possible-duplicate banner on the left; company notes
@@ -462,7 +472,8 @@ database for you to delete.
 This is safe while `serve` is running. The copy is reopened read-only and
 checked (`PRAGMA integrity_check`, `foreign_key_check`, applied
 migrations); a failed copy is removed and the command exits non-zero. The
-backup is a normal SQLite file; point `--db` at it to use it.
+backup is a normal SQLite file; point `--db` at it to use it. Attached PDF
+documents are stored in the same database, so one copy carries them too.
 
 ## Command reference
 

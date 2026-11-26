@@ -1,7 +1,9 @@
 import type {
   ApplicationState,
+  AttachmentKind,
   CompanyDetail,
   CompanyList,
+  DocumentItem,
   Event,
   EventType,
   InterviewEntry,
@@ -50,14 +52,7 @@ function queryString(params: Record<string, QueryValue>): string {
   return s ? `?${s}` : ''
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  })
+async function parseResponse<T>(res: Response): Promise<T> {
   if (res.status === 204) {
     return undefined as T
   }
@@ -84,6 +79,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     )
   }
   return payload as T
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+  })
+  return parseResponse<T>(res)
+}
+
+// Multipart uploads must not set Content-Type: the browser adds the
+// boundary. The response is parsed with the same error mapping as JSON.
+async function requestForm<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`/api${path}`, { method: 'POST', body: form })
+  return parseResponse<T>(res)
 }
 
 function body(method: string, data: unknown): RequestInit {
@@ -186,6 +199,20 @@ export const api = {
     id: number,
     input: { company_id: number; title: string; location?: string | null },
   ) => request<{ offer: OfferDetail['offer'] }>(`/offers/${id}/repair`, body('POST', input)),
+
+  // offer documents
+  uploadAttachment: (offerId: number, file: File, kind: AttachmentKind) => {
+    const form = new FormData()
+    form.append('kind', kind)
+    form.append('file', file)
+    return requestForm<{ attachment: OfferDetail['attachments'][number] }>(
+      `/offers/${offerId}/attachments`,
+      form,
+    )
+  },
+  deleteAttachment: (offerId: number, attachmentId: number) =>
+    request<void>(`/offers/${offerId}/attachments/${attachmentId}`, { method: 'DELETE' }),
+  listDocuments: () => request<{ documents: DocumentItem[] }>('/documents'),
 
   // events
   listEvents: (offerId: number) => request<{ events: Event[] }>(`/offers/${offerId}/events`),

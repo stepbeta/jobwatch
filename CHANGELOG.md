@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Offer documents (OpenSpec change `offer-documents`)
+
+#### Added
+- Attach a PDF to an offer from the offer detail page: choose the kind
+  (`cv`, `cover_letter` or `other`), upload a file up to 2 MiB, download
+  it byte-for-byte, or detach it after confirmation. The offer detail API
+  embeds the document list.
+- Files are stored inside the SQLite database as content-addressed blobs:
+  identical bytes are stored once, the first upload time is kept when the
+  same file is attached to another offer, and a blob is deleted only when
+  no offer references it anymore. `jobwatch backup` therefore carries every
+  attached PDF.
+- Best-effort PDF metadata (title, author, producer, creation and
+  modification date, page count, PDF version) is read with a new
+  standard-library-only `internal/pdfmeta` package. Unknown values are
+  stored as NULL and never fail an upload.
+- A read-only **Documents** page (`#/documents`) lists each stored file
+  once with its metadata, its first upload time and the offers that
+  reference it, and links back to those offers. The sidebar links to it.
+- The offer page labels the PDF's own dates separately from the JobWatch
+  "first uploaded" and "attached to this offer" times. The browser's file
+  modification time is never stored or displayed.
+
+#### Changed
+- Offer merge moves the absorbed offer's documents to the kept offer and
+  collapses a file both offers already referenced; its response reports
+  `moved_attachments`.
+- The REST API adds `POST /api/offers/{id}/attachments`, the attachment
+  download/delete routes, `GET /api/documents` and
+  `GET /api/documents/{sha256}/file`, with `unsupported_file_type`,
+  `file_too_large` and `already_attached` errors.
+- Migration `0018_offer_documents.sql` adds `attachment_blobs` and
+  `offer_attachments`; it is additive and changes no existing row.
+
 ### UI shell follow-ups (OpenSpec change `ui-shell-followups`)
 
 #### Changed

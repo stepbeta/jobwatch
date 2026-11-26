@@ -46,6 +46,7 @@ const detail: OfferDetail = {
   provenance: [],
   events: [],
   notes: [],
+  attachments: [],
   snapshots: [],
   latest_snapshot: null,
   snapshot_diff: null,

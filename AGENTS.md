@@ -61,6 +61,7 @@ internal/db/         sqlite setup, migrations runner, queries
 internal/sources/    Fetcher interface + per-type adapters
 internal/scan/       scan pipeline + manual import + classifier backfill (uses db + sources + classify)
 internal/importmeta/ URL job-page metadata extraction for manual import
+internal/pdfmeta/    best-effort PDF metadata extraction for offer documents
 internal/classify/   scoring engine + keyword tables
 internal/diff/       line diff for changed-offer snapshots
 internal/api/        REST handlers

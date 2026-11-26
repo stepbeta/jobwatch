@@ -28,6 +28,7 @@ require a table rebuild.
 | 0015 | `0015_search_profiles.sql` | OpenSpec change `classification-profiles`: creates `search_profiles`, `search_profile_terms` and `search_profile_remote` and seeds one default profile from the former hardcoded classifier tables (35 title, 79 location, 15 description terms with their exact weights; `remote` and `unknown` accepted). Additive: no `job_offers` row or column is changed; the legacy score columns stay unused |
 | 0016 | `0016_murena_detail_description.sql` | Data-only, idempotent: adds `detail_description_selector` to the seeded Murena HTML source when the key is absent. Every other config key is preserved and a user-edited selector is never overwritten |
 | 0017 | `0017_application_lifecycle.sql` | OpenSpec change `simplify-application-lifecycle`: rebuilds `job_offers` with `application_state DEFAULT 'none'`; maps `todo`/`maybe` → `none`, `responded` → `applied`, `positive` → `accepted`; turns bookmarked `todo`/`maybe` rows into `saved` and clears `saved_at` on other bookmarked rows; recreates indexes and FTS triggers and rebuilds the FTS index. Every offer ID and every child row is preserved |
+| 0018 | `0018_offer_documents.sql` | OpenSpec change `offer-documents`: adds `attachment_blobs` (content-addressed PDF bytes and extracted metadata) and `offer_attachments` (one kind/filename row per offer and file), with indexes on `offer_id` and `blob_sha256`. Additive: no existing table, column, row or ID changes |
 
 Migration 0012 runs on a pinned connection with `foreign_keys=OFF` so it
 can rebuild `job_offers` without `DROP TABLE` cascading into events,
@@ -66,6 +67,12 @@ row and fingerprint is untouched. The previous binary ignores the new
 tables; rolling back only needs the pre-migration backup if the user also
 wants the seeded profile gone. Re-running the migration is impossible
 because `schema_migrations` records version 15.
+
+Migration 0018 is additive: it creates `attachment_blobs` and
+`offer_attachments` and their two indexes. `job_offers` and every
+existing child table are untouched, so there is no rebuild, no FTS
+rebuild and no ID churn. Rolling back drops the two tables (or restores
+the pre-migration backup); no pre-existing row depends on them.
 
 `schema_migrations(version INTEGER PK, name TEXT, applied_at TEXT)`.
 Each migration runs in its own transaction with its bookkeeping row.
@@ -466,6 +473,60 @@ pre-0007 snapshot is backfilled as `scan`; origins are exact from 7c on.
 Merging offers moves snapshot rows unchanged, so their origin is
 preserved.
 
+### attachment_blobs
+
+One row per distinct byte sequence uploaded as an offer document. The
+bytes live in the same SQLite file as everything else, so `jobwatch
+backup` captures every document.
+
+| Column | Type | Notes |
+|---|---|---|
+| sha256 | TEXT PK | lowercase hex SHA-256 of the raw bytes, computed server-side. The client-supplied name or type is never trusted |
+| bytes | BLOB NOT NULL | the uploaded PDF, byte-for-byte |
+| size | INTEGER NOT NULL | `length(bytes)` at upload |
+| mime | TEXT NOT NULL DEFAULT 'application/pdf' | always `application/pdf` today; the upload checks the `%PDF-` header |
+| pdf_title, pdf_author, pdf_producer | TEXT | best-effort PDF `/Info` values; NULL when unknown |
+| pdf_creation_date, pdf_mod_date | TEXT | best-effort PDF `D:` dates converted to RFC3339 UTC; NULL when absent or malformed |
+| pdf_page_count | INTEGER | number of page objects found; NULL when unknown (never a guess) |
+| pdf_version | TEXT | PDF header version such as `1.7`; NULL when unknown |
+| created_at | TEXT NOT NULL | first time these bytes entered the database ("first uploaded"). Reused content keeps the original value |
+
+### offer_attachments
+
+One row per (offer, stored file): the tag and filename a particular offer
+uses for those bytes.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | INTEGER PK | autoincrement |
+| offer_id | INTEGER NOT NULL → job_offers ON DELETE CASCADE | offer merge moves these rows before the absorbed offer is deleted |
+| blob_sha256 | TEXT NOT NULL → attachment_blobs(sha256) | no `ON DELETE CASCADE`: unreferenced content is deleted explicitly, so a premature blob delete fails instead of stranding rows |
+| kind | TEXT NOT NULL | `cv`, `cover_letter` or `other`; validated in Go. The same bytes may carry different kinds on different offers |
+| filename | TEXT NOT NULL | basename only (no directory part), as uploaded |
+| created_at | TEXT NOT NULL | when this offer got the document ("attached"). Reusing a stored file on another offer creates a new attach time |
+
+Indexes: `idx_offer_attachments_offer(offer_id)`,
+`idx_offer_attachments_blob(blob_sha256)`, and
+`UNIQUE(offer_id, blob_sha256)`.
+
+Rules:
+
+- Content is deduplicated by exact bytes only. A re-exported CV that
+  differs by one byte is a different document.
+- Attaching content an offer already references is rejected
+  (`409 already_attached`) and changes nothing.
+- Detaching deletes the attachment row and then the blob only when no
+  other attachment references it; a shared file stays downloadable.
+- Merging offers moves the absorbed offer's attachments to the kept
+  offer, collapses a file both already reference, and keeps every blob
+  that still has a reference.
+- Documents are a property of the offer, not of a timeline event:
+  attaching or detaching never creates or changes an event, a snapshot
+  or an application state.
+- The PDF's own dates come from the file; `attachment_blobs.created_at`
+  and `offer_attachments.created_at` come from JobWatch. The browser's
+  file modification time is never stored or displayed.
+
 ### Full-text search
 - `job_offers_fts` — FTS5, external content `job_offers` (columns
   `title`, `raw_text`), `content_rowid = id`.
@@ -581,16 +642,17 @@ Both operations are explicit user actions on the offer detail page; scans
 never merge or split offers.
 
 - **Merge** (`POST /api/offers/:id/merge` with `into_id`): moves the
-  absorbed offer's provenance rows, events, offer notes and snapshots to
-  the target, keeps the earliest `first_seen_at` / latest `last_seen_at`,
-  collapses duplicate provenance URLs (earliest first-seen, latest
-  last-seen), adopts the absorbed application state when the target is
-  `none` (and promotes a `saved` target to a real application carried by
+  absorbed offer's provenance rows, events, offer notes, snapshots and
+  attachments to the target, keeps the earliest `first_seen_at` / latest
+  `last_seen_at`, collapses duplicate provenance URLs (earliest first-seen,
+  latest last-seen), adopts the absorbed application state when the target
+  is `none` (and promotes a `saved` target to a real application carried by
   the absorbed offer), keeps `saved_at` consistent with the resulting
   state, and keeps the offer active if either side was active; only two
-  disappeared offers stay disappeared. The absorbed
-  `job_offers` row is deleted only after all children have moved; no
-  events, notes, snapshots or provenance rows are lost.
+  disappeared offers stay disappeared. A file both offers referenced
+  stays once on the kept offer. The absorbed `job_offers` row is deleted
+  only after all children have moved; no events, notes, snapshots,
+  provenance rows or documents are lost.
 - **Split** (`POST /api/offers/:id/split` with `provenance_ids`, optional
   `title`, optional `location`): creates a second offer in the same
   company and moves the selected provenance rows to it. Events, notes and

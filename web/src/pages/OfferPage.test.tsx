@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { OfferPage } from './OfferPage'
 import styles from '../styles.css?raw'
 import { api } from '../api'
-import type { Note, OfferDetail } from '../types'
+import type { Attachment, Note, OfferDetail } from '../types'
 
 vi.mock('../api', () => ({
   api: {
@@ -21,9 +21,36 @@ vi.mock('../api', () => ({
     listOffers: vi.fn(),
     mergeOffer: vi.fn(),
     splitOffer: vi.fn(),
+    uploadAttachment: vi.fn(),
+    deleteAttachment: vi.fn(),
   },
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }))
+
+function makeAttachment(overrides: Partial<Attachment> = {}): Attachment {
+  return {
+    id: 3,
+    offer_id: 7,
+    sha256: '9f2c',
+    kind: 'cv',
+    filename: 'cv-2026.pdf',
+    size: 122880,
+    mime: 'application/pdf',
+    attached_at: '2026-11-20T10:00:00Z',
+    first_uploaded_at: '2026-10-02T09:00:00Z',
+    pdf: {
+      title: 'Acme CV',
+      author: 'Alice Martin',
+      producer: 'Test Producer',
+      creation_date: '2026-10-02T08:30:00Z',
+      modification_date: null,
+      page_count: 2,
+      version: '1.7',
+    },
+    download_url: '/api/offers/7/attachments/3/file',
+    ...overrides,
+  }
+}
 
 function makeNote(overrides: Partial<Note> = {}): Note {
   return {
@@ -81,6 +108,7 @@ function makeDetail(overrides: Partial<OfferDetail> = {}): OfferDetail {
       },
     ],
     notes: [makeNote()],
+    attachments: [],
     snapshots: [],
     latest_snapshot: null,
     snapshot_diff: null,
@@ -98,6 +126,8 @@ function renderPage() {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(api.getOffer).mockResolvedValue(makeDetail())
+  vi.mocked(api.uploadAttachment).mockResolvedValue({ attachment: makeAttachment() })
+  vi.mocked(api.deleteAttachment).mockResolvedValue(undefined)
   vi.mocked(api.createEvent).mockResolvedValue({
     event: {
       id: 9,
@@ -443,5 +473,118 @@ describe('OfferPage browser identity', () => {
       7,
       expect.objectContaining({ application_state: 'interview' }),
     )
+  })
+})
+
+describe('OfferPage documents', () => {
+  it('shows the empty state and the upload form when nothing is attached', async () => {
+    renderPage()
+
+    expect(await screen.findByText('No document is attached.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Upload document' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Detach' })).toBeNull()
+  })
+
+  it('lists two documents with kind, size, pages and a download link', async () => {
+    const cv = makeAttachment()
+    const letter = makeAttachment({
+      id: 4,
+      kind: 'cover_letter',
+      filename: 'letter.pdf',
+      size: 2048,
+      download_url: '/api/offers/7/attachments/4/file',
+      pdf: {
+        title: null,
+        author: null,
+        producer: null,
+        creation_date: null,
+        modification_date: null,
+        page_count: null,
+        version: null,
+      },
+    })
+    vi.mocked(api.getOffer).mockResolvedValue(makeDetail({ attachments: [cv, letter] }))
+    renderPage()
+
+    await screen.findByText('cv-2026.pdf')
+    const section = document.querySelector('section.documents') as HTMLElement
+    expect(within(section).getByText('2 files')).toBeTruthy()
+    const badges = Array.from(section.querySelectorAll('.kind-badge')).map((b) => b.textContent)
+    expect(badges).toEqual(['CV', 'Cover letter'])
+    expect(within(section).getByText('cv-2026.pdf')).toBeTruthy()
+    expect(within(section).getByText('letter.pdf')).toBeTruthy()
+    expect(within(section).getByText('120 KB')).toBeTruthy()
+    expect(within(section).getByText('2 KB')).toBeTruthy()
+    expect(within(section).getByText('2 pages')).toBeTruthy()
+
+    const downloads = within(section).getAllByRole('link', { name: 'Download' })
+    expect(downloads).toHaveLength(2)
+    expect(downloads[0].getAttribute('href')).toBe('/api/offers/7/attachments/3/file')
+    expect(downloads[0].getAttribute('download')).toBe('cv-2026.pdf')
+    expect(downloads[1].getAttribute('href')).toBe('/api/offers/7/attachments/4/file')
+  })
+
+  it('uploads a PDF with the selected kind and reloads the offer', async () => {
+    const user = userEvent.setup()
+    const { onNotice } = renderPage()
+
+    const file = new File(['%PDF-1.7\n'], 'letter.pdf', {
+      type: 'application/pdf',
+      lastModified: Date.UTC(2020, 0, 1),
+    })
+    const input = (await screen.findByLabelText('PDF file')) as HTMLInputElement
+    await user.upload(input, file)
+    await user.selectOptions(screen.getByLabelText('Kind'), 'cover_letter')
+    await user.click(screen.getByRole('button', { name: 'Upload document' }))
+
+    await waitFor(() =>
+      expect(api.uploadAttachment).toHaveBeenCalledWith(7, file, 'cover_letter'),
+    )
+    await waitFor(() => expect(api.getOffer).toHaveBeenCalledTimes(2))
+    expect(onNotice).toHaveBeenCalledWith('success', 'Document attached.')
+    expect(input.value).toBe('')
+  })
+
+  it('detaches a document after confirmation', async () => {
+    const user = userEvent.setup()
+    const attachment = makeAttachment()
+    vi.mocked(api.getOffer).mockResolvedValue(makeDetail({ attachments: [attachment] }))
+    const { onNotice } = renderPage()
+
+    await screen.findByText('cv-2026.pdf')
+    const section = document.querySelector('section.documents') as HTMLElement
+    await user.click(within(section).getByRole('button', { name: 'Detach' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/The stored file is deleted only/)).toBeTruthy()
+    await user.click(within(dialog).getByRole('button', { name: 'Detach document' }))
+
+    await waitFor(() => expect(api.deleteAttachment).toHaveBeenCalledWith(7, 3))
+    await waitFor(() => expect(api.getOffer).toHaveBeenCalledTimes(2))
+    expect(onNotice).toHaveBeenCalledWith('success', 'Document detached.')
+  })
+
+  it('labels the PDF dates and the two JobWatch times without a browser modification time', async () => {
+    const attachment = makeAttachment({
+      pdf: {
+        title: null,
+        author: null,
+        producer: null,
+        creation_date: null,
+        modification_date: null,
+        page_count: null,
+        version: null,
+      },
+    })
+    vi.mocked(api.getOffer).mockResolvedValue(makeDetail({ attachments: [attachment] }))
+    renderPage()
+
+    await screen.findByText('cv-2026.pdf')
+    expect(screen.getByText(/PDF creation: Unknown/)).toBeTruthy()
+    expect(screen.getByText(/PDF modified: Unknown/)).toBeTruthy()
+    expect(screen.getByText(/First uploaded:/)).toBeTruthy()
+    expect(screen.getByText(/Attached:/)).toBeTruthy()
+    expect(screen.getByText(/The PDF creation and modification dates come from the file/)).toBeTruthy()
+    expect(screen.queryByText(/last modified/i)).toBeNull()
+    expect(screen.queryByText(/file modified/i)).toBeNull()
   })
 })

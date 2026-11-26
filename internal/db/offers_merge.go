@@ -22,12 +22,13 @@ var (
 
 // OfferMergeResult reports what an explicit offer merge moved.
 type OfferMergeResult struct {
-	Offer           model.JobOffer
-	MergedOfferID   int64
-	MovedProvenance int
-	MovedEvents     int
-	MovedNotes      int
-	MovedSnapshots  int
+	Offer            model.JobOffer
+	MergedOfferID    int64
+	MovedProvenance  int
+	MovedEvents      int
+	MovedNotes       int
+	MovedSnapshots   int
+	MovedAttachments int
 }
 
 // MergeOffers moves every provenance row, event, note and snapshot of
@@ -80,6 +81,10 @@ func MergeOffers(ctx context.Context, sqlDB *sql.DB, fromID, intoID int64, now t
 	}
 	n, _ = rows.RowsAffected()
 	res.MovedSnapshots = int(n)
+
+	if res.MovedAttachments, err = mergeAttachments(ctx, tx, fromID, intoID); err != nil {
+		return OfferMergeResult{}, err
+	}
 
 	if err := updateMergedOffer(ctx, tx, from, into, now); err != nil {
 		return OfferMergeResult{}, err

@@ -3,6 +3,7 @@ import { api, errorMessage } from './api'
 import { Shell } from './components/Shell'
 import { CompanyPage } from './pages/CompanyPage'
 import { Dashboard } from './pages/Dashboard'
+import { DocumentsPage } from './pages/DocumentsPage'
 import { IncompletePage } from './pages/IncompletePage'
 import { InterviewPrepPage } from './pages/InterviewPrepPage'
 import { OfferPage } from './pages/OfferPage'
@@ -149,6 +150,7 @@ export default function App() {
             onNotice={notify}
           />
         )}
+        {route.name === 'documents' && <DocumentsPage />}
         {route.name === 'offer' && <OfferPage id={route.id} onNotice={notify} />}
         {route.name === 'interviewPrep' && <InterviewPrepPage onNotice={notify} />}
         {route.name === 'settings' && <SettingsPage onNotice={notify} />}

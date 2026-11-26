@@ -28,6 +28,8 @@ export function routeTitle(route: Route): string | null {
       return pageTitle('Incomplete')
     case 'sources':
       return pageTitle('Sources')
+    case 'documents':
+      return pageTitle('Documents')
     case 'interviewPrep':
       return pageTitle('Interview prep')
     case 'settings':

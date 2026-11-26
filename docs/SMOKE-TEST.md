@@ -66,6 +66,14 @@ go build -tags ui -o /tmp/jobwatch-smoke ./cmd/jobwatch
    inline. Use the pencil icon to edit the event (change the type or
    backdate it) and the trash icon to delete it; after deleting a pinned
    event the note keeps its text and loses the badge.
+5b. **Documents.** In the offer's **Documents** section choose a PDF and
+   kind **CV**, then click **Upload document**. The row shows its kind,
+   size, page count and the PDF's own dates; download it and compare it
+   with the original byte-for-byte. Attach the same file to a second offer
+   and open **Documents** in the sidebar: one row lists both offers. Detach
+   it from the first offer; it stays downloadable and the page lists the
+   remaining offer. Detach the last reference; the row disappears and the
+   download returns 404.
 6. Go back to the Dashboard: the offer is in **Applications**, sorted by
    recent activity. Its **Refresh** button scans only the enabled sources
    behind applications. The **Company** link opens the company page

@@ -1,5 +1,6 @@
 import type {
   ApplicationState,
+  AttachmentKind,
   EventType,
   MatchReasons,
   OfferState,
@@ -86,6 +87,30 @@ const EVENT_LABELS: Record<EventType, string> = {
 
 export function eventLabel(t: EventType): string {
   return EVENT_LABELS[t] ?? t
+}
+
+export const ATTACHMENT_KINDS: AttachmentKind[] = ['cv', 'cover_letter', 'other']
+
+const ATTACHMENT_LABELS: Record<AttachmentKind, string> = {
+  cv: 'CV',
+  cover_letter: 'Cover letter',
+  other: 'Other',
+}
+
+export function attachmentKindLabel(kind: AttachmentKind): string {
+  return ATTACHMENT_LABELS[kind] ?? kind
+}
+
+// fmtBytes renders a stored file size with one unit and no false precision.
+export function fmtBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) {
+    const kb = bytes / 1024
+    const text = kb >= 10 ? String(Math.round(kb)) : kb.toFixed(1).replace(/\.0$/, '')
+    return `${text} KB`
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} MB`
 }
 
 const APP_LABELS: Record<ApplicationState, string> = {
