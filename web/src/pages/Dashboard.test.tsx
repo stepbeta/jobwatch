@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Dashboard } from './Dashboard'
 import { api } from '../api'
@@ -128,6 +128,40 @@ describe('Dashboard', () => {
     expect(screen.getByRole('heading', { name: 'Saved' })).toBeTruthy()
     expect(await screen.findByText('Applied role')).toBeTruthy()
     expect(await screen.findByText('Saved role')).toBeTruthy()
+  })
+
+  it('shows disappeared offers in both sections with their listing state', async () => {
+    const disappearedApplied = makeOffer({
+      id: 20,
+      title: 'Disappeared application',
+      offer_state: 'disappeared',
+      application_state: 'applied',
+    })
+    const disappearedSaved = makeOffer({
+      id: 21,
+      title: 'Disappeared saved',
+      offer_state: 'disappeared',
+      application_state: 'saved',
+    })
+    vi.mocked(api.listOffers).mockImplementation(async (query = {}) => {
+      if (query.application_state === 'saved') {
+        return { offers: [disappearedSaved], total: 1, limit: 200, offset: 0 }
+      }
+      if (query.has_application) {
+        return { offers: [disappearedApplied], total: 1, limit: query.limit ?? 50, offset: 0 }
+      }
+      return { offers: [], total: 0, limit: 50, offset: 0 }
+    })
+    renderDashboard([makeSource()])
+
+    const applications = (await screen.findByRole('heading', { name: 'Applications' }))
+      .closest('section') as HTMLElement
+    const saved = screen.getByRole('heading', { name: 'Saved' }).closest('section') as HTMLElement
+
+    expect(await within(applications).findByText('Disappeared application')).toBeTruthy()
+    expect(within(saved).getByText('Disappeared saved')).toBeTruthy()
+    expect(within(applications).getByText('disappeared')).toBeTruthy()
+    expect(within(saved).getByText('disappeared')).toBeTruthy()
   })
 
   it('loads the Saved section from the saved application state', async () => {
