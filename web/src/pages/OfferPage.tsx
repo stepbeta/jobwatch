@@ -5,6 +5,8 @@ import { EditViewEditor } from '../components/EditViewEditor'
 import { Link } from '../components/Link'
 import { RemoteBadge, ScoreBadge } from '../components/ScoreBadge'
 import { ActionIcon, EventIcon } from '../components/icons'
+import { useOfferFavicon } from '../favicon'
+import { offerDocumentTitle, useDocumentTitle } from '../title'
 import {
   APP_STATES,
   EVENT_TYPES,
@@ -106,6 +108,17 @@ export function OfferPage({
   const [snapshotDiffs, setSnapshotDiffs] = useState<Record<string, SnapshotDiff>>({})
   const [loadingSnapshotTextID, setLoadingSnapshotTextID] = useState<number | null>(null)
   const [loadingSnapshotDiffKey, setLoadingSnapshotDiffKey] = useState<string | null>(null)
+
+  const loaded = detail && detail.offer.id === id ? detail : null
+  useDocumentTitle(
+    loaded
+      ? offerDocumentTitle(
+          loaded.offer.title || 'Untitled offer',
+          loaded.company?.name ?? loaded.offer.company_name,
+        )
+      : 'Offer — JobWatch',
+  )
+  useOfferFavicon(loaded ? appState : 'none')
 
   const load = useCallback(async (): Promise<OfferDetail | null> => {
     try {

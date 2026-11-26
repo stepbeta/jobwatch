@@ -15,7 +15,7 @@ vi.mock('../api', async (importOriginal) => {
 })
 
 import { ApiError, api } from '../api'
-import { SearchProfilePage } from './SearchProfilePage'
+import { SettingsPage } from './SettingsPage'
 
 function makeProfile(overrides: Partial<SearchProfile> = {}): SearchProfile {
   return {
@@ -68,12 +68,13 @@ function makeProfile(overrides: Partial<SearchProfile> = {}): SearchProfile {
 
 function renderPage() {
   const onNotice = vi.fn()
-  const view = render(<SearchProfilePage onNotice={onNotice} />)
+  const view = render(<SettingsPage onNotice={onNotice} />)
   return { onNotice, view }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.location.hash = '#/settings'
   vi.mocked(api.listSearchProfiles).mockResolvedValue({ profiles: [makeProfile()] })
   vi.mocked(api.replaceSearchProfile).mockImplementation(async (_id, input) => ({
     profile: makeProfile({
@@ -85,27 +86,39 @@ beforeEach(() => {
   }))
 })
 
-describe('SearchProfilePage', () => {
-  it('loads the default profile with terms and the section explanations', async () => {
+describe('SettingsPage', () => {
+  it('loads the default profile and exposes every tab', async () => {
     renderPage()
 
     expect(await screen.findByDisplayValue('Default')).toBeTruthy()
     expect(screen.getByDisplayValue('Platform Engineer / SRE')).toBeTruthy()
-    expect(screen.getAllByLabelText('title term')[0]).toHaveProperty('value', 'platform engineer')
-    expect(screen.getByText(/Positive title terms raise title affinity/)).toBeTruthy()
-    expect(screen.getByText(/Location terms match the offer location/)).toBeTruthy()
-    expect(screen.getByText(/membership check, not a weighted score/)).toBeTruthy()
+    expect(screen.getByRole('tab', { name: 'Profile' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tab', { name: 'Title terms' })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: 'Location terms' })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: 'Description' })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: 'Remote' })).toBeTruthy()
+    expect(screen.getByText(/Buckets are editor labels/)).toBeTruthy()
   })
 
-  it('opens the advanced description section with its explanation', async () => {
+  it('shows each field group on its own tab with its explanation', async () => {
     const user = userEvent.setup()
     renderPage()
     await screen.findByDisplayValue('Default')
 
-    const summary = screen.getByText('Advanced: description terms')
-    await user.click(summary)
+    await user.click(screen.getByRole('tab', { name: 'Title terms' }))
+    expect(screen.getAllByLabelText('title term')[0]).toHaveProperty('value', 'platform engineer')
+    expect(screen.getByText(/Positive title terms raise title affinity/)).toBeTruthy()
+
+    await user.click(screen.getByRole('tab', { name: 'Location terms' }))
+    expect(screen.getByDisplayValue('france')).toBeTruthy()
+    expect(screen.getByText(/Location terms match the offer location/)).toBeTruthy()
+
+    await user.click(screen.getByRole('tab', { name: 'Description' }))
     expect(screen.getByText(/Description terms add weaker location evidence only/)).toBeTruthy()
     expect(screen.getByDisplayValue('paris')).toBeTruthy()
+
+    await user.click(screen.getByRole('tab', { name: 'Remote' }))
+    expect(screen.getByText(/membership check, not a weighted score/)).toBeTruthy()
   })
 
   it('switches the bucket scale, maps buckets and saves the new scale', async () => {
@@ -114,6 +127,7 @@ describe('SearchProfilePage', () => {
     await screen.findByDisplayValue('Default')
 
     await user.selectOptions(screen.getByLabelText('Bucket scale'), 'three')
+    await user.click(screen.getByRole('tab', { name: 'Title terms' }))
     const buckets = screen.getAllByLabelText(/title bucket for/) as HTMLSelectElement[]
     expect(buckets[0].value).toBe('positive')
 
@@ -136,6 +150,7 @@ describe('SearchProfilePage', () => {
     const user = userEvent.setup()
     renderPage()
     await screen.findByDisplayValue('Default')
+    await user.click(screen.getByRole('tab', { name: 'Title terms' }))
 
     const bucketSelect = screen.getByLabelText('title bucket for platform engineer')
     await user.selectOptions(bucketSelect, 'mild_negative')
@@ -162,6 +177,7 @@ describe('SearchProfilePage', () => {
     const user = userEvent.setup()
     renderPage()
     await screen.findByDisplayValue('Default')
+    await user.click(screen.getByRole('tab', { name: 'Remote' }))
 
     await user.click(screen.getByRole('checkbox', { name: 'Hybrid' }))
     await user.click(screen.getByRole('checkbox', { name: 'Unknown' }))
@@ -186,6 +202,7 @@ describe('SearchProfilePage', () => {
     const user = userEvent.setup()
     renderPage()
     await screen.findByDisplayValue('Default')
+    await user.click(screen.getByRole('tab', { name: 'Location terms' }))
 
     await user.click(screen.getByRole('button', { name: 'Add location term' }))
     const terms = screen.getAllByLabelText('location term') as HTMLInputElement[]
@@ -198,19 +215,106 @@ describe('SearchProfilePage', () => {
     expect(screen.getAllByLabelText('location term')).toHaveLength(1)
   })
 
-  it('rejects an empty term before calling the API', async () => {
+  it('switches tabs without losing unsaved edits', async () => {
     const user = userEvent.setup()
     renderPage()
     await screen.findByDisplayValue('Default')
+    await user.click(screen.getByRole('tab', { name: 'Title terms' }))
+
+    const title = screen.getAllByLabelText('title term')[0] as HTMLInputElement
+    await user.clear(title)
+    await user.type(title, 'site reliability')
+
+    await user.click(screen.getByRole('tab', { name: 'Remote' }))
+    expect(screen.queryByLabelText('title term')).toBeNull()
+    await user.click(screen.getByRole('tab', { name: 'Title terms' }))
+    expect((screen.getAllByLabelText('title term')[0] as HTMLInputElement).value).toBe(
+      'site reliability',
+    )
+  })
+
+  it('applies edits from several tabs in one save', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByDisplayValue('Default')
+
+    await user.click(screen.getByRole('tab', { name: 'Title terms' }))
+    const title = screen.getAllByLabelText('title term')[0] as HTMLInputElement
+    await user.clear(title)
+    await user.type(title, 'sre')
+
+    await user.click(screen.getByRole('tab', { name: 'Remote' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Hybrid' }))
+    await user.click(screen.getByRole('button', { name: 'Save profile' }))
+
+    await waitFor(() => expect(api.replaceSearchProfile).toHaveBeenCalledTimes(1))
+    expect(api.replaceSearchProfile).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        terms: expect.arrayContaining([
+          expect.objectContaining({ affinity: 'title', term: 'sre' }),
+        ]),
+        remote: expect.arrayContaining([{ policy: 'hybrid', accepted: true }]),
+      }),
+    )
+  })
+
+  it('writes the active tab to the URL and restores it on load', async () => {
+    const user = userEvent.setup()
+    window.location.hash = '#/settings?tab=remote'
+    const { view } = renderPage()
+    await screen.findByRole('tab', { name: 'Remote' })
+
+    expect(screen.getByRole('tab', { name: 'Remote' }).getAttribute('aria-selected')).toBe('true')
+    await user.click(screen.getByRole('tab', { name: 'Title terms' }))
+    await waitFor(() => expect(window.location.hash).toContain('tab=title'))
+
+    view.unmount()
+    window.location.hash = '#/settings?tab=description'
+    renderPage()
+    await screen.findByRole('tab', { name: 'Description' })
+    expect(screen.getByRole('tab', { name: 'Description' }).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+  })
+
+  it('rejects an empty term on its tab before calling the API', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByDisplayValue('Default')
+    await user.click(screen.getByRole('tab', { name: 'Title terms' }))
 
     await user.clear(screen.getAllByLabelText('title term')[0])
     await user.click(screen.getByRole('button', { name: 'Save profile' }))
 
     expect(await screen.findByText(/Every term needs a value/)).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /Title terms/ }).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+    expect(screen.getByRole('tab', { name: /Title terms/ }).querySelector('[aria-label="has errors"]')).toBeTruthy()
     expect(api.replaceSearchProfile).not.toHaveBeenCalled()
   })
 
-  it('shows a server validation error and keeps the form', async () => {
+  it('marks every invalid tab and opens the first one on save', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByDisplayValue('Default')
+
+    await user.click(screen.getByRole('tab', { name: 'Title terms' }))
+    await user.clear(screen.getAllByLabelText('title term')[0])
+    await user.click(screen.getByRole('tab', { name: 'Location terms' }))
+    await user.clear(screen.getAllByLabelText('location term')[0])
+    await user.click(screen.getByRole('tab', { name: 'Profile' }))
+    await user.click(screen.getByRole('button', { name: 'Save profile' }))
+
+    expect(await screen.findByText(/Every term needs a value/)).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /Title terms/ }).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+    expect(screen.getByRole('tab', { name: /Location terms/ }).querySelector('[aria-label="has errors"]')).toBeTruthy()
+  })
+
+  it('switches to the tab named by a server validation error', async () => {
     const user = userEvent.setup()
     vi.mocked(api.replaceSearchProfile).mockRejectedValue(
       new ApiError('validation_failed', 'invalid search profile: duplicate title term "sre"', 400),
@@ -221,7 +325,10 @@ describe('SearchProfilePage', () => {
     await user.click(screen.getByRole('button', { name: 'Save profile' }))
 
     expect(await screen.findByText(/duplicate title term/)).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /Title terms/ }).getAttribute('aria-selected')).toBe(
+      'true',
+    )
     expect(onNotice).toHaveBeenCalledWith('error', expect.stringContaining('duplicate title term'))
-    expect(screen.getByDisplayValue('Default')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Save profile' })).toBeTruthy()
   })
 })

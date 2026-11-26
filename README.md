@@ -87,7 +87,7 @@ choose another file.
    lists until it is repaired.
 3. **Classify and review.** A sighting stores offer facts and a derived
    remote policy. Title and location affinity are computed when an offer
-   is read, from the editable **Search profile**, so a profile change
+   is read, from the editable **Settings** page, so a profile change
    applies immediately. Offers are identified by their source link
    (external uid, then URL); a description edit keeps a new snapshot, and
    offers that disappear are marked `disappeared`, never deleted. The
@@ -134,7 +134,8 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
 
 - **Dashboard** (`#/`) — Applications (offers with an application state
   other than `none` or `saved`, most recent timeline activity first) and
-  Saved (offers in the `saved` state).
+  Saved (offers in the `saved` state). A default-off **Hide closed
+  applications** toggle (`#/?closed=1`) hides `negative` applications.
 - **Offers** (`#/offers`) — the full filterable, sortable table with title
   and location affinity badges, a remote policy badge, a searchable
   company filter, persisted column picker, per-page selector, URL-restored
@@ -156,10 +157,17 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
 - **Interview prep** (`#/interview-prep`) — a personal FAQ of anticipated
   interview questions grouped into draggable category sections, with
   markdown answers and an Edit/View editor.
-- **Search profile** (`#/search-profile`) — the target role, geography and
-  accepted remote policies: term weights in a 3/5 bucket scale, advanced
-  description terms, and explanatory text. Affinity is recomputed from
-  the profile on every read; no reclassification command exists.
+- **Settings** (`#/settings`) — the target role, geography and accepted
+  remote policies in five tabs (Profile, Title terms, Location terms,
+  Description, Remote). Term weights use a 3/5 bucket scale; description
+  terms are location-only; one Save applies the whole profile. Affinity
+  is recomputed from the profile on every read; no reclassification
+  command exists.
+
+The header theme button cycles **System → Light → Dark**, with a tooltip
+that names the next mode. **System** is the default and follows the
+operating system; the choice is remembered across reloads and applied
+before the first paint.
 
 Page-by-page behavior and the saved-state semantics are in
 [docs/USAGE.md](docs/USAGE.md#web-ui).

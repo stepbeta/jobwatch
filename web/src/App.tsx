@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, errorMessage } from './api'
+import { Shell } from './components/Shell'
 import { CompanyPage } from './pages/CompanyPage'
 import { Dashboard } from './pages/Dashboard'
 import { IncompletePage } from './pages/IncompletePage'
 import { InterviewPrepPage } from './pages/InterviewPrepPage'
 import { OfferPage } from './pages/OfferPage'
 import { OffersPage } from './pages/OffersPage'
-import { SearchProfilePage } from './pages/SearchProfilePage'
+import { SettingsPage } from './pages/SettingsPage'
 import { SourcesPage } from './pages/SourcesPage'
 import { useRoute } from './router'
+import { routeTitle, useDocumentTitle } from './title'
 import type { ScanResponse, Source } from './types'
 
 export type NoticeKind = 'info' | 'success' | 'error'
@@ -30,6 +32,7 @@ const toastTTL = 8000
 
 export default function App() {
   const route = useRoute()
+  useDocumentTitle(routeTitle(route))
   const [sources, setSources] = useState<Source[]>([])
   const [loadError, setLoadError] = useState('')
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -114,43 +117,9 @@ export default function App() {
 
   return (
     <>
-      <header className="topbar">
-        <span className="brand">JobWatch</span>
-        <nav>
-          <a href="#/" className={route.name === 'dashboard' ? 'active' : ''}>
-            Dashboard
-          </a>
-          <a
-            href="#/offers"
-            className={route.name === 'offers' || route.name === 'offer' ? 'active' : ''}
-          >
-            Offers
-          </a>
-          <a href="#/incomplete" className={route.name === 'incomplete' ? 'active' : ''}>
-            Incomplete{incompleteCount > 0 ? ` (${incompleteCount})` : ''}
-          </a>
-          <a href="#/sources" className={route.name === 'sources' ? 'active' : ''}>
-            Sources
-          </a>
-          <a
-            href="#/interview-prep"
-            className={route.name === 'interviewPrep' ? 'active' : ''}
-          >
-            Interview prep
-          </a>
-          <a
-            href="#/search-profile"
-            className={route.name === 'profile' ? 'active' : ''}
-          >
-            Search profile
-          </a>
-        </nav>
-        <span className="spacer" />
-      </header>
+      <Shell route={route} incompleteCount={incompleteCount}>
+        {loadError && <div className="error-box top-error">{loadError}</div>}
 
-      {loadError && <div className="error-box top-error">{loadError}</div>}
-
-      <main>
         {route.name === 'dashboard' && (
           <Dashboard
             refreshToken={refreshToken}
@@ -182,14 +151,14 @@ export default function App() {
         )}
         {route.name === 'offer' && <OfferPage id={route.id} onNotice={notify} />}
         {route.name === 'interviewPrep' && <InterviewPrepPage onNotice={notify} />}
-        {route.name === 'profile' && <SearchProfilePage onNotice={notify} />}
+        {route.name === 'settings' && <SettingsPage onNotice={notify} />}
         {route.name === 'company' && <CompanyPage id={route.id} onNotice={notify} />}
         {route.name === 'notfound' && (
           <div className="page">
             <div className="panel empty">Page not found. <a href="#/">Back to dashboard</a></div>
           </div>
         )}
-      </main>
+      </Shell>
 
       {toasts.length > 0 && (
         <div className="toast-stack" aria-live="polite">

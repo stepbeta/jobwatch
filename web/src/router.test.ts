@@ -11,5 +11,8 @@ describe('parseRoute', () => {
     expect(parseRoute('#/incomplete/7')).toEqual({ name: 'notfound' })
     expect(parseRoute('#/interview-prep')).toEqual({ name: 'interviewPrep' })
     expect(parseRoute('#/interview-prep/7')).toEqual({ name: 'notfound' })
+    expect(parseRoute('#/settings')).toEqual({ name: 'settings' })
+    expect(parseRoute('#/settings?tab=remote')).toEqual({ name: 'settings' })
+    expect(parseRoute('#/search-profile')).toEqual({ name: 'notfound' })
   })
 })

@@ -211,12 +211,13 @@ Built with React + TypeScript (Vite). The pages are:
 - **Dashboard** (`#/`) — the Applications section (offers whose
   application state is neither `none` nor `saved`, most recent timeline
   activity first) and the Saved section (offers in the `saved` application
-  state, most recently saved first). Both sections have a **Listing**
-  filter (`All` / `Active only`); Applications also has an **Application**
-  filter (`All` / `Hide negative`, which keeps `applied`, `interview`,
-  `offer`, `accepted` and `turned_down`). Filters live in the dashboard
-  hash query (`#/?listing=active&application=hide_negative`) and survive a
-  reload. Applications has a Refresh button that scans only the enabled
+  state, most recently saved first). Both sections show offers regardless
+  of listing state. Applications has one default-off **Hide closed
+  applications** toggle that hides `negative` offers while keeping
+  `applied`, `interview`, `offer`, `accepted` and `turned_down`. The
+  toggle lives in the dashboard hash query as `#/?closed=1` and survives a
+  reload; the old `listing` and `application` parameters are ignored.
+  Applications has a Refresh button that scans only the enabled
   sources behind the currently visible applications: hidden applications,
   sources with only `none` or `saved` offers, and manual imports
   (`source_id` NULL) contribute no source. The button fans out over the
@@ -277,13 +278,18 @@ Built with React + TypeScript (Vite). The pages are:
   (server-side `company_id` query), per-page selector and pagination.
   Merging always asks which company row to keep; nothing is merged
   automatically.
-- **Search profile** (`#/search-profile`) — the target role and geography:
-  name and labels, a 3-bucket or 5-bucket scale, title and location term
-  rows (bucket plus a numeric weight), an advanced description-terms
-  section, and remote policy checkboxes. Explanatory text states that
-  positive terms raise an affinity, negative terms lower it, neutral terms
-  only appear in reasons, description terms affect location affinity only,
-  and remote is a membership check. Saving applies to the next offer read.
+- **Settings** (`#/settings`) — the target role and geography, split into
+  **Profile**, **Title terms**, **Location terms**, **Description** and
+  **Remote** tabs. Profile holds the name, labels and 3/5 bucket scale;
+  the term tabs hold bucket plus numeric weight rows; Description holds
+  the weaker location-only terms; Remote holds the accepted policies.
+  Switching tabs preserves unsaved edits, one **Save profile** applies
+  every tab, and the active tab is kept in the URL as `?tab=<id>`.
+  Validation switches to the first offending tab and marks every invalid
+  tab. Explanatory text states that positive terms raise an affinity,
+  negative terms lower it, neutral terms only appear in reasons,
+  description terms affect location affinity only, and remote is a
+  membership check. Saving applies to the next offer read.
 - **Interview prep** (`#/interview-prep`) — a personal FAQ of anticipated
   interview questions and prepared answers. Entries are grouped into one
   section per category, sorted alphabetically with "Uncategorized" last; a
@@ -325,9 +331,14 @@ so it stays out of the Applications section and its refresh scope until
 you move it to `applied` (or another real stage).
 
 Success/error toasts, loading indicators and confirmation dialogs are
-shared across the pages; every destructive action asks first. The top bar
-only navigates; scan actions live on the Sources page and in the
-Dashboard Applications section.
+shared across the pages; every destructive action asks first. The header
+theme button cycles **System → Light → Dark**; its tooltip names the
+current mode and the next one. **System** is the default and follows the
+operating system, while the other two pin the palette. The choice is
+stored in `localStorage` (`jobwatch.theme`) and applied before the first
+paint, so a reload does
+not flash the other palette. The sidebar navigates; scan actions live on
+the Sources page and in the Dashboard Applications section.
 
 For the two-process development setup, see the Development section of the
 [README](../README.md#development).
@@ -414,8 +425,8 @@ when an offer is read, from the search profile:
 - **Remote policy** is the detected fact; the profile accepts or rejects
   each policy with a checkbox.
 
-Edit the profile on the Search profile page (`#/search-profile`) or
-through `PUT /api/search-profiles/:id`. A profile change applies to the
+Edit the profile on the Settings page (`#/settings`) or through
+`PUT /api/search-profiles/:id`. A profile change applies to the
 next read; there is no reclassification command and no stored score.
 Offer lists can be filtered by minimum title/location affinity and by
 remote acceptance. The three signals and the reasons are described in
