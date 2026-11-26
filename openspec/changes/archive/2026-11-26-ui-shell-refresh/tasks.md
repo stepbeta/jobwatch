@@ -45,5 +45,5 @@
 
 ## Workflow follow-up
 
-- Replace the `docs/SPEC.md` §9 Web UI section with a pointer to `openspec/specs/web-ui-shell/spec.md` when the change is archived.
-- Archive `ui-shell-refresh` after all groups are reviewed and completed.
+- [x] Replace the `docs/SPEC.md` §9 Web UI section with a pointer to `openspec/specs/web-ui-shell/spec.md` when the change is archived.
+- [x] Archive `ui-shell-refresh` after all groups are reviewed and completed.
