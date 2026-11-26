@@ -477,12 +477,84 @@ describe('OfferPage browser identity', () => {
 })
 
 describe('OfferPage documents', () => {
-  it('shows the empty state and the upload form when nothing is attached', async () => {
+  it('shows the empty state and the upload row when nothing is attached', async () => {
     renderPage()
 
     expect(await screen.findByText('No document is attached.')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Upload document' })).toBeTruthy()
+    expect(
+      (screen.getByRole('button', { name: 'Upload' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(screen.queryByRole('button', { name: '+ Add another' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Detach' })).toBeNull()
+  })
+
+  it('enables the upload action only once a PDF is chosen', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    const upload = (await screen.findByRole('button', { name: 'Upload' })) as HTMLButtonElement
+    expect(upload.disabled).toBe(true)
+    expect(screen.getByText('No file chosen')).toBeTruthy()
+
+    const file = new File(['%PDF-1.7\n'], 'letter.pdf', { type: 'application/pdf' })
+    await user.upload(screen.getByLabelText('PDF file') as HTMLInputElement, file)
+
+    expect(upload.disabled).toBe(false)
+    expect(screen.getByText(/letter\.pdf/)).toBeTruthy()
+  })
+
+  it('reveals the upload row through Add another when documents exist', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.getOffer).mockResolvedValue(makeDetail({ attachments: [makeAttachment()] }))
+    renderPage()
+
+    await screen.findByText('cv-2026.pdf')
+    expect(screen.queryByRole('button', { name: 'Upload' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: '+ Add another' }))
+    expect(screen.getByRole('button', { name: 'Upload' })).toBeTruthy()
+  })
+
+  it('filters documents by kind and shows the counts', async () => {
+    const user = userEvent.setup()
+    const cvA = makeAttachment()
+    const cvB = makeAttachment({ id: 5, filename: 'cv-2026-v2.pdf', sha256: 'beef' })
+    const letter = makeAttachment({
+      id: 4,
+      kind: 'cover_letter',
+      filename: 'letter.pdf',
+      download_url: '/api/offers/7/attachments/4/file',
+    })
+    vi.mocked(api.getOffer).mockResolvedValue(
+      makeDetail({ attachments: [cvA, cvB, letter] }),
+    )
+    renderPage()
+
+    await screen.findByText('cv-2026.pdf')
+    const filters = screen.getByRole('group', { name: 'Filter documents by kind' })
+    expect(within(filters).getByRole('button', { name: 'All 3' })).toBeTruthy()
+    expect(within(filters).getByRole('button', { name: 'CV 2' })).toBeTruthy()
+    expect(within(filters).getByRole('button', { name: 'Cover letter 1' })).toBeTruthy()
+
+    await user.click(within(filters).getByRole('button', { name: 'CV 2' }))
+    expect(screen.getByText('cv-2026.pdf')).toBeTruthy()
+    expect(screen.getByText('cv-2026-v2.pdf')).toBeTruthy()
+    expect(screen.queryByText('letter.pdf')).toBeNull()
+
+    await user.click(within(filters).getByRole('button', { name: 'All 3' }))
+    expect(screen.getByText('letter.pdf')).toBeTruthy()
+  })
+
+  it('hides the kind filters when every document has the same kind', async () => {
+    vi.mocked(api.getOffer).mockResolvedValue(
+      makeDetail({
+        attachments: [makeAttachment(), makeAttachment({ id: 5, sha256: 'beef', filename: 'cv-2026-v2.pdf' })],
+      }),
+    )
+    renderPage()
+
+    await screen.findByText('cv-2026.pdf')
+    expect(screen.queryByRole('group', { name: 'Filter documents by kind' })).toBeNull()
   })
 
   it('lists two documents with kind, size, pages and a download link', async () => {
@@ -535,7 +607,7 @@ describe('OfferPage documents', () => {
     const input = (await screen.findByLabelText('PDF file')) as HTMLInputElement
     await user.upload(input, file)
     await user.selectOptions(screen.getByLabelText('Kind'), 'cover_letter')
-    await user.click(screen.getByRole('button', { name: 'Upload document' }))
+    await user.click(screen.getByRole('button', { name: 'Upload' }))
 
     await waitFor(() =>
       expect(api.uploadAttachment).toHaveBeenCalledWith(7, file, 'cover_letter'),

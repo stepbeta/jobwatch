@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { DocumentsPage } from './DocumentsPage'
 import { api } from '../api'
 import type { DocumentItem } from '../types'
@@ -133,6 +134,66 @@ describe('DocumentsPage', () => {
     expect(screen.queryByRole('button', { name: /upload|rename|delete|detach/i })).toBeNull()
     expect(container.querySelector('input[type="file"]')).toBeNull()
     expect(screen.getAllByRole('link', { name: 'Download' })).toHaveLength(1)
+    // One kind only, so the filter row is not rendered.
+    expect(screen.queryByRole('group', { name: 'Filter documents by kind' })).toBeNull()
+  })
+
+  it('filters by kind counting distinct files, and a mixed file appears under both', async () => {
+    const user = userEvent.setup()
+    const shared = makeDocument({
+      offers: [7, 8, 9].map((offerID, i) => ({
+        attachment_id: 10 + i,
+        offer_id: offerID,
+        offer_title: `Offer ${offerID}`,
+        company_name: 'Acme',
+        kind: 'cv' as const,
+        attached_at: '2026-11-20T10:00:00Z',
+      })),
+    })
+    const mixed = makeDocument({
+      sha256: 'bbbb4d5e6f708192a3b4c5d6e7f80912a3b4c5d6e7f80912a3b4c5d6e7f80912',
+      pdf: { ...makeDocument().pdf, title: 'Mixed file' },
+      download_url: '/api/documents/bbbb/file',
+      offers: [
+        {
+          attachment_id: 20,
+          offer_id: 30,
+          offer_title: 'Offer 30',
+          company_name: 'Beta',
+          kind: 'cv',
+          attached_at: '2026-11-22T10:00:00Z',
+        },
+        {
+          attachment_id: 21,
+          offer_id: 31,
+          offer_title: 'Offer 31',
+          company_name: 'Beta',
+          kind: 'cover_letter',
+          attached_at: '2026-11-23T10:00:00Z',
+        },
+      ],
+    })
+    vi.mocked(api.listDocuments).mockResolvedValue({ documents: [shared, mixed] })
+    render(<DocumentsPage />)
+
+    await screen.findByText('Acme CV')
+    const filters = screen.getByRole('group', { name: 'Filter documents by kind' })
+    // Three attachments carry `cv`, but the count is distinct files: two.
+    expect(within(filters).getByRole('button', { name: 'CV 2' })).toBeTruthy()
+    expect(within(filters).getByRole('button', { name: 'Cover letter 1' })).toBeTruthy()
+    expect(within(filters).getByRole('button', { name: 'All 2' })).toBeTruthy()
+
+    await user.click(within(filters).getByRole('button', { name: 'Cover letter 1' }))
+    expect(screen.getByText('Mixed file')).toBeTruthy()
+    expect(screen.queryByText('Acme CV')).toBeNull()
+
+    await user.click(within(filters).getByRole('button', { name: 'CV 2' }))
+    expect(screen.getByText('Acme CV')).toBeTruthy()
+    expect(screen.getByText('Mixed file')).toBeTruthy()
+
+    await user.click(within(filters).getByRole('button', { name: 'All 2' }))
+    expect(screen.getByText('Acme CV')).toBeTruthy()
+    expect(screen.getByText('Mixed file')).toBeTruthy()
   })
 
   it('shows an empty state when nothing is stored', async () => {

@@ -26,6 +26,14 @@
   modification time is never stored or displayed.
 
 #### Changed
+- The offer page's upload control is a single compact row: kind selector,
+  styled `Choose PDF…` picker showing the chosen filename and size, and an
+  `Upload` action that stays disabled until a file is chosen. With
+  documents already attached, the row is revealed by `+ Add another`.
+- Documents are grouped by kind: the offer page and the Documents page
+  show filter chips with counts when more than one kind is present. On the
+  Documents page a chip counts distinct files whose references carry that
+  kind, so a file used with two kinds is reachable from both.
 - The Documents page shows the PDF author alongside its other intrinsic
   metadata (title, producer, dates, page count and version).
 - Offer merge moves the absorbed offer's documents to the kept offer and

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { api, errorMessage } from '../api'
 import { ConfirmDialog, type ConfirmRequest } from '../components/ConfirmDialog'
 import { EditViewEditor } from '../components/EditViewEditor'
@@ -111,6 +111,9 @@ export function OfferPage({
 
   const [uploadKind, setUploadKind] = useState<AttachmentKind>('cv')
   const [uploading, setUploading] = useState(false)
+  const [uploadFile, setUploadFile] = useState<{ name: string; size: number } | null>(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [docFilter, setDocFilter] = useState<AttachmentKind | 'all'>('all')
   const uploadInput = useRef<HTMLInputElement>(null)
 
   const [selectedSnapshotID, setSelectedSnapshotID] = useState<number | null>(null)
@@ -453,6 +456,8 @@ export function OfferPage({
     try {
       await api.uploadAttachment(id, file, uploadKind)
       if (uploadInput.current) uploadInput.current.value = ''
+      setUploadFile(null)
+      setUploadOpen(false)
       await load()
       onNotice('success', 'Document attached.')
     } catch (err) {
@@ -462,6 +467,11 @@ export function OfferPage({
     } finally {
       setUploading(false)
     }
+  }
+
+  function chooseUploadFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    setUploadFile(file ? { name: file.name, size: file.size } : null)
   }
 
   function detachDocument(a: Attachment) {
@@ -580,6 +590,19 @@ export function OfferPage({
     list.push(n)
     notesByEvent.set(n.pinned_event_id, list)
   }
+
+  // Documents are grouped by kind only when more than one kind is attached,
+  // and the filter falls back to "all" when its kind is no longer present.
+  const documentKinds = ATTACHMENT_KINDS.filter((kind) =>
+    detail.attachments.some((a) => a.kind === kind),
+  )
+  const activeDocFilter = documentKinds.includes(docFilter as AttachmentKind)
+    ? (docFilter as AttachmentKind)
+    : 'all'
+  const visibleAttachments =
+    activeDocFilter === 'all'
+      ? detail.attachments
+      : detail.attachments.filter((a) => a.kind === activeDocFilter)
 
   const snapshots = detail.snapshots
   const selectedIndex = snapshots.findIndex((s) => s.id === selectedSnapshotID)
@@ -778,9 +801,16 @@ export function OfferPage({
       <section className="panel documents">
         <div className="section-head">
           <h2>Documents</h2>
-          <span className="muted">
-            {detail.attachments.length} file{detail.attachments.length === 1 ? '' : 's'}
-          </span>
+          <div className="documents-meta">
+            <span className="muted">
+              {detail.attachments.length} file{detail.attachments.length === 1 ? '' : 's'}
+            </span>
+            {detail.attachments.length > 0 && !uploadOpen && (
+              <button type="button" className="link-button" onClick={() => setUploadOpen(true)}>
+                + Add another
+              </button>
+            )}
+          </div>
         </div>
         <p className="muted small">
           PDFs attached to this offer. The PDF creation and modification dates come from the file
@@ -790,41 +820,67 @@ export function OfferPage({
         {detail.attachments.length === 0 ? (
           <p className="empty">No document is attached.</p>
         ) : (
-          <div className="documents-list">
-            {detail.attachments.map((a) => (
-              <article className="document" key={a.id}>
-                <div className="document-head">
-                  <span className={`kind-badge kind-${a.kind}`}>{attachmentKindLabel(a.kind)}</span>
-                  <strong>{a.filename}</strong>
-                  <span className="muted small">{fmtBytes(a.size)}</span>
-                  {a.pdf.page_count !== null && (
-                    <span className="muted small">
-                      {a.pdf.page_count} page{a.pdf.page_count === 1 ? '' : 's'}
-                    </span>
-                  )}
-                </div>
-                {a.pdf.title && <div className="muted small">PDF title: {a.pdf.title}</div>}
-                <div className="document-dates small">
-                  <span>PDF creation: {fmtPDFDate(a.pdf.creation_date)}</span>
-                  <span>PDF modified: {fmtPDFDate(a.pdf.modification_date)}</span>
-                  <span>First uploaded: {fmtDateTime(a.first_uploaded_at)}</span>
-                  <span>Attached: {fmtDateTime(a.attached_at)}</span>
-                </div>
-                <div className="actions">
-                  <a href={a.download_url} download={a.filename}>
-                    Download
-                  </a>
-                  <button type="button" onClick={() => detachDocument(a)}>
-                    Detach
+          <>
+            {documentKinds.length > 1 && (
+              <div className="kind-filters" role="group" aria-label="Filter documents by kind">
+                <button
+                  type="button"
+                  className="kind-filter"
+                  aria-pressed={activeDocFilter === 'all'}
+                  onClick={() => setDocFilter('all')}
+                >
+                  All {detail.attachments.length}
+                </button>
+                {documentKinds.map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    className="kind-filter"
+                    aria-pressed={activeDocFilter === kind}
+                    onClick={() => setDocFilter(kind)}
+                  >
+                    {attachmentKindLabel(kind)}{' '}
+                    {detail.attachments.filter((a) => a.kind === kind).length}
                   </button>
-                </div>
-              </article>
-            ))}
-          </div>
+                ))}
+              </div>
+            )}
+            <div className="documents-list">
+              {visibleAttachments.map((a) => (
+                <article className="document" key={a.id}>
+                  <div className="document-head">
+                    <span className={`kind-badge kind-${a.kind}`}>{attachmentKindLabel(a.kind)}</span>
+                    <strong>{a.filename}</strong>
+                    <span className="muted small">{fmtBytes(a.size)}</span>
+                    {a.pdf.page_count !== null && (
+                      <span className="muted small">
+                        {a.pdf.page_count} page{a.pdf.page_count === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+                  {a.pdf.title && <div className="muted small">PDF title: {a.pdf.title}</div>}
+                  <div className="document-dates small">
+                    <span>PDF creation: {fmtPDFDate(a.pdf.creation_date)}</span>
+                    <span>PDF modified: {fmtPDFDate(a.pdf.modification_date)}</span>
+                    <span>First uploaded: {fmtDateTime(a.first_uploaded_at)}</span>
+                    <span>Attached: {fmtDateTime(a.attached_at)}</span>
+                  </div>
+                  <div className="actions">
+                    <a href={a.download_url} download={a.filename}>
+                      Download
+                    </a>
+                    <button type="button" onClick={() => detachDocument(a)}>
+                      Detach
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </>
         )}
-        <form className="document-upload" onSubmit={(e) => void uploadDocument(e)}>
-          <div className="row">
-            <label>
+        {(detail.attachments.length === 0 || uploadOpen) && (
+          <form className="document-upload" onSubmit={(e) => void uploadDocument(e)}>
+            <label className="document-kind">
               Kind
               <select
                 value={uploadKind}
@@ -837,18 +893,25 @@ export function OfferPage({
                 ))}
               </select>
             </label>
-            <label>
-              PDF file
-              <input ref={uploadInput} type="file" accept="application/pdf,.pdf" aria-label="PDF file" />
+            <label className="file-picker">
+              <input
+                ref={uploadInput}
+                type="file"
+                accept="application/pdf,.pdf"
+                aria-label="PDF file"
+                onChange={chooseUploadFile}
+              />
+              <span className="file-picker-button">Choose PDF…</span>
+              <span className="file-picker-name" aria-live="polite">
+                {uploadFile ? `${uploadFile.name} · ${fmtBytes(uploadFile.size)}` : 'No file chosen'}
+              </span>
             </label>
-          </div>
-          <div className="actions">
-            <button type="submit" className="primary" disabled={uploading}>
-              {uploading ? 'Uploading…' : 'Upload document'}
+            <button type="submit" className="primary" disabled={uploading || !uploadFile}>
+              {uploading ? 'Uploading…' : 'Upload'}
             </button>
             <span className="muted small">PDF only, up to 2 MiB.</span>
-          </div>
-        </form>
+          </form>
+        )}
       </section>
 
       <div className="detail-columns">

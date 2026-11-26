@@ -2,18 +2,20 @@ import { useEffect, useState } from 'react'
 import { api, errorMessage } from '../api'
 import { Link } from '../components/Link'
 import {
+  ATTACHMENT_KINDS,
   attachmentKindLabel,
   fmtBytes,
   fmtDateTime,
   fmtPDFDate,
 } from '../format'
-import type { DocumentItem } from '../types'
+import type { AttachmentKind, DocumentItem } from '../types'
 
 // DocumentsPage is the read-only aggregate over stored files. Uploads,
 // re-tagging and detaching stay on the offer page; this page only lists,
 // downloads and links back to the offers that reference each file.
 export function DocumentsPage() {
   const [documents, setDocuments] = useState<DocumentItem[] | null>(null)
+  const [kindFilter, setKindFilter] = useState<AttachmentKind | 'all'>('all')
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -39,6 +41,23 @@ export function DocumentsPage() {
     )
   }
 
+  // A stored file carries no single kind: kinds live on the references, so a
+  // filter selects files referenced at least once with that kind and its
+  // count is a number of distinct files, not of attachments.
+  const stored = documents ?? []
+  const kinds = ATTACHMENT_KINDS.filter((kind) =>
+    stored.some((d) => d.offers.some((ref) => ref.kind === kind)),
+  )
+  const activeFilter = kinds.includes(kindFilter as AttachmentKind)
+    ? (kindFilter as AttachmentKind)
+    : 'all'
+  const visible =
+    activeFilter === 'all'
+      ? stored
+      : stored.filter((d) => d.offers.some((ref) => ref.kind === activeFilter))
+  const countFor = (kind: AttachmentKind) =>
+    stored.filter((d) => d.offers.some((ref) => ref.kind === kind)).length
+
   return (
     <div className="page">
       <div className="section-head">
@@ -60,9 +79,33 @@ export function DocumentsPage() {
         <div className="panel empty">No documents stored yet.</div>
       )}
 
+      {documents !== null && kinds.length > 1 && (
+        <div className="kind-filters" role="group" aria-label="Filter documents by kind">
+          <button
+            type="button"
+            className="kind-filter"
+            aria-pressed={activeFilter === 'all'}
+            onClick={() => setKindFilter('all')}
+          >
+            All {stored.length}
+          </button>
+          {kinds.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              className="kind-filter"
+              aria-pressed={activeFilter === kind}
+              onClick={() => setKindFilter(kind)}
+            >
+              {attachmentKindLabel(kind)} {countFor(kind)}
+            </button>
+          ))}
+        </div>
+      )}
+
       {documents !== null && documents.length > 0 && (
         <div className="documents-grid">
-          {documents.map((d) => (
+          {visible.map((d) => (
             <article className="panel document-card" key={d.sha256}>
               <div className="section-head">
                 <div>
