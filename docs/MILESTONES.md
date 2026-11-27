@@ -1027,6 +1027,10 @@ Done criteria (all met):
       opt-in and bypassable, with CI as the gate.
 - [x] README, `docs/ARCHITECTURE.md`, `AGENTS.md` and `CHANGELOG.md`
       document the CI checks, the `-tags ui` build and hook setup.
+- [x] Integration re-check with the hooks installed: `make test` (Go
+      plus 121 frontend tests), a clean `go build -tags ui -o
+      /tmp/jobwatch ./cmd/jobwatch`, `govulncheck ./...` (no
+      vulnerabilities) and `npm audit` (0) all pass.
 
 ### Deviations and implementation choices
 

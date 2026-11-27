@@ -23,8 +23,8 @@
 
 ## 4. Integration
 
-- [ ] 4.1 Run `make test` and a clean `go build -tags ui -o /tmp/jobwatch ./cmd/jobwatch`; verify both pass with the hooks installed
-- [ ] 4.2 Verify the workflow file uses only actions available on public GitHub and no secret; confirm the expected first-run result is green by running `govulncheck ./...` and `npm audit` locally
+- [x] 4.1 Run `make test` and a clean `go build -tags ui -o /tmp/jobwatch ./cmd/jobwatch`; verify both pass with the hooks installed
+- [x] 4.2 Verify the workflow file uses only actions available on public GitHub and no secret; confirm the expected first-run result is green by running `govulncheck ./...` and `npm audit` locally
 
 ## Workflow follow-up
 
