@@ -56,6 +56,8 @@ company.
 ## Repository layout (keep it tidy)
 
 ```
+.github/             CI workflow (GitHub Actions: Go, Web, Security)
+.githooks/           opt-in committed hooks (pre-commit, pre-push; install with `make hooks`)
 cmd/jobwatch/        main + subcommands
 internal/db/         sqlite setup, migrations runner, queries
 internal/sources/    Fetcher interface + per-type adapters

@@ -17,9 +17,9 @@
 
 ## 3. Repository bookkeeping
 
-- [ ] 3.1 Add `.github/` and `.githooks/` to the repository layout in `AGENTS.md`; verify the tree matches the documented listing
-- [ ] 3.2 Mark F-03 done in `docs/MILESTONES.md`, close the related known gaps, and note that `golangci-lint`, coverage and Dependabot remain open; verify no fixed item is still listed as a gap
-- [ ] 3.3 In the untracked `REVIEW.md`, mark F-03 as fixed and F-16/F-20 as partially addressed by CI; verify the wording names what remains deferred
+- [x] 3.1 Add `.github/` and `.githooks/` to the repository layout in `AGENTS.md`; verify the tree matches the documented listing
+- [x] 3.2 Mark F-03 done in `docs/MILESTONES.md`, close the related known gaps, and note that `golangci-lint`, coverage and Dependabot remain open; verify no fixed item is still listed as a gap
+- [x] 3.3 In the untracked `REVIEW.md`, mark F-03 as fixed and F-16/F-20 as partially addressed by CI; verify the wording names what remains deferred
 
 ## 4. Integration
 
