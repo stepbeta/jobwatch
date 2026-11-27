@@ -32,7 +32,7 @@
 
 - [x] 5.1 Run `make test` and a clean `go build -tags ui -o /tmp/jobwatch ./cmd/jobwatch`; verify both pass with the hooks installed
 - [x] 5.2 Verify the workflow file uses only actions available on public GitHub and no secret; confirm the expected first-run result is green by running `govulncheck ./...` and `npm audit` locally
-- [ ] 5.3 Re-run `make test` after the release work and verify `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))"` succeeds
+- [x] 5.3 Re-run `make test` after the release work and verify `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))"` succeeds
 
 ## Workflow follow-up
 
