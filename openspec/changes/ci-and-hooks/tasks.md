@@ -21,13 +21,22 @@
 - [x] 3.2 Mark F-03 done in `docs/MILESTONES.md`, close the related known gaps, and note that `golangci-lint`, coverage and Dependabot remain open; verify no fixed item is still listed as a gap
 - [x] 3.3 In the untracked `REVIEW.md`, mark F-03 as fixed and F-16/F-20 as partially addressed by CI; verify the wording names what remains deferred
 
-## 4. Integration
+## 4. Release workflow
 
-- [x] 4.1 Run `make test` and a clean `go build -tags ui -o /tmp/jobwatch ./cmd/jobwatch`; verify both pass with the hooks installed
-- [x] 4.2 Verify the workflow file uses only actions available on public GitHub and no secret; confirm the expected first-run result is green by running `govulncheck ./...` and `npm audit` locally
+- [x] 4.1 Add `.github/workflows/release.yml` triggered by `push` on tags `v*`, with `contents: write` and one `ubuntu-latest` job that installs Go and Node, runs `npm ci` and `npm run build`, gates on `go test -count=1 ./...`, then loops over linux/amd64, linux/arm64, darwin/amd64, darwin/arm64 and windows/amd64 building with `-tags ui -trimpath` and `-ldflags "-s -w -X main.version=<tag without v>"`; verify the YAML parses and the same loop run locally produces all five binaries
+- [ ] 4.2 Upload each target twice: a raw, stably named binary (`jobwatch-linux-amd64`, `jobwatch-darwin-arm64`, `jobwatch-windows-amd64.exe`, ...) and a versioned archive containing the binary and `README.md` (`.tar.gz`, `.zip` on Windows); add `sha256sums.txt` covering both forms; verify the archive preserves the executable bit and every checksum matches
+- [ ] 4.3 Publish with `gh release create "$GITHUB_REF_NAME" ... --generate-notes` as the final step, using `--prerelease` when the tag contains a hyphen and a re-run path with `gh release upload --clobber`; verify no release exists if any earlier step fails, only this workflow has write permission, and a hyphenated test tag does not become `releases/latest`
+- [ ] 4.4 Document the prebuilt download (`curl -fLo jobwatch https://github.com/stepbeta/jobwatch/releases/latest/download/jobwatch-linux-amd64`, `chmod +x`), checksum verification, the macOS quarantine caveat, and the `git tag` + `git push` release procedure in `README.md`, `CHANGELOG.md` and `docs/MILESTONES.md`; verify every documented asset name is produced by the workflow
+
+## 5. Integration
+
+- [x] 5.1 Run `make test` and a clean `go build -tags ui -o /tmp/jobwatch ./cmd/jobwatch`; verify both pass with the hooks installed
+- [x] 5.2 Verify the workflow file uses only actions available on public GitHub and no secret; confirm the expected first-run result is green by running `govulncheck ./...` and `npm audit` locally
+- [ ] 5.3 Re-run `make test` after the release work and verify `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))"` succeeds
 
 ## Workflow follow-up
 
 - Create `chore/ci-and-hooks` off `main` and land it before `scan-and-api-hardening`, so the rest is gated by CI.
 - Commit each group with a conventional-commit message; never stage `REVIEW.md`.
+- After merging, push a disposable tag (for example `v0.0.0-test`) to exercise the release workflow end to end, confirm the raw binaries and archives download, then delete the test release and tag before archiving the change.
 - Archive the change after review; no `docs/SPEC.md` pointer is needed because no capability changed.

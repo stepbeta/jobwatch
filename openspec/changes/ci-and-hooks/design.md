@@ -19,9 +19,10 @@ currently clean. The repo remote is `github.com/stepbeta/jobwatch`.
 
 **Non-Goals:**
 
-- No coverage threshold, no `golangci-lint`, no Dependabot/Renovate, no
-  release workflow. These can be added once the baseline is green.
-- No change to how the binary is built or released.
+- No coverage threshold, no `golangci-lint`, no Dependabot/Renovate.
+- No code signing, notarization, Homebrew formula or package-manager
+  publishing.
+- No change to how the binary is built for local development.
 
 ## Decisions
 
@@ -68,6 +69,61 @@ gate.
 Alternative considered: a Git hook manager dependency (husky/lefthook).
 Rejected: no new dependency for three shell scripts.
 
+### Releases are tag-triggered and built in one job
+
+`.github/workflows/release.yml` runs on `push: tags: ['v*']` with
+`permissions: contents: write`. It builds the frontend once, runs
+`go test -count=1 ./...` as a gate, then loops over five
+`GOOS/GOARCH` pairs in a single `ubuntu-latest` job:
+
+| OS | architectures |
+|---|---|
+| linux | amd64, arm64 |
+| darwin | amd64, arm64 |
+| windows | amd64 |
+
+`modernc.org/sqlite` is pure Go, so `CGO_ENABLED=0` cross-compiles all of
+them from Linux; this was verified locally for all five pairs (~19-20 MB
+each). Each build uses `-tags ui -trimpath` and
+`-ldflags "-s -w -X main.version=<tag without v>"`.
+
+A single job with a shell loop avoids repeating the 30 s frontend build in
+a matrix and keeps the archive naming in one place. If the target list
+grows, a matrix fed by an uploaded `dist` artifact is the next step.
+
+### Raw binaries and archives are both attached
+
+Each target is uploaded twice: as a raw, stably named binary
+(`jobwatch-linux-amd64`, `jobwatch-darwin-arm64`,
+`jobwatch-windows-amd64.exe`, ...) and as an archive with the README
+(`jobwatch_<version>_<os>_<arch>.tar.gz`, `.zip` for Windows). A
+`sha256sums.txt` covers both forms.
+
+Rationale: the raw name makes
+`https://github.com/stepbeta/jobwatch/releases/latest/download/jobwatch-linux-amd64`
+stable across releases, so one `curl`/`wget` command works forever.
+Archives preserve the executable bit, which HTTP loses, and carry the
+README. Keeping versioned archive names avoids ambiguity when several
+releases are downloaded side by side.
+
+Publishing uses the preinstalled `gh release create "$GITHUB_REF_NAME"
+... --generate-notes`; no additional action is added. A tag containing a
+hyphen (for example `v0.3.0-rc.1`) is published with `--prerelease`, so a
+test or preview tag never takes over the `releases/latest` download URL. A
+re-run uploads with `gh release upload --clobber` rather than failing on the
+existing release.
+
+### Release caveats are documented, not solved
+
+- macOS and Windows binaries are unsigned. `curl`/`wget` downloads do not
+  set the macOS quarantine attribute, but browser downloads may require
+  right-click → Open or `xattr -d com.apple.quarantine`. Fixing this needs
+  paid signing identities and is out of scope.
+- The repository has no `LICENSE`; publishing does not require one, but the
+  README will not claim usage rights beyond what the repository grants.
+- Assets are about 20 MB, well under GitHub's 100 MB per-file limit.
+
+
 ## Risks / Trade-offs
 
 - [Hooks are bypassable with `--no-verify`] → CI is authoritative and runs
@@ -78,3 +134,9 @@ Rejected: no new dependency for three shell scripts.
   Dependabot in a later change.
 - [gitleaks flags a test fixture] → add an allowlist entry only when a real
   false positive appears; no speculative configuration.
+- [A tag is pushed on a broken commit] → the release job runs the Go suite
+  before building and publishes only at the end; a failed step leaves no
+  release.
+- [An unsigned macOS/Windows binary is refused or warned about] →
+  documented workaround (right-click Open or `xattr`); signing is a separate
+  decision with a recurring cost.

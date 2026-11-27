@@ -19,7 +19,12 @@ dependency.
 - Add committed, opt-in git hooks: a fast pre-commit check (gofmt, `go vet`,
   `tsc --noEmit`, staged-secret scan when `gitleaks` is installed) and a
   pre-push full test run.
-- Document how to install the hooks and what CI enforces.
+- Add a tag-triggered release workflow that builds the embedded-UI binary
+  for Linux, macOS and Windows (amd64 and arm64 where useful), attaches both
+  raw single-file binaries and archives to a GitHub Release, with checksums
+  and generated release notes.
+- Document how to install the hooks, what CI enforces, and how to download,
+  verify and run a released binary.
 - No runtime behavior, dependency or schema changes.
 
 ## Capabilities
@@ -35,11 +40,16 @@ None.
 
 ## Impact
 
-- `.github/workflows/ci.yml` (new), `.githooks/` (new, opt-in).
+- `.github/workflows/ci.yml` (new), `.github/workflows/release.yml` (new),
+  `.githooks/` (new, opt-in).
 - `Makefile`: `test` and `hooks` targets.
 - `README.md`, `docs/ARCHITECTURE.md` (verification section),
   `docs/MILESTONES.md` (F-03 done), `CHANGELOG.md`.
 - `AGENTS.md`: repository layout gains `.github/` and `.githooks/`.
 - CI needs no secret: `gitleaks-action` is free for personal repositories.
   `govulncheck` and `npm audit` are currently clean, so the first run is
-  expected to pass.
+  expected to pass. The release workflow uses the default token with
+  `contents: write`; no Apple or Windows signing key is involved.
+- No `LICENSE` file exists today. Publishing binaries does not require one,
+  but the user should decide whether to add one separately.
+
