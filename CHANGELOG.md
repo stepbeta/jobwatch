@@ -13,6 +13,18 @@
   only, no configured secret.
 - The README documents the CI checks and the `-tags ui` build that
   compiles the embedded frontend.
+- `make test-go` runs `go vet` and `go test -count=1`; `make test` adds
+  the frontend `npm test` suite, so the local contract matches CI.
+- Opt-in git hooks: `.githooks/pre-commit` checks staged Go files with
+  `gofmt`, runs `go vet`, `tsc --noEmit` when `web/node_modules` exists
+  and `gitleaks protect --staged` when gitleaks is installed;
+  `.githooks/pre-push` runs the full Go suite and `npm test`. Missing
+  optional tools are reported and skipped.
+- `make hooks` installs the committed hooks (`core.hooksPath=.githooks`)
+  and sets their executable bits. Hooks remain bypassable; CI is the
+  gate.
+- `docs/ARCHITECTURE.md` gains a verification section and the README
+  documents hook installation and the optional `gitleaks` dependency.
 
 ### Offer documents (OpenSpec change `offer-documents`)
 

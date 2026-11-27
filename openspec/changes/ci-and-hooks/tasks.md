@@ -9,11 +9,11 @@
 
 ## 2. Local test and hook targets
 
-- [ ] 2.1 Add `make test` and `make test-go` to the `Makefile`; verify both pass and that `make test` runs the frontend suite
-- [ ] 2.2 Add `.githooks/pre-commit` with gofmt, `go vet`, `tsc --noEmit` when `web/node_modules` exists, and `gitleaks protect --staged` when installed; verify it passes on the clean tree and fails when a file is intentionally unformatted
-- [ ] 2.3 Add `.githooks/pre-push` running the full Go suite and `npm test`; verify it fails on a deliberately broken test and passes on the clean tree
-- [ ] 2.4 Add `make hooks` to install `core.hooksPath` and executable bits; verify `git config core.hooksPath` reports `.githooks` after running it
-- [ ] 2.5 Document hook installation and optional tools in `README.md`, `docs/ARCHITECTURE.md` and `CHANGELOG.md`; verify a fresh clone can follow the instructions as written
+- [x] 2.1 Add `make test` and `make test-go` to the `Makefile`; verify both pass and that `make test` runs the frontend suite
+- [x] 2.2 Add `.githooks/pre-commit` with gofmt, `go vet`, `tsc --noEmit` when `web/node_modules` exists, and `gitleaks protect --staged` when installed; verify it passes on the clean tree and fails when a file is intentionally unformatted
+- [x] 2.3 Add `.githooks/pre-push` running the full Go suite and `npm test`; verify it fails on a deliberately broken test and passes on the clean tree
+- [x] 2.4 Add `make hooks` to install `core.hooksPath` and executable bits; verify `git config core.hooksPath` reports `.githooks` after running it
+- [x] 2.5 Document hook installation and optional tools in `README.md`, `docs/ARCHITECTURE.md` and `CHANGELOG.md`; verify a fresh clone can follow the instructions as written
 
 ## 3. Repository bookkeeping
 

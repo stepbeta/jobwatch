@@ -607,6 +607,29 @@ client-side routes. Without the `ui` build tag, `web/noui.go` serves a
 placeholder page explaining how to build the SPA, so plain
 `go build ./...` works on a fresh checkout.
 
+## Verification (`Makefile`, `.githooks/`, CI)
+
+Tooling only; it changes no runtime behavior.
+
+- `make test-go` runs `go vet ./...` and `go test -count=1 ./...`.
+  `make test` adds the frontend suite (`cd web && npm test`). These are
+  the same commands CI uses, so a green `make test` reproduces CI.
+- `.githooks/pre-commit` checks staged Go files with `gofmt`, runs
+  `go vet ./...`, runs `web/node_modules/.bin/tsc --noEmit` when
+  `web/node_modules` exists, and runs `gitleaks protect --staged` when
+  `gitleaks` is on `PATH`. Missing optional tools are reported and
+  skipped.
+- `.githooks/pre-push` runs `go vet ./...`, `go test -count=1 ./...` and
+  the frontend `npm test`.
+- Hooks are committed but opt-in: `make hooks` sets
+  `core.hooksPath=.githooks` and the executable bits. `--no-verify`
+  bypasses them; CI is authoritative.
+- `.github/workflows/ci.yml` runs on pull requests and pushes to `main`
+  in three parallel jobs: Go (build, vet, test), Web (`npm ci`, `npm
+  test`, `npm run build`, then `go build -tags ui` to exercise
+  `go:embed`), and Security (`govulncheck` plus a full-history
+  `gitleaks` scan). It uses public actions and no configured secret.
+
 ## Backup
 
 `db.Backup` uses `VACUUM INTO` (safe with a live WAL database, dest must

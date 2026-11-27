@@ -220,6 +220,36 @@ make build    # make ui, then go build -tags ui -o jobwatch ./cmd/jobwatch
 make serve    # make build, then ./jobwatch serve
 ```
 
+The local test contract mirrors CI:
+
+```sh
+make test-go  # go vet ./... && go test -count=1 ./...
+make test     # make test-go, then the frontend suite (cd web && npm test)
+```
+
+### Git hooks (opt-in)
+
+The repository ships its hooks in `.githooks/`. Enable them once per
+clone:
+
+```sh
+make hooks    # git config core.hooksPath .githooks; chmod +x the scripts
+```
+
+- **pre-commit** — runs `gofmt` on staged Go files and `go vet ./...`;
+  runs `tsc --noEmit` when `web/node_modules` exists; runs
+  `gitleaks protect --staged` when `gitleaks` is installed.
+- **pre-push** — runs `go vet ./...`, `go test -count=1 ./...` and the
+  frontend `npm test`.
+
+Optional tools are skipped with a message rather than blocking the
+commit: install `gitleaks` for the local secret scan, and run
+`cd web && npm ci` at least once so `tsc` and the frontend tests can
+run. A clone that follows the Quick start (`npm ci`) has everything
+except the optional `gitleaks`. Hooks are bypassable with
+`--no-verify`; CI is the actual gate and runs on every push and pull
+request.
+
 ### Continuous integration
 
 `.github/workflows/ci.yml` runs on every pull request and on every push
