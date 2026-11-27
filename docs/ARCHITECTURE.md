@@ -629,6 +629,15 @@ Tooling only; it changes no runtime behavior.
   test`, `npm run build`, then `go build -tags ui` to exercise
   `go:embed`), and Security (`govulncheck` plus a full-history
   `gitleaks` scan). It uses public actions and no configured secret.
+- `.github/workflows/release.yml` runs on `v*` tags with job-level
+  `contents: write`. One `ubuntu-latest` job builds the frontend, gates
+  on `go test -count=1 ./...`, then cross-compiles five targets
+  (linux/darwin amd64+arm64, windows/amd64) with `CGO_ENABLED=0` and
+  `-tags ui -trimpath -ldflags "-s -w -X main.version=<tag>"`. Raw,
+  stably named binaries, versioned archives with the README, and a
+  `sha256sums.txt` are attached to a GitHub Release by the final `gh`
+  step; hyphenated tags become prereleases. See the README for the
+  download and release procedure.
 
 ## Backup
 

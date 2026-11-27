@@ -25,6 +25,24 @@
   gate.
 - `docs/ARCHITECTURE.md` gains a verification section and the README
   documents hook installation and the optional `gitleaks` dependency.
+- GitHub Actions release workflow (`.github/workflows/release.yml`) runs
+  on `v*` tags and publishes Linux (amd64, arm64), macOS (amd64, arm64)
+  and Windows (amd64) binaries built with `-tags ui -trimpath`, stripped
+  with `-s -w`, and stamped with the tag without its leading `v`. It
+  gates on `go test -count=1 ./...` and publishes only at the end, so a
+  failed step leaves no release.
+- Each release carries raw, stably named binaries (for example
+  `jobwatch-linux-amd64` and `jobwatch-windows-amd64.exe`), versioned
+  archives with the binary and README (`jobwatch_<version>_<os>_<arch>.tar.gz`,
+  `.zip` on Windows) and a `sha256sums.txt` covering both forms. Raw
+  names keep the `releases/latest/download/...` URLs stable; archives
+  preserve the executable bit.
+- Hyphenated tags such as `v0.0.0-test` are published with
+  `--prerelease`, so they never become `releases/latest`. Re-running the
+  workflow uploads assets with `gh release upload --clobber`.
+- The README documents prebuilt downloads, checksum verification, the
+  macOS quarantine caveat, the unsigned binaries and the `git tag` +
+  `git push` release procedure.
 
 ### Offer documents (OpenSpec change `offer-documents`)
 
