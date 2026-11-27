@@ -1,0 +1,36 @@
+#!/bin/sh
+# JobWatch pre-push hook: the full local suite before a push.
+# Installed by `make hooks` (git config core.hooksPath .githooks).
+# Bypass with `git push --no-verify`; CI remains authoritative.
+
+set -u
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+status=0
+
+echo "pre-push: go vet ./..."
+if ! go vet ./...; then
+	echo "pre-push: go vet failed" >&2
+	status=1
+fi
+
+echo "pre-push: go test -count=1 ./..."
+if ! go test -count=1 ./...; then
+	echo "pre-push: Go tests failed" >&2
+	status=1
+fi
+
+echo "pre-push: npm test (web)"
+if [ ! -d web/node_modules ]; then
+	echo "pre-push: web/node_modules missing; run 'cd web && npm ci' before pushing" >&2
+	status=1
+elif ! (cd web && npm test); then
+	echo "pre-push: frontend tests failed" >&2
+	status=1
+fi
+
+if [ "$status" -ne 0 ]; then
+	echo "pre-push: checks failed; push blocked (use --no-verify only to bypass)" >&2
+fi
+
+exit "$status"

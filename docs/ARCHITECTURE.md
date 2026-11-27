@@ -607,6 +607,38 @@ client-side routes. Without the `ui` build tag, `web/noui.go` serves a
 placeholder page explaining how to build the SPA, so plain
 `go build ./...` works on a fresh checkout.
 
+## Verification (`Makefile`, `.githooks/`, CI)
+
+Tooling only; it changes no runtime behavior.
+
+- `make test-go` runs `go vet ./...` and `go test -count=1 ./...`.
+  `make test` adds the frontend suite (`cd web && npm test`). These are
+  the same commands CI uses, so a green `make test` reproduces CI.
+- `.githooks/pre-commit` checks staged Go files with `gofmt`, runs
+  `go vet ./...`, runs `web/node_modules/.bin/tsc --noEmit` when
+  `web/node_modules` exists, and runs `gitleaks protect --staged` when
+  `gitleaks` is on `PATH`. Missing optional tools are reported and
+  skipped.
+- `.githooks/pre-push` runs `go vet ./...`, `go test -count=1 ./...` and
+  the frontend `npm test`.
+- Hooks are committed but opt-in: `make hooks` sets
+  `core.hooksPath=.githooks` and the executable bits. `--no-verify`
+  bypasses them; CI is authoritative.
+- `.github/workflows/ci.yml` runs on pull requests and pushes to `main`
+  in three parallel jobs: Go (build, vet, test), Web (`npm ci`, `npm
+  test`, `npm run build`, then `go build -tags ui` to exercise
+  `go:embed`), and Security (`govulncheck` plus a `gitleaks` scan of
+  the pushed/PR commits). It uses public actions and no configured secret.
+- `.github/workflows/release.yml` runs on `v*` tags with job-level
+  `contents: write`. One `ubuntu-latest` job builds the frontend, gates
+  on `go test -count=1 ./...`, then cross-compiles five targets
+  (linux/darwin amd64+arm64, windows/amd64) with `CGO_ENABLED=0` and
+  `-tags ui -trimpath -ldflags "-s -w -X main.version=<tag>"`. Raw,
+  stably named binaries, versioned archives with the README, and a
+  `sha256sums.txt` are attached to a GitHub Release by the final `gh`
+  step; hyphenated tags become prereleases. See the README for the
+  download and release procedure.
+
 ## Backup
 
 `db.Backup` uses `VACUUM INTO` (safe with a live WAL database, dest must

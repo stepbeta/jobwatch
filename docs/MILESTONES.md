@@ -36,7 +36,13 @@ offer can store its CV, cover letter and other PDFs (2 MiB each) inside
 the database, every file is deduplicated by content hash, the offer page
 labels the PDF's own dates apart from the upload and attach times, and a
 read-only Documents page lists each stored file with the offers that use
-it. Open items and deliberate limitations remain in the known-gaps table
+it. The OpenSpec change `ci-and-hooks` is implemented: GitHub Actions
+runs build, vet, tests, the frontend suite and production build, and
+vulnerability/secret scans; `make test` mirrors the Go and frontend
+checks locally, and opt-in committed hooks provide fast pre-commit and
+full pre-push checks. A tag-triggered release workflow publishes
+embedded-UI binaries for Linux, macOS and Windows, with archives and
+`sha256sums.txt`. Open items and deliberate limitations remain in the known-gaps table
 below.
 
 ## Classification profiles — DONE
@@ -999,6 +1005,68 @@ Done criteria:
 | Browser file modification time is not stored | it is a claim about the local disk, unrecoverable later, and the three meaningful dates already come from the PDF or JobWatch |
 | The Documents page is a read-only aggregate over blobs | attachment management already belongs to the offer page; a separate managed library entity would duplicate ownership |
 
+## CI and hooks — DONE
+
+OpenSpec change `ci-and-hooks`, implemented through task group 4; task
+5.3 re-runs the integration check after the release work. F-03 of the
+2026-11-26 review (no CI, no pre-commit, no vulnerability scan) is fixed.
+
+Done criteria (all met):
+- [x] `.github/workflows/ci.yml` runs on pull requests and pushes to
+      `main` with three jobs: Go (`go build`, `go vet`, `go test
+      -count=1`), Web (`npm ci`, `npm test`, `npm run build`, then
+      `go build -tags ui` so `go:embed` is compiled) and Security
+      (`govulncheck` plus a `gitleaks` scan of the pushed/PR commits).
+- [x] `make test-go` runs the Go checks and `make test` adds the
+      frontend suite, matching the CI commands.
+- [x] `.githooks/pre-commit` checks staged Go files with `gofmt`, runs
+      `go vet`, `tsc --noEmit` when `web/node_modules` exists and
+      `gitleaks protect --staged` when gitleaks is installed; missing
+      optional tools are reported and skipped.
+- [x] `.githooks/pre-push` runs the full Go suite and `npm test`.
+- [x] `make hooks` installs the committed hooks
+      (`core.hooksPath=.githooks`) and their executable bits; hooks are
+      opt-in and bypassable, with CI as the gate.
+- [x] README, `docs/ARCHITECTURE.md`, `AGENTS.md` and `CHANGELOG.md`
+      document the CI checks, the `-tags ui` build and hook setup.
+- [x] Integration re-check with the hooks installed: `make test` (Go
+      plus 121 frontend tests), a clean `go build -tags ui -o
+      /tmp/jobwatch ./cmd/jobwatch`, `govulncheck ./...` (no
+      vulnerabilities) and `npm audit` (0) all pass.
+- [x] `.github/workflows/release.yml` runs on `v*` tags with
+      job-level `contents: write`, installs Go and Node, builds the
+      frontend once, gates on `go test -count=1 ./...`, then builds
+      linux/amd64, linux/arm64, darwin/amd64, darwin/arm64 and
+      windows/amd64 with `-tags ui -trimpath` and `-ldflags "-s -w -X
+      main.version=<tag without v>"`.
+- [x] Each target is attached as a raw, stably named binary and as a
+      versioned archive with the binary and README
+      (`jobwatch_<version>_<os>_<arch>.tar.gz`, `.zip` on Windows);
+      `sha256sums.txt` covers both forms and archives preserve the
+      executable bit.
+- [x] `gh release create "$GITHUB_REF_NAME" ... --generate-notes` is the
+      final step, so a failed step leaves no release. A hyphenated tag
+      (for example `v0.0.0-test`) is published with `--prerelease` and
+      never becomes `releases/latest`; a re-run uses
+      `gh release upload --clobber`.
+- [x] README, `docs/ARCHITECTURE.md` and `CHANGELOG.md` document the
+      prebuilt download, checksum verification, macOS quarantine caveat,
+      asset names and the `git tag` + `git push` release procedure.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| `golangci-lint`, a coverage threshold and Dependabot/Renovate are not included | the change deliberately establishes the green baseline first; these remain open and are listed in the known gaps |
+| `gitleaks` is optional locally and required in CI | a contributor without the binary still gets build/vet/type checks; CI always scans and is authoritative |
+| Actions are pinned to major tags, not commit SHAs | with no Dependabot yet, SHA pins would go stale; supply-chain pinning belongs with the dependency-bot change |
+| `gitleaks-action` reads the automatic `GITHUB_TOKEN` | it is free for personal repositories; no repository secret is configured |
+| The release is one `ubuntu-latest` job with a shell loop, not a matrix | it builds the frontend once and keeps archive naming and checksums in one place; a matrix fed by an uploaded `dist` artifact is the next step if the target list grows |
+| The Windows `.zip` is produced with `python3 -m zipfile` | Python is available on the runner and stores the Unix mode, so the workflow needs no extra archive package |
+| Binaries are unsigned, with no notarization, Homebrew formula or package-manager publishing | signing identities have a recurring cost; the caveat is documented and checksums cover download integrity |
+| No `LICENSE` file is added | publishing binaries does not require one; usage rights are a separate decision for the repository owner |
+| Release assets use `releases/latest/download/<raw name>` | the raw binaries have stable names, so one download command keeps working across versions; archives carry the version in their name |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -1034,3 +1102,4 @@ Done criteria:
 | PDF metadata can be unknown | §9 | Open, by design. `/Info` values inside a compressed object stream are not decompressed, so title/author/dates/page count may be null while the file itself is stored and downloadable. The UI shows "Unknown" rather than guessing |
 | No document re-tagging, renaming or version history | §9 | By design. A document's kind/filename belong to one attachment; detaching and re-uploading is the way to change them. Two exports with different bytes are separate documents, which is the point of keeping the exact file sent |
 | Stored documents are not scanned for malware | §9 | By design for a local single-user tool. Downloads are always forced attachments with `nosniff` and never rendered inline |
+| CI has no linter, coverage gate or dependency bot | — | Open by design after OpenSpec change `ci-and-hooks`, which fixed F-03's build/vet/test/type-check/vulnerability/secret gap. `golangci-lint`, a coverage threshold and Dependabot/Renovate remain deferred to a later change; the workflow uses major-tag action pins until then |

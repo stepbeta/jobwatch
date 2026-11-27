@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+### CI and hooks (OpenSpec change `ci-and-hooks`)
+
+#### Added
+- GitHub Actions workflow (`.github/workflows/ci.yml`) runs on pull
+  requests and pushes to `main` in three parallel jobs: **Go** (build,
+  vet, `go test -count=1`), **Web** (`npm ci`, `npm test`,
+  `npm run build`, then `go build -tags ui`) and **Security**
+  (`govulncheck` and a `gitleaks` scan of the pushed/PR commits). Public actions
+  only, no configured secret.
+- The README documents the CI checks and the `-tags ui` build that
+  compiles the embedded frontend.
+- `make test-go` runs `go vet` and `go test -count=1`; `make test` adds
+  the frontend `npm test` suite, so the local contract matches CI.
+- Opt-in git hooks: `.githooks/pre-commit` checks staged Go files with
+  `gofmt`, runs `go vet`, `tsc --noEmit` when `web/node_modules` exists
+  and `gitleaks protect --staged` when gitleaks is installed;
+  `.githooks/pre-push` runs the full Go suite and `npm test`. Missing
+  optional tools are reported and skipped.
+- `make hooks` installs the committed hooks (`core.hooksPath=.githooks`)
+  and sets their executable bits. Hooks remain bypassable; CI is the
+  gate.
+- `docs/ARCHITECTURE.md` gains a verification section and the README
+  documents hook installation and the optional `gitleaks` dependency.
+- GitHub Actions release workflow (`.github/workflows/release.yml`) runs
+  on `v*` tags and publishes Linux (amd64, arm64), macOS (amd64, arm64)
+  and Windows (amd64) binaries built with `-tags ui -trimpath`, stripped
+  with `-s -w`, and stamped with the tag without its leading `v`. It
+  gates on `go test -count=1 ./...` and publishes only at the end, so a
+  failed step leaves no release.
+- Each release carries raw, stably named binaries (for example
+  `jobwatch-linux-amd64` and `jobwatch-windows-amd64.exe`), versioned
+  archives with the binary and README (`jobwatch_<version>_<os>_<arch>.tar.gz`,
+  `.zip` on Windows) and a `sha256sums.txt` covering both forms. Raw
+  names keep the `releases/latest/download/...` URLs stable; archives
+  preserve the executable bit.
+- Hyphenated tags such as `v0.0.0-test` are published with
+  `--prerelease`, so they never become `releases/latest`. Re-running the
+  workflow uploads assets with `gh release upload --clobber`.
+- The README documents prebuilt downloads, checksum verification, the
+  macOS quarantine caveat, the unsigned binaries and the `git tag` +
+  `git push` release procedure.
+
+#### Changed
+- GitHub Actions use their Node 24 runtimes: `actions/checkout@v5`,
+  `actions/setup-go@v6`, `actions/setup-node@v5` and
+  `gitleaks/gitleaks-action@v3`, so the workflows keep working after
+  GitHub's Node 20 removal. The pre-push hook now names the missing
+  `web/node_modules` and the `cd web && npm ci` fix instead of failing
+  with a raw npm error.
+- CI documentation says `gitleaks` scans the pushed/PR commit range,
+  not the full history; `fetch-depth: 0` only makes that range
+  available. Older commits are not rescanned.
+
 ### Offer documents (OpenSpec change `offer-documents`)
 
 #### Added

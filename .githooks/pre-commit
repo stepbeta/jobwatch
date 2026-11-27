@@ -1,0 +1,47 @@
+#!/bin/sh
+# JobWatch pre-commit hook: fast checks before a commit is created.
+# Installed by `make hooks` (git config core.hooksPath .githooks).
+# Bypass with `git commit --no-verify`; CI remains authoritative.
+
+set -u
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+status=0
+
+staged_go=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
+
+if [ -n "$staged_go" ]; then
+	printf '%s\n' "$staged_go" | while IFS= read -r file; do
+		if [ -n "$(gofmt -l "$file")" ]; then
+			printf 'pre-commit: not gofmt-ed: %s\n' "$file" >&2
+			exit 1
+		fi
+	done || status=1
+else
+	echo "pre-commit: no staged Go files, skipping gofmt"
+fi
+
+if ! go vet ./...; then
+	echo "pre-commit: go vet failed" >&2
+	status=1
+fi
+
+if [ -d web/node_modules ]; then
+	if ! (cd web && ./node_modules/.bin/tsc --noEmit); then
+		echo "pre-commit: tsc --noEmit failed" >&2
+		status=1
+	fi
+else
+	echo "pre-commit: web/node_modules missing, skipping tsc --noEmit (run 'cd web && npm ci')"
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+	if ! gitleaks protect --staged --redact --no-banner; then
+		echo "pre-commit: gitleaks found a staged secret" >&2
+		status=1
+	fi
+else
+	echo "pre-commit: gitleaks not installed, skipping staged secret scan (CI still scans)"
+fi
+
+exit "$status"

@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: web
+      - name: Build frontend
+        run: npm run build
+        working-directory: web
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Build binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            ext=""
+            if [ "$os" = windows ]; then
+              ext=".exe"
+            fi
+            echo "building ${os}/${arch}"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build \
+              -tags ui -trimpath \
+              -ldflags "-s -w -X main.version=${version}" \
+              -o "dist/jobwatch-${os}-${arch}${ext}" ./cmd/jobwatch
+          done
+      - name: Package archives and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          cd dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            ext=""
+            if [ "$os" = windows ]; then
+              ext=".exe"
+            fi
+            bin="jobwatch-${os}-${arch}${ext}"
+            cp ../README.md README.md
+            if [ "$os" = windows ]; then
+              python3 -m zipfile -c "jobwatch_${version}_${os}_${arch}.zip" "$bin" README.md
+            else
+              tar -czf "jobwatch_${version}_${os}_${arch}.tar.gz" "$bin" README.md
+            fi
+            rm README.md
+          done
+          sha256sum jobwatch-* jobwatch_* > sha256sums.txt
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "release ${GITHUB_REF_NAME} already exists; re-uploading assets"
+            gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+          else
+            args=(--title "${GITHUB_REF_NAME}" --generate-notes)
+            case "${GITHUB_REF_NAME}" in
+              *-*) args+=(--prerelease) ;;
+            esac
+            gh release create "${GITHUB_REF_NAME}" dist/* "${args[@]}"
+          fi

@@ -22,6 +22,59 @@ the same database.
 - Linux (developed on WSL2 / Ubuntu 24.04); other platforms should work.
 - No Docker, external services or config file are required.
 
+## Prebuilt binaries
+
+Every `v*` tag runs `.github/workflows/release.yml` and publishes GitHub
+Release assets for Linux, macOS and Windows. Download the raw binary for
+your platform from the latest stable release:
+
+```sh
+curl -fLo jobwatch https://github.com/stepbeta/jobwatch/releases/latest/download/jobwatch-linux-amd64
+chmod +x jobwatch
+./jobwatch --version
+```
+
+Replace the asset name with `jobwatch-linux-arm64`,
+`jobwatch-darwin-amd64`, `jobwatch-darwin-arm64` or
+`jobwatch-windows-amd64.exe` as needed. Prebuilt binaries include the
+embedded web UI; no Go or Node.js install is required to run them.
+
+Each target is also published as an archive containing the binary and
+this README: `jobwatch_<version>_<os>_<arch>.tar.gz` (`.zip` on
+Windows), for example `jobwatch_0.3.0_linux_amd64.tar.gz`. Archives
+preserve the executable bit, which a raw HTTP download does not.
+
+Verify the download against `sha256sums.txt`, which covers both the raw
+binaries and the archives:
+
+```sh
+curl -fLo sha256sums.txt https://github.com/stepbeta/jobwatch/releases/latest/download/sha256sums.txt
+grep ' jobwatch-linux-amd64$' sha256sums.txt | sha256sum -c -
+```
+
+On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`. The
+binaries are unsigned. A `curl`/`wget` download does not set the macOS
+quarantine attribute; one made through a browser may, in which case use
+right-click → Open the first time, or clear it with
+`xattr -d com.apple.quarantine jobwatch`. There is no notarization,
+code signing, Homebrew formula or package-manager publishing.
+
+### Publishing a release
+
+The workflow is tag-triggered and publishes only after the frontend
+build and `go test -count=1 ./...` succeed:
+
+```sh
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+The version embedded in the binary is the tag without the leading `v`.
+A tag containing a hyphen (for example `v0.3.0-rc.1` or `v0.0.0-test`)
+is published as a prerelease, so it never becomes the target of
+`releases/latest`. Re-running the workflow for an existing tag uploads
+the assets again with `gh release upload --clobber`.
+
 ## Quick start
 
 ```sh
@@ -219,6 +272,54 @@ make ui       # cd web && npm ci && npm run build
 make build    # make ui, then go build -tags ui -o jobwatch ./cmd/jobwatch
 make serve    # make build, then ./jobwatch serve
 ```
+
+The local test contract mirrors CI:
+
+```sh
+make test-go  # go vet ./... && go test -count=1 ./...
+make test     # make test-go, then the frontend suite (cd web && npm test)
+```
+
+### Git hooks (opt-in)
+
+The repository ships its hooks in `.githooks/`. Enable them once per
+clone:
+
+```sh
+make hooks    # git config core.hooksPath .githooks; chmod +x the scripts
+```
+
+- **pre-commit** — runs `gofmt` on staged Go files and `go vet ./...`;
+  runs `tsc --noEmit` when `web/node_modules` exists; runs
+  `gitleaks protect --staged` when `gitleaks` is installed.
+- **pre-push** — runs `go vet ./...`, `go test -count=1 ./...` and the
+  frontend `npm test`.
+
+Optional tools are skipped with a message rather than blocking the
+commit: install `gitleaks` for the local secret scan, and run
+`cd web && npm ci` at least once so `tsc` and the frontend tests can
+run. A clone that follows the Quick start (`npm ci`) has everything
+except the optional `gitleaks`. Hooks are bypassable with
+`--no-verify`; CI is the actual gate and runs on every push and pull
+request.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request and on every push
+to `main`, in three parallel jobs:
+
+- **Go** — `go build ./...`, `go vet ./...`, `go test -count=1 ./...`.
+- **Web** — `npm ci`, `npm test`, `npm run build` in `web/`, then
+  `go build -tags ui -o /tmp/jobwatch ./cmd/jobwatch` so the embedded
+  assets are compiled too. `-tags ui` needs the `dist/` that
+  `npm run build` just produced.
+- **Security** — `govulncheck ./...` and a `gitleaks` scan of the full
+  history (`fetch-depth: 0`).
+
+The workflow uses public actions and no configured secret.
+`gitleaks-action` is free for personal repositories; the automatic
+`GITHUB_TOKEN` is the only credential it reads. Running the same
+commands locally reproduces the CI result.
 
 Two processes for UI work:
 
