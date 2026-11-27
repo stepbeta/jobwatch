@@ -220,6 +220,24 @@ make build    # make ui, then go build -tags ui -o jobwatch ./cmd/jobwatch
 make serve    # make build, then ./jobwatch serve
 ```
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request and on every push
+to `main`, in three parallel jobs:
+
+- **Go** — `go build ./...`, `go vet ./...`, `go test -count=1 ./...`.
+- **Web** — `npm ci`, `npm test`, `npm run build` in `web/`, then
+  `go build -tags ui -o /tmp/jobwatch ./cmd/jobwatch` so the embedded
+  assets are compiled too. `-tags ui` needs the `dist/` that
+  `npm run build` just produced.
+- **Security** — `govulncheck ./...` and a `gitleaks` scan of the full
+  history (`fetch-depth: 0`).
+
+The workflow uses public actions and no configured secret.
+`gitleaks-action` is free for personal repositories; the automatic
+`GITHUB_TOKEN` is the only credential it reads. Running the same
+commands locally reproduces the CI result.
+
 Two processes for UI work:
 
 ```sh

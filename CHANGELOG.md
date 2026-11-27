@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### CI and hooks (OpenSpec change `ci-and-hooks`)
+
+#### Added
+- GitHub Actions workflow (`.github/workflows/ci.yml`) runs on pull
+  requests and pushes to `main` in three parallel jobs: **Go** (build,
+  vet, `go test -count=1`), **Web** (`npm ci`, `npm test`,
+  `npm run build`, then `go build -tags ui`) and **Security**
+  (`govulncheck` and a full-history `gitleaks` scan). Public actions
+  only, no configured secret.
+- The README documents the CI checks and the `-tags ui` build that
+  compiles the embedded frontend.
+
 ### Offer documents (OpenSpec change `offer-documents`)
 
 #### Added
