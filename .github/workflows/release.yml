@@ -51,3 +51,26 @@ jobs:
               -ldflags "-s -w -X main.version=${version}" \
               -o "dist/jobwatch-${os}-${arch}${ext}" ./cmd/jobwatch
           done
+      - name: Package archives and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          cd dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            ext=""
+            if [ "$os" = windows ]; then
+              ext=".exe"
+            fi
+            bin="jobwatch-${os}-${arch}${ext}"
+            cp ../README.md README.md
+            if [ "$os" = windows ]; then
+              python3 -m zipfile -c "jobwatch_${version}_${os}_${arch}.zip" "$bin" README.md
+            else
+              tar -czf "jobwatch_${version}_${os}_${arch}.tar.gz" "$bin" README.md
+            fi
+            rm README.md
+          done
+          sha256sum jobwatch-* jobwatch_* > sha256sums.txt
