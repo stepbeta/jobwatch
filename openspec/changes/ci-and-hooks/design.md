@@ -83,7 +83,7 @@ Rejected: no new dependency for three shell scripts.
 | windows | amd64 |
 
 `modernc.org/sqlite` is pure Go, so `CGO_ENABLED=0` cross-compiles all of
-them from Linux; this was verified locally for all five pairs (~19-20 MB
+them from Linux; this was verified locally for all five pairs (~13-14 MB
 each). Each build uses `-tags ui -trimpath` and
 `-ldflags "-s -w -X main.version=<tag without v>"`.
 

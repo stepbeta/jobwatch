@@ -9,7 +9,7 @@
   requests and pushes to `main` in three parallel jobs: **Go** (build,
   vet, `go test -count=1`), **Web** (`npm ci`, `npm test`,
   `npm run build`, then `go build -tags ui`) and **Security**
-  (`govulncheck` and a full-history `gitleaks` scan). Public actions
+  (`govulncheck` and a `gitleaks` scan of the pushed/PR commits). Public actions
   only, no configured secret.
 - The README documents the CI checks and the `-tags ui` build that
   compiles the embedded frontend.
@@ -43,6 +43,17 @@
 - The README documents prebuilt downloads, checksum verification, the
   macOS quarantine caveat, the unsigned binaries and the `git tag` +
   `git push` release procedure.
+
+#### Changed
+- GitHub Actions use their Node 24 runtimes: `actions/checkout@v5`,
+  `actions/setup-go@v6`, `actions/setup-node@v5` and
+  `gitleaks/gitleaks-action@v3`, so the workflows keep working after
+  GitHub's Node 20 removal. The pre-push hook now names the missing
+  `web/node_modules` and the `cd web && npm ci` fix instead of failing
+  with a raw npm error.
+- CI documentation says `gitleaks` scans the pushed/PR commit range,
+  not the full history; `fetch-depth: 0` only makes that range
+  available. Older commits are not rescanned.
 
 ### Offer documents (OpenSpec change `offer-documents`)
 

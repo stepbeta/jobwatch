@@ -627,8 +627,8 @@ Tooling only; it changes no runtime behavior.
 - `.github/workflows/ci.yml` runs on pull requests and pushes to `main`
   in three parallel jobs: Go (build, vet, test), Web (`npm ci`, `npm
   test`, `npm run build`, then `go build -tags ui` to exercise
-  `go:embed`), and Security (`govulncheck` plus a full-history
-  `gitleaks` scan). It uses public actions and no configured secret.
+  `go:embed`), and Security (`govulncheck` plus a `gitleaks` scan of
+  the pushed/PR commits). It uses public actions and no configured secret.
 - `.github/workflows/release.yml` runs on `v*` tags with job-level
   `contents: write`. One `ubuntu-latest` job builds the frontend, gates
   on `go test -count=1 ./...`, then cross-compiles five targets

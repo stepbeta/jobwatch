@@ -21,7 +21,10 @@ if ! go test -count=1 ./...; then
 fi
 
 echo "pre-push: npm test (web)"
-if ! (cd web && npm test); then
+if [ ! -d web/node_modules ]; then
+	echo "pre-push: web/node_modules missing; run 'cd web && npm ci' before pushing" >&2
+	status=1
+elif ! (cd web && npm test); then
 	echo "pre-push: frontend tests failed" >&2
 	status=1
 fi

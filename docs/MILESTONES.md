@@ -1016,7 +1016,7 @@ Done criteria (all met):
       `main` with three jobs: Go (`go build`, `go vet`, `go test
       -count=1`), Web (`npm ci`, `npm test`, `npm run build`, then
       `go build -tags ui` so `go:embed` is compiled) and Security
-      (`govulncheck` plus a full-history `gitleaks` scan).
+      (`govulncheck` plus a `gitleaks` scan of the pushed/PR commits).
 - [x] `make test-go` runs the Go checks and `make test` adds the
       frontend suite, matching the CI commands.
 - [x] `.githooks/pre-commit` checks staged Go files with `gofmt`, runs
