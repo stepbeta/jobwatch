@@ -98,6 +98,10 @@ var (
 		URL: "https://ex.com/jobs/1", Description: "Run Kubernetes and Terraform."}
 	rawPlatform = sources.RawOffer{ExternalUID: "2", Title: "Platform Engineer (H/F)", Location: "Remote - France",
 		URL: "https://ex.com/jobs/2", Description: "Build the platform."}
+	// rawKeep keeps a source populated when the test needs the other offers
+	// to disappear without tripping the empty-observation guard.
+	rawKeep = sources.RawOffer{ExternalUID: "keep", Title: "Keepalive Role", Location: "Paris",
+		URL: "https://ex.com/jobs/keep", Description: "Stays listed."}
 )
 
 func TestScanLifecycle(t *testing.T) {
@@ -179,12 +183,12 @@ func TestScanLifecycle(t *testing.T) {
 			},
 		},
 		{
-			name:       "empty board marks everything disappeared",
-			offers:     nil,
+			name:       "partial board disappears one offer",
+			offers:     []sources.RawOffer{rawSREChanged},
 			wantStatus: model.ScanOK,
-			want:       Result{Disappeared: 2},
+			want:       Result{Fetched: 1, Seen: 1, Disappeared: 1},
 			offers2: []wantOffer{
-				{"Site Reliability Engineer", model.OfferDisappeared, 2},
+				{"Site Reliability Engineer", model.OfferActive, 2},
 				{"Platform Engineer (H/F)", model.OfferDisappeared, 1},
 			},
 		},
@@ -247,6 +251,230 @@ func TestScanLifecycle(t *testing.T) {
 	}
 }
 
+// TestScanRejectsUntrustworthyObservations covers task 1.2: a successful
+// fetch that is empty or suspiciously small against the known active offers
+// is recorded as an error and changes nothing.
+func TestScanRejectsUntrustworthyObservations(t *testing.T) {
+	raw := func(i int) sources.RawOffer {
+		return sources.RawOffer{
+			ExternalUID: fmt.Sprintf("uid-%d", i),
+			Title:       fmt.Sprintf("Role %d", i),
+			Location:    "Paris",
+			URL:         fmt.Sprintf("https://ex.com/jobs/%d", i),
+			Description: "desc",
+		}
+	}
+	seed := func(i int) []sources.RawOffer {
+		out := make([]sources.RawOffer, i)
+		for j := range out {
+			out[j] = raw(j)
+		}
+		return out
+	}
+
+	tests := []struct {
+		name   string
+		seed   []sources.RawOffer
+		scan   []sources.RawOffer
+		inErr  bool
+		reason string
+	}{
+		{
+			name:   "zero items with known offers",
+			seed:   seed(2),
+			scan:   nil,
+			inErr:  true,
+			reason: "empty observation",
+		},
+		{
+			name:   "fewer than half of four or more known offers",
+			seed:   seed(5),
+			scan:   []sources.RawOffer{raw(0), raw(1)},
+			inErr:  true,
+			reason: "suspicious drop",
+		},
+		{
+			name:   "items without a URL do not count as evidence",
+			seed:   seed(2),
+			scan:   []sources.RawOffer{{ExternalUID: "x", Title: "No URL"}},
+			inErr:  true,
+			reason: "zero usable items",
+		},
+		{
+			name:   "exactly half is trustworthy",
+			seed:   seed(4),
+			scan:   []sources.RawOffer{raw(0), raw(1)},
+			inErr:  false,
+			reason: "half of four",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sqlDB, sc, ff, clk := setup(t)
+			ctx := context.Background()
+			src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
+
+			clk.advance()
+			ff.offers[src.ID] = tt.seed
+			if r := sc.ScanSource(ctx, src); r.Status != model.ScanOK || r.New != len(tt.seed) {
+				t.Fatalf("seed scan = %+v", r)
+			}
+			// Applied and interview offers make a false disappearance
+			// visible as a ghost event.
+			offers := make([]model.JobOffer, 0, len(tt.seed))
+			for i := range tt.seed {
+				offers = append(offers, offerByProvenance(t, sqlDB, src.ID, fmt.Sprintf("uid-%d", i)))
+			}
+			setAppState(t, sqlDB, offers[0].ID, model.AppApplied, clk.now())
+			setAppState(t, sqlDB, offers[1].ID, model.AppInterview, clk.now())
+			for i := range offers {
+				offers[i], _ = db.GetOffer(ctx, sqlDB, offers[i].ID)
+			}
+			snapshots := count(t, sqlDB, `SELECT COUNT(*) FROM snapshots`)
+
+			clk.advance()
+			ff.offers[src.ID] = tt.scan
+			r := sc.ScanSource(ctx, src)
+
+			if tt.inErr {
+				if r.Status != model.ScanError || !errors.Is(r.Err, ErrUntrustworthyScan) {
+					t.Fatalf("scan = %+v, want error wrapping ErrUntrustworthyScan", r)
+				}
+				if r.Disappeared != 0 || r.Ghosted != 0 {
+					t.Errorf("result = %+v, want no disappearances or ghosts", r)
+				}
+				after, _ := db.GetSource(ctx, sqlDB, src.ID)
+				if after.LastScanStatus == nil || *after.LastScanStatus != model.ScanError {
+					t.Errorf("last_scan_status = %v, want error", after.LastScanStatus)
+				}
+			} else if r.Status != model.ScanOK {
+				t.Fatalf("scan = %+v, want ok", r)
+			}
+
+			checked := 0
+			for _, want := range offers {
+				o, err := db.GetOffer(ctx, sqlDB, want.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if tt.inErr {
+					if o.OfferState != model.OfferActive {
+						t.Errorf("offer %d listing state = %q, want active", o.ID, o.OfferState)
+					}
+					if o.ApplicationState != want.ApplicationState {
+						t.Errorf("offer %d state = %q, want %q", o.ID, o.ApplicationState, want.ApplicationState)
+					}
+					if n := ghostedEvents(t, sqlDB, o.ID); n != 0 {
+						t.Errorf("offer %d ghosted events = %d, want 0", o.ID, n)
+					}
+				}
+				checked++
+			}
+			if checked != len(offers) {
+				t.Errorf("checked %d offers, want %d", checked, len(offers))
+			}
+			if tt.inErr {
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM snapshots`); n != snapshots {
+					t.Errorf("snapshots = %d, want unchanged %d", n, snapshots)
+				}
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM events WHERE type = 'ghosted'`); n != 0 {
+					t.Errorf("ghosted events = %d, want 0", n)
+				}
+			}
+		})
+	}
+}
+
+// TestScanGuardAllowsSmallSources covers task 1.3: the guard must not reject
+// normal small-source shrinkage or a first scan.
+func TestScanGuardAllowsSmallSources(t *testing.T) {
+	t.Run("two known offers returning one follow disappearance rules", func(t *testing.T) {
+		sqlDB, sc, ff, clk := setup(t)
+		ctx := context.Background()
+		src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
+
+		clk.advance()
+		ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform}
+		if r := sc.ScanSource(ctx, src); r.New != 2 {
+			t.Fatalf("seed scan = %+v", r)
+		}
+
+		clk.advance()
+		ff.offers[src.ID] = []sources.RawOffer{rawSRE}
+		r := sc.ScanSource(ctx, src)
+		if r.Status != model.ScanOK || r.Seen != 1 || r.Disappeared != 1 {
+			t.Fatalf("scan = %+v, want ok with 1 disappeared", r)
+		}
+		if o := offerByTitle(t, sqlDB, rawPlatform.Title); o.OfferState != model.OfferDisappeared {
+			t.Errorf("missing offer state = %q, want disappeared", o.OfferState)
+		}
+		if o := offerByTitle(t, sqlDB, rawSRE.Title); o.OfferState != model.OfferActive {
+			t.Errorf("returned offer state = %q, want active", o.OfferState)
+		}
+	})
+
+	t.Run("first scan of an empty source is applied normally", func(t *testing.T) {
+		sqlDB, sc, ff, clk := setup(t)
+		ctx := context.Background()
+		src := addSource(t, sqlDB, "Empty", `{"company":"Empty"}`)
+
+		clk.advance()
+		ff.offers[src.ID] = nil
+		r := sc.ScanSource(ctx, src)
+		if r.Status != model.ScanOK || r.Err != nil || r.Fetched != 0 {
+			t.Fatalf("first empty scan = %+v, want ok", r)
+		}
+		after, _ := db.GetSource(ctx, sqlDB, src.ID)
+		if after.LastScanStatus == nil || *after.LastScanStatus != model.ScanOK {
+			t.Errorf("last_scan_status = %v, want ok", after.LastScanStatus)
+		}
+	})
+}
+
+// TestGhostEventUsesLastSeenTime covers task 1.4: the automatic event is
+// dated at the offer's last sighting, while updated_at reflects the scan.
+func TestGhostEventUsesLastSeenTime(t *testing.T) {
+	sqlDB, sc, ff, clk := setup(t)
+	ctx := context.Background()
+	src := addSource(t, sqlDB, "Acme", `{"company":"Acme"}`)
+
+	clk.advance()
+	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawKeep}
+	if r := sc.ScanSource(ctx, src); r.New != 2 {
+		t.Fatalf("seed scan = %+v", r)
+	}
+	sre := offerByTitle(t, sqlDB, rawSRE.Title)
+	setAppState(t, sqlDB, sre.ID, model.AppApplied, clk.now())
+	lastSeen := sre.LastSeenAt
+
+	clk.advance()
+	scanAt := clk.now()
+	ff.offers[src.ID] = []sources.RawOffer{rawKeep}
+	r := sc.ScanSource(ctx, src)
+	if r.Disappeared != 1 || r.Ghosted != 1 {
+		t.Fatalf("scan = %+v, want 1 disappeared and 1 ghosted", r)
+	}
+
+	var occurred string
+	if err := sqlDB.QueryRow(`SELECT occurred_at FROM events WHERE offer_id = ? AND type = 'ghosted'`, sre.ID).
+		Scan(&occurred); err != nil {
+		t.Fatal(err)
+	}
+	wantSeen := model.FormatTime(lastSeen)
+	if occurred != wantSeen {
+		t.Errorf("ghosted occurred_at = %q, want last-seen %q", occurred, wantSeen)
+	}
+	if occurred == model.FormatTime(scanAt) {
+		t.Errorf("ghosted occurred_at equals the scan time %q", occurred)
+	}
+
+	o, _ := db.GetOffer(ctx, sqlDB, sre.ID)
+	if !o.UpdatedAt.Equal(scanAt) {
+		t.Errorf("updated_at = %v, want scan time %v", o.UpdatedAt, scanAt)
+	}
+}
+
 func offerByProvenance(t *testing.T, sqlDB *sql.DB, sourceID int64, uid string) model.JobOffer {
 	t.Helper()
 	var id int64
@@ -299,8 +527,8 @@ func TestScanGhostsDisappearedApplications(t *testing.T) {
 	ctx := context.Background()
 
 	clk.advance()
-	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform}
-	if r := sc.ScanSource(ctx, src); r.New != 2 {
+	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform, rawKeep}
+	if r := sc.ScanSource(ctx, src); r.New != 3 {
 		t.Fatalf("first scan = %+v", r)
 	}
 	sre := offerByTitle(t, sqlDB, rawSRE.Title)
@@ -309,10 +537,10 @@ func TestScanGhostsDisappearedApplications(t *testing.T) {
 	setAppState(t, sqlDB, platform.ID, model.AppInterview, clk.now())
 
 	clk.advance()
-	ff.offers[src.ID] = nil
+	ff.offers[src.ID] = []sources.RawOffer{rawKeep}
 	r := sc.ScanSource(ctx, src)
 	if r.Disappeared != 2 || r.Ghosted != 2 {
-		t.Fatalf("empty scan = %+v, want 2 disappeared and 2 ghosted", r)
+		t.Fatalf("scan without the applied offers = %+v, want 2 disappeared and 2 ghosted", r)
 	}
 	for _, id := range []int64{sre.ID, platform.ID} {
 		o, _ := db.GetOffer(ctx, sqlDB, id)
@@ -326,6 +554,7 @@ func TestScanGhostsDisappearedApplications(t *testing.T) {
 
 	// A repeat scan does not recreate the event.
 	clk.advance()
+	ff.offers[src.ID] = []sources.RawOffer{rawKeep}
 	r = sc.ScanSource(ctx, src)
 	if r.Disappeared != 0 || r.Ghosted != 0 {
 		t.Errorf("repeat scan = %+v, want no disappearances or ghosts", r)
@@ -339,7 +568,7 @@ func TestScanGhostsDisappearedApplications(t *testing.T) {
 	// Reappearance keeps the closed state; a later disappearance ghosts
 	// again only for the offer the user reopened.
 	clk.advance()
-	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform}
+	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform, rawKeep}
 	if r := sc.ScanSource(ctx, src); r.Reappeared != 2 {
 		t.Fatalf("reappearance scan = %+v", r)
 	}
@@ -347,7 +576,7 @@ func TestScanGhostsDisappearedApplications(t *testing.T) {
 	setAppState(t, sqlDB, platform.ID, model.AppOffer, clk.now())
 
 	clk.advance()
-	ff.offers[src.ID] = nil
+	ff.offers[src.ID] = []sources.RawOffer{rawKeep}
 	r = sc.ScanSource(ctx, src)
 	if r.Disappeared != 2 || r.Ghosted != 1 {
 		t.Fatalf("second disappearance = %+v, want 2 disappeared and 1 ghosted", r)
@@ -373,8 +602,8 @@ func TestScanDoesNotGhostOtherStates(t *testing.T) {
 		URL: "https://ex.com/jobs/3", Description: "An offer."}
 
 	clk.advance()
-	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform, rawOfferStage}
-	if r := sc.ScanSource(ctx, src); r.New != 3 {
+	ff.offers[src.ID] = []sources.RawOffer{rawSRE, rawPlatform, rawOfferStage, rawKeep}
+	if r := sc.ScanSource(ctx, src); r.New != 4 {
 		t.Fatalf("first scan = %+v", r)
 	}
 	none := offerByTitle(t, sqlDB, rawSRE.Title)
@@ -384,11 +613,13 @@ func TestScanDoesNotGhostOtherStates(t *testing.T) {
 	setAppState(t, sqlDB, saved.ID, model.AppSaved, clk.now())
 	setAppState(t, sqlDB, offer.ID, model.AppOffer, clk.now())
 
+	// Exactly half of four known offers may disappear without tripping the
+	// ratio guard.
 	clk.advance()
-	ff.offers[src.ID] = nil
+	ff.offers[src.ID] = []sources.RawOffer{rawOfferStage, rawKeep}
 	r := sc.ScanSource(ctx, src)
-	if r.Disappeared != 3 || r.Ghosted != 0 {
-		t.Fatalf("scan = %+v, want 3 disappeared and 0 ghosted", r)
+	if r.Disappeared != 2 || r.Ghosted != 0 {
+		t.Fatalf("scan = %+v, want 2 disappeared and 0 ghosted", r)
 	}
 	for _, tc := range []struct {
 		id   int64
@@ -396,7 +627,6 @@ func TestScanDoesNotGhostOtherStates(t *testing.T) {
 	}{
 		{none.ID, model.AppNone},
 		{saved.ID, model.AppSaved},
-		{offer.ID, model.AppOffer},
 	} {
 		o, _ := db.GetOffer(ctx, sqlDB, tc.id)
 		if o.OfferState != model.OfferDisappeared || o.ApplicationState != tc.want {
@@ -405,6 +635,20 @@ func TestScanDoesNotGhostOtherStates(t *testing.T) {
 		if n := ghostedEvents(t, sqlDB, tc.id); n != 0 {
 			t.Errorf("offer %d ghosted events = %d, want 0", tc.id, n)
 		}
+	}
+
+	clk.advance()
+	ff.offers[src.ID] = []sources.RawOffer{rawKeep}
+	r = sc.ScanSource(ctx, src)
+	if r.Disappeared != 1 || r.Ghosted != 0 {
+		t.Fatalf("scan = %+v, want 1 disappeared and 0 ghosted", r)
+	}
+	o, _ := db.GetOffer(ctx, sqlDB, offer.ID)
+	if o.OfferState != model.OfferDisappeared || o.ApplicationState != model.AppOffer {
+		t.Errorf("offer stage = %q/%q, want disappeared/%q", o.OfferState, o.ApplicationState, model.AppOffer)
+	}
+	if n := ghostedEvents(t, sqlDB, offer.ID); n != 0 {
+		t.Errorf("offer stage ghosted events = %d, want 0", n)
 	}
 }
 
@@ -415,8 +659,8 @@ func TestScanDoesNotGhostWhileAnotherSourceListsTheOffer(t *testing.T) {
 	ctx := context.Background()
 
 	clk.advance()
-	ff.offers[s1.ID] = []sources.RawOffer{rawSRE}
-	if r := sc.ScanSource(ctx, s1); r.New != 1 {
+	ff.offers[s1.ID] = []sources.RawOffer{rawSRE, rawKeep}
+	if r := sc.ScanSource(ctx, s1); r.New != 2 {
 		t.Fatalf("s1 scan = %+v", r)
 	}
 	sre := offerByTitle(t, sqlDB, rawSRE.Title)
@@ -432,7 +676,9 @@ func TestScanDoesNotGhostWhileAnotherSourceListsTheOffer(t *testing.T) {
 		sre.ID, s2.ID, onAggregator.ExternalUID, onAggregator.URL, ts, ts); err != nil {
 		t.Fatal(err)
 	}
-	ff.offers[s2.ID] = []sources.RawOffer{onAggregator}
+	aggOther := sources.RawOffer{ExternalUID: "agg-2", Title: "Other Aggregator Role",
+		Location: "Paris", URL: "https://aggregator.example/other", Company: "Acme"}
+	ff.offers[s2.ID] = []sources.RawOffer{onAggregator, aggOther}
 	clk.advance()
 	if r := sc.ScanSource(ctx, s2); r.Status != model.ScanOK {
 		t.Fatalf("s2 scan = %+v", r)
@@ -440,10 +686,10 @@ func TestScanDoesNotGhostWhileAnotherSourceListsTheOffer(t *testing.T) {
 
 	// s1 no longer lists it, but s2's latest scan still does.
 	clk.advance()
-	ff.offers[s1.ID] = nil
+	ff.offers[s1.ID] = []sources.RawOffer{rawKeep}
 	r := sc.ScanSource(ctx, s1)
 	if r.Disappeared != 0 || r.Ghosted != 0 {
-		t.Fatalf("s1 empty scan = %+v, want no disappearance while s2 lists it", r)
+		t.Fatalf("s1 scan = %+v, want no disappearance while s2 lists it", r)
 	}
 	if o, _ := db.GetOffer(ctx, sqlDB, sre.ID); o.ApplicationState != model.AppApplied {
 		t.Errorf("state = %q, want applied", o.ApplicationState)
@@ -451,10 +697,10 @@ func TestScanDoesNotGhostWhileAnotherSourceListsTheOffer(t *testing.T) {
 
 	// Once s2 also stops listing it, the offer disappears and is ghosted.
 	clk.advance()
-	ff.offers[s2.ID] = nil
+	ff.offers[s2.ID] = []sources.RawOffer{aggOther}
 	r = sc.ScanSource(ctx, s2)
 	if r.Disappeared != 1 || r.Ghosted != 1 {
-		t.Fatalf("s2 empty scan = %+v, want 1 disappeared and 1 ghosted", r)
+		t.Fatalf("s2 scan = %+v, want 1 disappeared and 1 ghosted", r)
 	}
 	if o, _ := db.GetOffer(ctx, sqlDB, sre.ID); o.ApplicationState != model.AppNegative {
 		t.Errorf("state = %q, want negative", o.ApplicationState)
@@ -514,13 +760,19 @@ func TestScanIdentity(t *testing.T) {
 		{
 			name: "closed then reopened keeps the same offer",
 			steps: []step{
-				{[]sources.RawOffer{raw("1", "SRE", "Paris", "https://x/1", "d")}, want{New: 1}},
-				{nil, want{Disappeared: 1}},
-				{[]sources.RawOffer{raw("1", "SRE", "Paris", "https://x/1", "d")}, want{Seen: 1, Reappeared: 1}},
+				{[]sources.RawOffer{
+					raw("1", "SRE", "Paris", "https://x/1", "d"),
+					raw("2", "Other Role", "Paris", "https://x/2", "d"),
+				}, want{New: 2}},
+				{[]sources.RawOffer{raw("2", "Other Role", "Paris", "https://x/2", "d")}, want{Seen: 1, Disappeared: 1}},
+				{[]sources.RawOffer{
+					raw("1", "SRE", "Paris", "https://x/1", "d"),
+					raw("2", "Other Role", "Paris", "https://x/2", "d"),
+				}, want{Seen: 2, Reappeared: 1}},
 			},
 			check: func(t *testing.T, sqlDB *sql.DB, src model.Source) {
-				if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 1 {
-					t.Errorf("offers = %d, want 1", n)
+				if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 2 {
+					t.Errorf("offers = %d, want 2", n)
 				}
 				o := offerByProvenance(t, sqlDB, src.ID, "1")
 				if o.OfferState != model.OfferActive {
@@ -964,7 +1216,7 @@ func TestScanCrossSourceDisappearance(t *testing.T) {
 	s2 := addSource(t, sqlDB, "Aggregator", "")
 
 	// The company site creates the offer.
-	ff.offers[s1.ID] = []sources.RawOffer{rawSRE}
+	ff.offers[s1.ID] = []sources.RawOffer{rawSRE, rawKeep}
 	clk.advance()
 	if r := sc.ScanSource(ctx, s1); r.Status != model.ScanOK {
 		t.Fatal(r.Err)
@@ -981,22 +1233,24 @@ func TestScanCrossSourceDisappearance(t *testing.T) {
 		offer.ID, s2.ID, onAggregator.ExternalUID, onAggregator.URL, ts, ts); err != nil {
 		t.Fatal(err)
 	}
+	aggOther := sources.RawOffer{ExternalUID: "agg-2", Title: "Other Aggregator Role",
+		Location: "Paris", URL: "https://aggregator.example/other", Company: "ACME Inc."}
 
-	ff.offers[s2.ID] = []sources.RawOffer{onAggregator}
+	ff.offers[s2.ID] = []sources.RawOffer{onAggregator, aggOther}
 	clk.advance()
 	if r := sc.ScanSource(ctx, s2); r.Status != model.ScanOK {
 		t.Fatal(r.Err)
 	}
-	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 1 {
-		t.Fatalf("offers = %d, want 1 (the aggregator uid resolved to the same offer)", n)
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offers`); n != 3 {
+		t.Fatalf("offers = %d, want 3 (the aggregator uid resolved to the same offer)", n)
 	}
-	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offer_provenance`); n != 2 {
-		t.Fatalf("provenance = %d, want 2", n)
+	if n := count(t, sqlDB, `SELECT COUNT(*) FROM job_offer_provenance`); n != 4 {
+		t.Fatalf("provenance = %d, want 4", n)
 	}
 
 	// Gone from the company site but still on the aggregator: stays active.
 	clk.advance()
-	ff.offers[s1.ID] = nil
+	ff.offers[s1.ID] = []sources.RawOffer{rawKeep}
 	if r := sc.ScanSource(ctx, s1); r.Disappeared != 0 {
 		t.Errorf("disappeared = %d, want 0 while another source still lists it", r.Disappeared)
 	}
@@ -1006,7 +1260,7 @@ func TestScanCrossSourceDisappearance(t *testing.T) {
 
 	// Gone from the aggregator too: disappeared.
 	clk.advance()
-	ff.offers[s2.ID] = nil
+	ff.offers[s2.ID] = []sources.RawOffer{aggOther}
 	if r := sc.ScanSource(ctx, s2); r.Disappeared != 1 {
 		t.Errorf("disappeared = %d, want 1", r.Disappeared)
 	}

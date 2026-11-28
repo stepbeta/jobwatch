@@ -122,7 +122,16 @@ never stops on a failing one:
 
 1. `now` = scan start (UTC, seconds); fetch outside any transaction.
 2. Fetch error → `last_scan_status = blocked|error`, `last_scan_at = now`, stop.
-3. One transaction:
+3. Trust guard, still outside any transaction. `CountActiveSourceOffers`
+   counts the source's known active offers (provenance joined to
+   `offer_state = 'active'`), and the items carrying a URL are counted
+   after the empty-URL filter. If the source has known active offers and
+   the observation is empty, or has at least four known offers and the
+   observation is smaller than half, the scan is rejected: nothing is
+   written except `last_scan_status = error` and `last_scan_at = now`, and
+   the result error wraps `scan.ErrUntrustworthyScan`. A source with no
+   known offers (first scan) is never rejected by the ratio rule.
+4. One transaction:
    - for each `RawOffer`: resolve the offer through provenance,
      `(source, external_uid)` first and `(source, url)` second. An item
      without a URL has no provenance identity and is skipped. The
@@ -153,14 +162,15 @@ never stops on a failing one:
      after `incomplete_reason` was cleared: scans then keep the user's
      company, title and location instead of the sighting's values.
    - `MarkDisappeared(source, now)` returns the offers it transitioned
-     with their application state. For each `applied` or `interview`
-     offer, insert one `ghosted` event and set `negative` in the same
+     with their application state and `last_seen_at`. For each `applied`
+     or `interview` offer, insert one `ghosted` event dated at the offer's
+     last-seen time (not the scan time) and set `negative` in the same
      transaction; other states are left untouched. The
      `offer_state != 'disappeared'` predicate makes this idempotent, and
      no backfill runs for offers that disappeared before this behavior
      existed.
    - `last_scan_status = ok`, `last_scan_at = now`; commit.
-4. A failure inside the transaction rolls back and marks the source `error`.
+5. A failure inside the transaction rolls back and marks the source `error`.
 
 Incomplete offers are stored, not displayed: the offers list, dashboard
 and search exclude `incomplete_reason IS NOT NULL` by default

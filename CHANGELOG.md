@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Scan and API hardening (OpenSpec change `scan-and-api-hardening`)
+
+#### Fixed
+- A scan that returns no usable items while the source still has active
+  offers is now rejected: the source is marked `error`, every listing and
+  application state is left unchanged, and nothing is ghosted. A scan of a
+  source with four or more known offers is also rejected when it returns
+  fewer than half of them. Tiny sources and first scans are unaffected.
+- The automatic `ghosted` timeline event is dated at the offer's last-seen
+  time instead of the scan instant, so a closed application records when
+  the posting was last seen. The offer's `updated_at` still records the
+  scan that closed it.
+
 ### CI and hooks (OpenSpec change `ci-and-hooks`)
 
 #### Added
