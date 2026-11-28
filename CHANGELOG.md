@@ -24,6 +24,10 @@
   backup name, and a backup failure aborts before migrating.
 
 #### Fixed
+- A timeline event entered with a date and no time is now sent as local
+  midnight, so it renders as the date the user typed instead of possibly
+  the previous day in negative-offset zones. Events with a time keep the
+  entered local instant. The API still accepts bare dates as UTC.
 - A scan that returns no usable items while the source still has active
   offers is now rejected: the source is marked `error`, every listing and
   application state is left unchanged, and nothing is ghosted. A scan of a

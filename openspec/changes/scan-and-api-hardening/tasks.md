@@ -24,9 +24,9 @@
 
 ## 4. Date-only event times
 
-- [ ] 4.1 Make `eventTimestamp` send local midnight for a date with no time, and verify with a timezone-independent `web/src/format.test.ts` that the local calendar date round-trips
-- [ ] 4.2 Keep the existing date-time path covered and verify an event with a time still stores the entered local instant
-- [ ] 4.3 Update the code comment and `CHANGELOG.md`, and verify the documented date-only behavior matches the test
+- [x] 4.1 Make `eventTimestamp` send local midnight for a date with no time, and verify with a timezone-independent `web/src/format.test.ts` that the local calendar date round-trips
+- [x] 4.2 Keep the existing date-time path covered and verify an event with a time still stores the entered local instant
+- [x] 4.3 Update the code comment and `CHANGELOG.md`, and verify the documented date-only behavior matches the test
 
 ## 5. Redirect politeness
 
