@@ -30,10 +30,10 @@
 
 ## 5. Redirect politeness
 
-- [ ] 5.1 Disable automatic redirects on the shared client and follow `GET` redirects in `fetch` with at most five hops, rejecting non-HTTP schemes and repeated URLs; verify each failure with a test
-- [ ] 5.2 Re-apply robots and the per-host interval to every hop; verify a redirect to a disallowed path is blocked without contacting it and a redirect to a second host waits for that host's interval
-- [ ] 5.3 Verify a `POST` that receives a redirect fails with an HTTP error instead of being replayed
-- [ ] 5.4 Update `docs/ARCHITECTURE.md` and `CHANGELOG.md` for the redirect rule; verify the documented hop limit matches the code
+- [x] 5.1 Disable automatic redirects on the shared client and follow `GET` redirects in `fetch` with at most five hops, rejecting non-HTTP schemes and repeated URLs; verify each failure with a test
+- [x] 5.2 Re-apply robots and the per-host interval to every hop; verify a redirect to a disallowed path is blocked without contacting it and a redirect to a second host waits for that host's interval
+- [x] 5.3 Verify a `POST` that receives a redirect fails with an HTTP error instead of being replayed
+- [x] 5.4 Update `docs/ARCHITECTURE.md` and `CHANGELOG.md` for the redirect rule; verify the documented hop limit matches the code
 
 ## 6. Integration and review bookkeeping
 

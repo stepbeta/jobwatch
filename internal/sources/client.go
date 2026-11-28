@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,7 @@ const (
 	DefaultTimeout  = 30 * time.Second
 	robotsTTL       = 24 * time.Hour
 	maxBodyBytes    = 20 << 20
+	maxRedirects    = 5
 )
 
 // HTTPError is returned for non-2xx responses. 401/403/429 also wrap
@@ -68,7 +70,14 @@ type Client struct {
 // NewClient returns a Client with default timeout, interval and UA.
 func NewClient() *Client {
 	return &Client{
-		HTTP:            &http.Client{Timeout: DefaultTimeout},
+		HTTP: &http.Client{
+			Timeout: DefaultTimeout,
+			// Every hop is followed by fetch so it can re-apply robots and
+			// the per-host interval. do() therefore returns 3xx responses.
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 		UserAgent:       UserAgent,
 		DefaultInterval: DefaultInterval,
 		now:             time.Now,
@@ -146,50 +155,92 @@ func (c *Client) PostJSON(ctx context.Context, src model.Source, u, contentType 
 
 // fetch performs one polite request for src and returns the body of a
 // 2xx response. robots.txt rules and the per-host interval apply to
-// every method, not only to GET.
+// every method and every redirect hop. Only GET redirects are followed,
+// at most maxRedirects times.
 func (c *Client) fetch(ctx context.Context, src model.Source, method, u string, headers map[string]string, body []byte) ([]byte, error) {
 	cfg, err := ParseConfig(src)
 	if err != nil {
 		return nil, err
 	}
-	parsed, err := url.Parse(u)
-	if err != nil {
-		return nil, fmt.Errorf("parse url %q: %w", u, err)
-	}
 	interval := cfg.IntervalFor(src.Type, c.DefaultInterval)
 
-	rules, err := c.robotsFor(ctx, parsed, interval)
-	if err != nil {
-		return nil, err
-	}
-	path := parsed.EscapedPath()
-	if parsed.RawQuery != "" {
-		path += "?" + parsed.RawQuery
-	}
-	if !rules.allowed(path) {
-		return nil, fmt.Errorf("robots.txt disallows %s: %w", u, ErrBlocked)
-	}
-	if rules.crawlDelay > interval {
-		interval = rules.crawlDelay
-	}
+	original := u
+	current := u
+	visited := map[string]bool{}
+	redirects := 0
+	for {
+		parsed, err := url.Parse(current)
+		if err != nil {
+			return nil, fmt.Errorf("parse url %q: %w", current, err)
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			return nil, fmt.Errorf("refusing non-HTTP URL %q", current)
+		}
+		if visited[current] {
+			return nil, fmt.Errorf("redirect loop at %s (request started at %s)", current, original)
+		}
+		visited[current] = true
 
-	if err := c.wait(ctx, parsed.Host, interval); err != nil {
-		return nil, err
+		rules, err := c.robotsFor(ctx, parsed, interval)
+		if err != nil {
+			return nil, err
+		}
+		path := parsed.EscapedPath()
+		if parsed.RawQuery != "" {
+			path += "?" + parsed.RawQuery
+		}
+		if !rules.allowed(path) {
+			return nil, fmt.Errorf("robots.txt disallows %s: %w", current, ErrBlocked)
+		}
+		hopInterval := interval
+		if rules.crawlDelay > hopInterval {
+			hopInterval = rules.crawlDelay
+		}
+		if err := c.wait(ctx, parsed.Host, hopInterval); err != nil {
+			return nil, err
+		}
+
+		resp, err := c.do(ctx, method, current, headers, body)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode >= 300 && resp.StatusCode <= 399 {
+			resp.Body.Close()
+			if method != http.MethodGet {
+				// Replaying a POST after a redirect is not polite; report
+				// the redirect as an HTTP error instead.
+				return nil, &HTTPError{URL: current, Status: resp.StatusCode}
+			}
+			if redirects >= maxRedirects {
+				return nil, fmt.Errorf("redirect from %s: more than %d hops", original, maxRedirects)
+			}
+			loc := strings.TrimSpace(resp.Header.Get("Location"))
+			if loc == "" {
+				return nil, &HTTPError{URL: current, Status: resp.StatusCode}
+			}
+			next, err := parsed.Parse(loc)
+			if err != nil {
+				return nil, fmt.Errorf("redirect from %s: invalid Location %q: %w", current, loc, err)
+			}
+			if next.Scheme != "http" && next.Scheme != "https" {
+				return nil, fmt.Errorf("redirect from %s: refusing non-HTTP scheme %q", current, next.Scheme)
+			}
+			redirects++
+			current = next.String()
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
+			resp.Body.Close()
+			return nil, &HTTPError{URL: current, Status: resp.StatusCode}
+		}
+		reply, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", current, err)
+		}
+		return reply, nil
 	}
-	resp, err := c.do(ctx, method, u, headers, body)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
-		return nil, &HTTPError{URL: u, Status: resp.StatusCode}
-	}
-	reply, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", u, err)
-	}
-	return reply, nil
 }
 
 // do sends the request. The client User-Agent is the default; a

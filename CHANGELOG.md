@@ -24,6 +24,11 @@
   backup name, and a backup failure aborts before migrating.
 
 #### Fixed
+- HTTP redirects are now followed manually by the shared client: at most
+  five GET hops, each re-checked against `robots.txt` and the per-host
+  interval. A non-HTTP scheme, a repeated URL or a sixth hop fails with an
+  error naming the original URL, and a redirect on POST fails as an HTTP
+  error instead of being replayed.
 - A timeline event entered with a date and no time is now sent as local
   midnight, so it renders as the date the user typed instead of possibly
   the previous day in negative-offset zones. Events with a time keep the

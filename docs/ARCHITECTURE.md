@@ -58,8 +58,16 @@ Adapters (`sources.NewRegistry`):
 | html | `GET <source url>`, plus one `GET` per eligible offer when `detail_description_selector` is set | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); cascadia supports `:has()` and `:haschild()` for row containers; one listing request per scan; minimum interval 5 s (also for detail pages); optional `employer` rule (`separator` and/or `selector`) rewrites company and title; the optional detail selector fetches an offer page only when the offer has no stored description or its stored text still equals the listing summary (so a first scan or upgrade makes one request per item, later scans none), falls back to the listing text on a per-item miss, and stops the detail phase after a blocked response while the source stays `ok` |
 
 `manual` has no fetcher; manual offers come from the import path.
-Disabled seeded rows are `html`/`wttj` sources with a `note` in
-`config_json`: the known-hard Workday/SuccessFactors and WTTJ
+Redirects are followed by `fetch`, not by Go's client
+(`CheckRedirect` returns `ErrUseLastResponse`). A `GET` may follow at most
+five `Location` hops; each hop resolves relative URLs, must stay on
+`http`/`https`, and re-runs `robots.txt` and the per-host interval before
+the request. A repeated URL or a sixth redirect fails with an error naming
+the original URL, and a redirect on any non-GET method becomes an
+`HTTPError` instead of replaying the request. This applies to every
+adapter and to URL metadata during manual import, because they share the
+client.
+Disabled seeded rows are `html`/`wttj` sources with a `note` in`config_json`: the known-hard Workday/SuccessFactors and WTTJ
 marketplace rows from migration 0002 and the 28 not-trackable decisions
 from 5b. Migration 0003 seeds the 65 sources
 registered in 5a/5b with their decided config. Migration 0004 is an
