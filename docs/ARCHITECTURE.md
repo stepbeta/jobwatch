@@ -64,7 +64,10 @@ five `Location` hops; each hop resolves relative URLs, must stay on
 `http`/`https`, and re-runs `robots.txt` and the per-host interval before
 the request. A repeated URL or a sixth redirect fails with an error naming
 the original URL, and a redirect on any non-GET method becomes an
-`HTTPError` instead of replaying the request. This applies to every
+`HTTPError` instead of replaying the request. `robots.txt` itself is
+fetched by a separate bounded loop with the same scheme, loop and hop
+checks and the per-host interval on every hop, so a canonical-host or
+HTTP→HTTPS redirect still yields usable rules. This applies to every
 adapter and to URL metadata during manual import, because they share the
 client.
 Disabled seeded rows are `html`/`wttj` sources with a `note` in`config_json`: the known-hard Workday/SuccessFactors and WTTJ

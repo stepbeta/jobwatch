@@ -269,6 +269,57 @@ func (c *Client) do(ctx context.Context, method, u string, headers map[string]st
 	return resp, nil
 }
 
+// robotsResponse fetches robots.txt, following at most maxRedirects
+// redirects. It applies the per-host interval to every hop and rejects
+// non-HTTP schemes and loops. A 3xx without Location is returned as-is so
+// robotsFor can report it as unavailable.
+func (c *Client) robotsResponse(ctx context.Context, u string, interval time.Duration) (*http.Response, error) {
+	original := u
+	current := u
+	visited := map[string]bool{}
+	redirects := 0
+	for {
+		parsed, err := url.Parse(current)
+		if err != nil {
+			return nil, fmt.Errorf("robots.txt: %w", err)
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			return nil, fmt.Errorf("robots.txt redirect refuses non-HTTP scheme %q", parsed.Scheme)
+		}
+		if visited[current] {
+			return nil, fmt.Errorf("robots.txt redirect loop at %s (started at %s)", current, original)
+		}
+		visited[current] = true
+		if err := c.wait(ctx, parsed.Host, interval); err != nil {
+			return nil, err
+		}
+		resp, err := c.do(ctx, http.MethodGet, current, map[string]string{"Accept": "text/plain"}, nil)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode < 300 || resp.StatusCode > 399 {
+			return resp, nil
+		}
+		loc := strings.TrimSpace(resp.Header.Get("Location"))
+		if loc == "" {
+			return resp, nil
+		}
+		resp.Body.Close()
+		if redirects >= maxRedirects {
+			return nil, fmt.Errorf("robots.txt redirect from %s: more than %d hops", original, maxRedirects)
+		}
+		next, err := parsed.Parse(loc)
+		if err != nil {
+			return nil, fmt.Errorf("robots.txt redirect from %s: invalid Location %q: %w", current, loc, err)
+		}
+		if next.Scheme != "http" && next.Scheme != "https" {
+			return nil, fmt.Errorf("robots.txt redirect from %s: refusing non-HTTP scheme %q", current, next.Scheme)
+		}
+		redirects++
+		current = next.String()
+	}
+}
+
 // robotsFor returns the cached or freshly fetched robots rules for the
 // host of u. Per RFC 9309: 2xx is parsed, 4xx means no restrictions, 5xx
 // or network failure means the host cannot be crawled for now (error,
@@ -283,10 +334,7 @@ func (c *Client) robotsFor(ctx context.Context, u *url.URL, interval time.Durati
 	}
 
 	robotsURL := key + "/robots.txt"
-	if err := c.wait(ctx, u.Host, interval); err != nil {
-		return nil, err
-	}
-	resp, err := c.do(ctx, http.MethodGet, robotsURL, map[string]string{"Accept": "text/plain"}, nil)
+	resp, err := c.robotsResponse(ctx, robotsURL, interval)
 	if err != nil {
 		return nil, fmt.Errorf("robots.txt unreachable: %w", err)
 	}

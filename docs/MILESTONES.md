@@ -1099,7 +1099,9 @@ Done criteria (all met):
       entered calendar date; date-time events keep the entered instant.
 - [x] The shared client follows at most five GET redirect hops, each with
       robots and the per-host interval re-applied; non-HTTP schemes,
-      repeated URLs and POST redirects fail without replaying.
+      repeated URLs and POST redirects fail without replaying. A
+      redirected `robots.txt` uses a separate bounded loop with the same
+      checks.
 - [x] `go build ./...`, `go vet ./...`, `go test -count=1 ./...` and
       `cd web && npm test` pass.
 - [x] `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/USAGE.md`, `README.md`

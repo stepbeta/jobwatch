@@ -16,6 +16,63 @@ import (
 	"github.com/stepbeta/jobwatch/internal/model"
 )
 
+func TestClientFollowsRobotsRedirect(t *testing.T) {
+	var blockedHits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/robots.txt":
+			http.Redirect(w, r, "/canonical/robots.txt", http.StatusMovedPermanently)
+		case "/canonical/robots.txt":
+			w.Write([]byte("User-agent: *\nDisallow: /blocked\n"))
+		case "/ok":
+			w.Write([]byte(`{"ok":true}`))
+		case "/blocked":
+			blockedHits++
+			w.Write([]byte(`{"ok":true}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	c, _ := testClient()
+	var v struct{ OK bool }
+	if err := c.GetJSON(context.Background(), model.Source{ID: 1}, srv.URL+"/ok", &v); err != nil {
+		t.Fatalf("GetJSON /ok: %v", err)
+	}
+	if !v.OK {
+		t.Error("body not decoded after the robots redirect")
+	}
+
+	err := c.GetJSON(context.Background(), model.Source{ID: 1}, srv.URL+"/blocked", &v)
+	if !errors.Is(err, ErrBlocked) {
+		t.Fatalf("err = %v, want ErrBlocked from the redirected robots.txt", err)
+	}
+	if blockedHits != 0 {
+		t.Errorf("disallowed path was contacted %d time(s)", blockedHits)
+	}
+}
+
+func TestClientRejectsRobotsRedirectLoop(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/robots.txt":
+			http.Redirect(w, r, "/other-robots.txt", http.StatusFound)
+		case "/other-robots.txt":
+			http.Redirect(w, r, "/robots.txt", http.StatusFound)
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+
+	c, _ := testClient()
+	err := c.GetJSON(context.Background(), model.Source{ID: 1}, srv.URL+"/ok", &struct{}{})
+	if err == nil || !strings.Contains(err.Error(), "robots.txt redirect loop") {
+		t.Fatalf("err = %v, want a robots redirect loop error", err)
+	}
+}
+
 func TestClientFollowsGetRedirects(t *testing.T) {
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
