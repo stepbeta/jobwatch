@@ -1067,6 +1067,55 @@ Done criteria (all met):
 | No `LICENSE` file is added | publishing binaries does not require one; usage rights are a separate decision for the repository owner |
 | Release assets use `releases/latest/download/<raw name>` | the raw binaries have stable names, so one download command keeps working across versions; archives carry the version in their name |
 
+## Scan and API hardening — DONE
+
+OpenSpec change `scan-and-api-hardening`, implemented through task groups
+1–6. Fixes F-01, F-04, F-09, F-14 and F-19 of the 2026-11-26 review, and
+the local-API and redirect parts of F-02 and F-11.
+
+Done criteria (all met):
+- [x] `ScanSource` rejects an empty observation while the source has
+      active offers, and fewer than half of four or more known offers,
+      before opening a transaction: the source is `error`, listings and
+      application states are unchanged, and no `ghosted` event exists.
+      Two known offers returning one, and a first scan of an empty
+      source, keep the normal behavior.
+- [x] The automatic `ghosted` event uses the offer's `last_seen_at`,
+      while `updated_at` still records the scan.
+- [x] The API rejects a non-loopback `Host` (`403 forbidden_host`) and a
+      foreign non-empty write `Origin` (`403 forbidden_origin`) before
+      routing; `localhost:5173` still works through the Vite proxy.
+- [x] JSON bodies require `Content-Type: application/json`
+      (`415 unsupported_media_type`); the multipart upload and bodyless
+      scan keep working.
+- [x] `serve` refuses a non-loopback `--addr` without `--unsafe-bind`,
+      accepts it with the flag and warns on stderr.
+- [x] The CLI opens through `db.OpenWithOptions` with
+      `BackupBeforeMigrate`: an existing database with a pending migration
+      gets a validated `<db>.<timestamp>.pre-<version>.bkp`; fresh and
+      current databases are skipped, a retry gets a new name, and a backup
+      failure aborts before migrating.
+- [x] Date-only timeline events are sent as local midnight and keep the
+      entered calendar date; date-time events keep the entered instant.
+- [x] The shared client follows at most five GET redirect hops, each with
+      robots and the per-host interval re-applied; non-HTTP schemes,
+      repeated URLs and POST redirects fail without replaying.
+- [x] `go build ./...`, `go vet ./...`, `go test -count=1 ./...` and
+      `cd web && npm test` pass.
+- [x] `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/USAGE.md`, `README.md`
+      and `CHANGELOG.md` document the new rules.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| The ratio guard starts at four known offers and accepts exactly half | a two-offer source may legitimately shrink to one; the zero rule already protects every source, and N-consecutive-miss state needs a schema change that is deferred |
+| The ghost event uses the offer's `last_seen_at`, not a per-source timestamp | the offer timestamp is already stored and truthful across sources; per-provenance ghost state would need a migration |
+| CORS is handled by rejecting foreign writes, not by adding headers | the API is local and needs no cross-origin browser clients; rejecting is smaller than a CSRF library and cannot be bypassed by a new route |
+| A wildcard bind (`0.0.0.0`/`::`) accepts only loopback Hosts or the literal bound address | the host allowlist stays exact as specified; bind the machine's LAN address when remote browsers need access |
+| Pre-migration backup names include fractional seconds and a numeric suffix | two attempts in the same second cannot overwrite each other, and `VACUUM INTO` refuses an existing destination |
+| SSRF filtering (F-02b) and retries/failure counters (F-11b) are out of scope | both need their own design; the change closes the rebinding/write and redirect-politeness gaps first |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -1081,6 +1130,7 @@ Done criteria (all met):
 | WTTJ adapter has undocumented dependencies | §7 | Open. Credentials are found by walking the bootstrap page tree for a `properties` object with the `algolia_*` keys; layout-only `jobs-search` blocks and nested `contents[]` are handled, but a CMS rename breaks discovery (permanent scan error). The query is scoped by copying the page's `filters` as `facetFilters`; on a count mismatch every `organization.slug` is canonicalized from the organization record and page 0 is retried once, while a mismatch without a rename returns the received hits. The secured key embeds `website.reference` and is referrer-restricted, and two index shapes are known. See `docs/SOURCE-DECISIONS.md` |
 | WTTJ descriptions depend on the offer page's JSON-LD | §7 | Open. When the index has neither `profile` nor `summary` and the offer has no stored text, the adapter fetches the offer page with the fixed WTTJ browser User-Agent (the WAF challenges the JobWatch UA) and stores `JobPosting.description` as plain text; stored descriptions are skipped on later scans. A missing block, a failed page or a WAF challenge leaves `raw_text` empty while the source stays `ok`, so a systemic failure is silent. Joko was moved to its Ashby board instead (46 roles, full descriptions); Partoo uses the fallback with a 90 s interval. See `docs/SOURCE-DECISIONS.md` |
 | Import metadata extraction is heuristic | §3 | Open. JSON-LD/Open Graph/meta/title only; pages without them need the manual form |
+| Local API SSRF filtering and source retry counters | §2, §7 | Open by design after OpenSpec change `scan-and-api-hardening`: the API rejects rebinding/foreign writes/non-JSON bodies and redirects re-apply robots and rate limits, but source/import URLs may still target private addresses and there are no retries, backoff or `consecutive_failures` (F-02b, F-11b) |
 | No "N consecutive failures" counter | §7 | Open. One failed scan marks the source `error`/`blocked`; the next success resets it. The error text is in the scan summary but not stored |
 | `notes_fts` not exposed | §4 | Open. The index is maintained but `GET /api/offers?q=` searches offers only |
 | No FTS search over companies in the UI | §9 | Open. `GET /api/companies?q=` matches the name; no full-text company search |
@@ -1097,7 +1147,7 @@ Done criteria (all met):
 | Teamtailor offers created before the mapping fix have no location | §7 | Open data artifact. The `locations/location/name` mapping is correct and fixture-tested; scans do not update the location of an existing offer, so only new offers carry it |
 | Murena "Other positions" table is not tracked | §7 | By design. The second table has a different column layout; the engineering table is tracked |
 | No scheduled scans or notifications | §10 | Out of scope for v1 |
-| Empty-but-`ok` scan can ghost real applications | §5, §9 | Open risk. A parser regression that returns an empty successful scan marks offers `disappeared` and now also ghosts `applied`/`interview` ones (one `ghosted` event + `negative`). Mitigation: only successful scans trigger it and the user can restore the state; the event records what happened. No consecutive-empty-scan guard (explicitly out of scope) |
+| ~~Empty-but-`ok` scan can ghost real applications~~ — closed by OpenSpec change `scan-and-api-hardening`: empty observations and drops below half of four or more known offers are rejected as `error` before any write, and the automatic ghost event uses the last-seen time | §5, §9 | no listing, application state or timeline changes on a rejected scan; N-consecutive-miss state remains deferred |
 | Documents are PDF-only and capped at 2 MiB | §9 | By design. The upload checks the `%PDF-` header and rejects anything else; DOCX, images and larger files are not stored. The cap bounds the database and every `VACUUM INTO` backup |
 | PDF metadata can be unknown | §9 | Open, by design. `/Info` values inside a compressed object stream are not decompressed, so title/author/dates/page count may be null while the file itself is stored and downloadable. The UI shows "Unknown" rather than guessing |
 | No document re-tagging, renaming or version history | §9 | By design. A document's kind/filename belong to one attachment; detaching and re-uploading is the way to change them. Two exports with different bytes are separate documents, which is the point of keeping the exact file sent |

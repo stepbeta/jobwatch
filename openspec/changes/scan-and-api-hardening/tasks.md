@@ -37,9 +37,9 @@
 
 ## 6. Integration and review bookkeeping
 
-- [ ] 6.1 Run `go build ./...`, `go vet ./...`, `go test -count=1 ./...`, and `cd web && npm test`; verify all pass
-- [ ] 6.2 In the untracked `REVIEW.md`, mark F-01, F-04, F-09, F-14 and F-19 as fixed, and F-02/F-11 as partially fixed naming the deferred SSRF/retry parts; verify no deferred item is marked fixed
-- [ ] 6.3 Add the change's done criteria and any deviations to `docs/MILESTONES.md`; verify the known-gaps table no longer claims the fixed items are open
+- [x] 6.1 Run `go build ./...`, `go vet ./...`, `go test -count=1 ./...`, and `cd web && npm test`; verify all pass
+- [x] 6.2 In the untracked `REVIEW.md`, mark F-01, F-04, F-09, F-14 and F-19 as fixed, and F-02/F-11 as partially fixed naming the deferred SSRF/retry parts; verify no deferred item is marked fixed
+- [x] 6.3 Add the change's done criteria and any deviations to `docs/MILESTONES.md`; verify the known-gaps table no longer claims the fixed items are open
 
 ## Workflow follow-up
 
