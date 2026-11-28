@@ -135,8 +135,10 @@ MUST NOT create a separate `message_received` event.
 When a successful scan transitions an offer from `active` to `disappeared` and
 its application state is `applied` or `interview`, the system SHALL create a
 `ghosted` event and set the state to `negative` in the same transaction. The
-event SHALL use the scan's detection time. Other states and already-disappeared
-offers MUST NOT be ghosted, and the migration MUST NOT backfill history.
+event SHALL use the time the offer was last seen. Other states and
+already-disappeared offers MUST NOT be ghosted, and the migration MUST NOT
+backfill history. A disappearance that the scan guard rejects is not a
+successful transition and MUST NOT ghost.
 
 #### Scenario: Applied offer is ghosted
 
@@ -147,6 +149,11 @@ offers MUST NOT be ghosted, and the migration MUST NOT backfill history.
 
 - **WHEN** a scan no longer lists an `interview` offer and no other successfully scanned source lists it
 - **THEN** one `ghosted` event is created and its state becomes `negative`
+
+#### Scenario: Ghost event uses the last-seen time
+
+- **WHEN** an applied offer was last seen two days before the scan that no longer lists it
+- **THEN** the `ghosted` event's occurrence time is that last-seen time, not the scan time
 
 #### Scenario: Offer stage is not ghosted
 
@@ -167,6 +174,11 @@ offers MUST NOT be ghosted, and the migration MUST NOT backfill history.
 
 - **WHEN** a ghosted offer reappears and later disappears again
 - **THEN** a second `ghosted` event is created and the state becomes `negative`
+
+#### Scenario: Rejected disappearance does not ghost
+
+- **WHEN** a scan is rejected by the empty or suspicious-drop guard
+- **THEN** the offer keeps its listing and application state and no `ghosted` event is created
 
 ### Requirement: Event edits and deletions do not recompute state
 
@@ -258,3 +270,21 @@ the scan, separately from the total number of disappeared offers.
 
 - **WHEN** a scan ghosts two applied offers
 - **THEN** its summary reports two disappeared offers and two ghosted offers
+
+### Requirement: Date-only event times keep the entered date
+
+When the user records or edits a timeline event with a date and no time, the
+web UI SHALL send an RFC3339 instant at local midnight in the user's UTC
+offset. The API SHALL continue to interpret a bare `YYYY-MM-DD` value as UTC
+midnight for callers that send one. The date shown to the user MUST be the
+date that was entered.
+
+#### Scenario: Date-only event in a negative-offset zone
+
+- **WHEN** a user in `America/New_York` records an event dated 2026-11-12 with no time
+- **THEN** the stored instant is 2026-11-12T05:00:00Z and the event renders as 12 Nov 2026
+
+#### Scenario: Date-time event keeps its instant
+
+- **WHEN** an event is recorded with a date and a time
+- **THEN** the stored instant matches the local date and time the user entered
