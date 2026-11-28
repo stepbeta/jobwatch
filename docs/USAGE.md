@@ -479,7 +479,7 @@ documents are stored in the same database, so one copy carries them too.
 
 | Command | Description |
 |---|---|
-| `serve [--port 8080] [--addr 127.0.0.1]` | Start the local server: REST API under `/api` and the SPA at `/` |
+| `serve [--port 8080] [--addr 127.0.0.1] [--unsafe-bind]` | Start the local server: REST API under `/api` and the SPA at `/` |
 | `scan [all\|<source-id>]` | Scan all enabled sources (default) or one source by ID. Exits non-zero if a source failed |
 | `add-source <url> [--name N] [--type T] [--config JSON] [--disabled]` | Register a source |
 | `add-sources <file> [--disabled]` | Register every recognized URL in a file; reports added / already registered / not detected |
@@ -512,6 +512,9 @@ All commands accept the global `--db <path>` flag (default
 ./jobwatch serve
 # → http://127.0.0.1:8080
 
+# Bind a non-loopback address only deliberately; the API has no auth.
+./jobwatch serve --addr 192.168.1.20 --unsafe-bind
+
 # Headless usage still works
 ./jobwatch scan
 ./jobwatch list                  # ID, company, title, location, remote, accepted, title/location affinity, states
@@ -526,7 +529,7 @@ All commands accept the global `--db <path>` flag (default
 
 | Command | Flags |
 |---|---|
-| `serve` | `--port` (default 8080), `--addr` (default `127.0.0.1`) |
+| `serve` | `--port` (default 8080), `--addr` (default `127.0.0.1`), `--unsafe-bind` |
 | `scan` | none; argument `all` or a numeric source ID |
 | `add-source` | `--name`, `--type`, `--config` (JSON object), `--disabled` |
 | `add-sources` | `--disabled` |
@@ -538,6 +541,13 @@ All commands accept the global `--db <path>` flag (default
 Field flags cannot be combined with a JSON array. `scan` exits non-zero
 when at least one source failed. `add-sources` exits zero when some URLs
 were not detected; file and database errors still fail.
+
+`serve` binds `127.0.0.1` by default. `--addr` accepts `localhost`,
+`127.0.0.0/8` and `::1`; any other address (including `0.0.0.0`) is
+refused unless `--unsafe-bind` is passed, and that flag prints a warning
+on stderr. The REST API rejects a non-loopback `Host`
+(`403 forbidden_host`), a foreign `Origin` on writes
+(`403 forbidden_origin`) and a non-JSON body (`415 unsupported_media_type`).
 
 ## Smoke test
 

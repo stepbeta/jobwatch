@@ -313,12 +313,29 @@ network or filesystem call.
 
 ## REST API (`internal/api`)
 
-`api.Server{DB, Version, Fetcher, Now}` mounts Go 1.22 `ServeMux`
-patterns under `/api/`. The fallback `/api/` pattern answers unknown
-methods and paths with `404 not_found`. Bodies are decoded strictly
-(unknown fields rejected, 1 MiB cap); responses use snake_case DTOs
-defined in `internal/api/dto.go`, independent of the `model` structs.
-Errors always use `{"error":{"code","message"}}`.
+`api.Server{DB, Version, BindAddr, Fetcher, Now}` mounts Go 1.22
+`ServeMux` patterns under `/api/`. The fallback `/api/` pattern answers
+unknown methods and paths with `404 not_found`. Bodies are decoded
+strictly (unknown fields rejected, 1 MiB cap); responses use snake_case
+DTOs defined in `internal/api/dto.go`, independent of the `model`
+structs. Errors always use `{"error":{"code","message"}}`.
+
+Before routing, `requestPolicy` enforces the local-request rules:
+
+- `Host` must be `localhost`, a loopback IP (`127.0.0.0/8`, `::1`) or
+  the server's `BindAddr`; any port is accepted, so the Vite proxy's
+  `Host: localhost:5173` works. Anything else is `403 forbidden_host`
+  and no handler runs.
+- A state-changing method (anything except GET, HEAD and OPTIONS) with a
+  non-empty `Origin` must name an allowed host, compared without the
+  port; a foreign origin is `403 forbidden_origin`. A request with no
+  `Origin` (curl, CLI, tests) is accepted.
+- `decodeJSON` requires `Content-Type: application/json` (parameters
+  such as `charset` allowed) and answers `415 unsupported_media_type`
+  before reading the body. The multipart attachment upload does not call
+  `decodeJSON`, and handlers that take no JSON body
+  (`POST /api/sources/{id}/scan`, all DELETE routes) never need a content
+  type.
 
 | Group | Routes |
 |---|---|
@@ -663,3 +680,11 @@ database file, so one backup copy carries every attached PDF.
 `jobwatch serve` binds `127.0.0.1:8080` by default. `/api/` is the REST
 API; everything else is the SPA (embedded when built with `-tags ui`,
 placeholder otherwise).
+
+`--addr` is validated before the database is opened: `localhost`,
+`127.0.0.0/8` and `::1` are accepted, any other address (including the
+wildcards `0.0.0.0` and `::`) is refused unless `--unsafe-bind` is
+passed. With the flag the server prints a warning on stderr and the bound
+address is added to the API's `Host`/`Origin` allowlist; the API still
+has no authentication, so exposing it is the operator's explicit choice.
+The web page itself is served without the API's host policy.

@@ -30,7 +30,9 @@ func TestHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, httptest.NewRequest(tt.method, tt.path, nil))
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req.Host = "127.0.0.1:8080"
+			h.ServeHTTP(rec, req)
 			if rec.Code != tt.wantCode {
 				t.Fatalf("code = %d, want %d", rec.Code, tt.wantCode)
 			}

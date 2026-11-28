@@ -10,10 +10,10 @@
 
 ## 2. Local API request policy and bind safety
 
-- [ ] 2.1 Add the request-policy middleware in front of the API mux: reject non-loopback `Host` with `403 forbidden_host` and foreign non-empty `Origin` on state-changing methods with `403 forbidden_origin`; verify with tests for a rebound host, a public origin, a missing origin, and `localhost:5173` as the development proxy host
-- [ ] 2.2 Require `Content-Type: application/json` for JSON bodies in `decodeJSON` and return `415 unsupported_media_type` before decoding; verify a `text/plain` write is rejected and the multipart attachment upload and bodyless `POST /api/sources/{id}/scan` still work
-- [ ] 2.3 Validate `serve --addr`: refuse a non-loopback address without `--unsafe-bind`, accept it with the flag, and print a warning to stderr; verify with unit tests over `localhost`, `127.0.0.1`, `::1`, `0.0.0.0`, and a LAN address
-- [ ] 2.4 Document the new rejection codes in `docs/API.md`, the `--unsafe-bind` flag in `README.md` and `docs/USAGE.md`, the policy in `docs/ARCHITECTURE.md`, and the behavior in `CHANGELOG.md`; verify each documented example matches the implemented response
+- [x] 2.1 Add the request-policy middleware in front of the API mux: reject non-loopback `Host` with `403 forbidden_host` and foreign non-empty `Origin` on state-changing methods with `403 forbidden_origin`; verify with tests for a rebound host, a public origin, a missing origin, and `localhost:5173` as the development proxy host
+- [x] 2.2 Require `Content-Type: application/json` for JSON bodies in `decodeJSON` and return `415 unsupported_media_type` before decoding; verify a `text/plain` write is rejected and the multipart attachment upload and bodyless `POST /api/sources/{id}/scan` still work
+- [x] 2.3 Validate `serve --addr`: refuse a non-loopback address without `--unsafe-bind`, accept it with the flag, and print a warning to stderr; verify with unit tests over `localhost`, `127.0.0.1`, `::1`, `0.0.0.0`, and a LAN address
+- [x] 2.4 Document the new rejection codes in `docs/API.md`, the `--unsafe-bind` flag in `README.md` and `docs/USAGE.md`, the policy in `docs/ARCHITECTURE.md`, and the behavior in `CHANGELOG.md`; verify each documented example matches the implemented response
 
 ## 3. Pre-migration backup
 

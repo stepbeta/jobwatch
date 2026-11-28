@@ -23,6 +23,16 @@ the project overview is the [README](../README.md).
   `400 validation_failed`.
 - Request bodies must be a single JSON object; unknown fields are
   rejected with `400 invalid_json`.
+- A request with a JSON body must send `Content-Type: application/json`
+  (a `charset` parameter is allowed); otherwise the API answers
+  `415 unsupported_media_type` before decoding. The multipart attachment
+  upload is the only exception. Bodyless writes need no content type.
+- The API accepts only local requests. A `Host` that is not `localhost`,
+  a loopback IP or the server's `--addr` is rejected with
+  `403 forbidden_host` before routing. A state-changing request
+  (POST/PATCH/PUT/DELETE) with a non-empty foreign `Origin` is rejected
+  with `403 forbidden_origin`; requests without an `Origin`, such as
+  `curl`, are accepted.
 - **Partial updates**: a field that is absent is left unchanged. For
   nullable fields (`location`, `website`, event `description`,
   `pinned_event_id`, interview `display_order`), `null` clears the value.
@@ -937,4 +947,7 @@ Any of `question`, `answer`, `category`, `display_order`.
 | 409 | `duplicate_source` | another source uses the URL |
 | 409 | `company_has_offers` | deleting a company that still owns offers |
 | 409 | `already_attached` | the offer already references those exact document bytes |
+| 415 | `unsupported_media_type` | a JSON body does not declare `Content-Type: application/json` |
+| 403 | `forbidden_host` | `Host` is not loopback or the bound `--addr` |
+| 403 | `forbidden_origin` | a state-changing request carries a foreign non-empty `Origin` |
 | 500 | `internal` | unexpected storage error |

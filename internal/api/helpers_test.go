@@ -69,6 +69,9 @@ func (ts *testServer) do(t *testing.T, method, path string, body any) *httptest.
 	} else {
 		r = httptest.NewRequest(method, path, nil)
 	}
+	// The request policy accepts loopback hosts only (BindAddr is empty in
+	// tests); httptest would otherwise use example.com.
+	r.Host = "127.0.0.1:8080"
 	rec := httptest.NewRecorder()
 	ts.handler.ServeHTTP(rec, r)
 	return rec

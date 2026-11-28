@@ -21,6 +21,10 @@ import (
 type Server struct {
 	DB      *sql.DB
 	Version string
+	// BindAddr is the address the server was started on. Loopback hosts are
+	// always accepted; this value extends the Host/Origin allowlist when
+	// the operator binds elsewhere. Empty means loopback only.
+	BindAddr string
 
 	// Fetcher is used by the synchronous scan endpoint. When nil, a
 	// registry with one shared polite client is created on first use.
@@ -95,7 +99,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.Method+" "+r.URL.Path)
 	})
-	return mux
+	return s.requestPolicy(mux)
 }
 
 func (s *Server) now() time.Time {
@@ -163,9 +167,13 @@ func writeError(w http.ResponseWriter, code int, errCode, msg string) {
 // maxBodyBytes caps JSON request bodies.
 const maxBodyBytes = 1 << 20
 
-// decodeJSON decodes a strict JSON object into v. It writes a 400
-// response and returns false on failure.
+// decodeJSON decodes a strict JSON object into v. It requires a JSON
+// Content-Type, writes a 415 response when the body is not JSON and a 400
+// response when decoding fails, and returns false in both cases.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	if !requireJSONContentType(w, r) {
+		return false
+	}
 	body := http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	dec := json.NewDecoder(body)
 	dec.DisallowUnknownFields()

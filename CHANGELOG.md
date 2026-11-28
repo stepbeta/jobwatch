@@ -4,6 +4,20 @@
 
 ### Scan and API hardening (OpenSpec change `scan-and-api-hardening`)
 
+#### Added
+- The local REST API now rejects requests aimed at another host:
+  only `localhost`, a loopback IP or the server's `--addr` is accepted
+  (`403 forbidden_host`), which blocks DNS-rebinding reads. Writes with a
+  foreign non-empty `Origin` are rejected (`403 forbidden_origin`);
+  requests without an `Origin` keep working.
+- JSON bodies must declare `Content-Type: application/json` or the API
+  answers `415 unsupported_media_type` before decoding. The multipart
+  attachment upload and bodyless writes are unaffected.
+- `serve --addr` refuses a non-loopback address unless the new
+  `--unsafe-bind` flag is passed. With the flag the server warns on stderr
+  that the API has no authentication, and adds the bound address to the
+  API's host allowlist.
+
 #### Fixed
 - A scan that returns no usable items while the source still has active
   offers is now rejected: the source is marked `error`, every listing and

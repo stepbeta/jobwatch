@@ -112,6 +112,7 @@ func (ts *testServer) uploadAttachment(t *testing.T, offerID int64, kind, filena
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/offers/%d/attachments", offerID), &buf)
+	req.Host = "127.0.0.1:8080"
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	rec := httptest.NewRecorder()
 	ts.handler.ServeHTTP(rec, req)
