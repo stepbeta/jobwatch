@@ -15,9 +15,9 @@
 
 ## 3. Shell connection banner
 
-- [ ] 3.1 Add a typed `api.health()` call and a shell hook that checks on mount, `pageshow` and visibility restore, mapping `403 forbidden_host` to the host/flag hint and other failures to "server unreachable"; verify with App tests for refused host, unreachable server, recovery and the success case
-- [ ] 3.2 Render one banner above the routed page with cause-specific text and the address to open; verify an App test finds a single banner element and that no banner appears on success
-- [ ] 3.3 Describe the shell startup check in the `Web UI` section of `docs/ARCHITECTURE.md`; verify the section names the health endpoint and the banner states
+- [x] 3.1 Add a typed `api.health()` call and a shell hook that checks on mount, `pageshow` and visibility restore, mapping `403 forbidden_host` to the host/flag hint and other failures to "server unreachable"; verify with App tests for refused host, unreachable server, recovery and the success case
+- [x] 3.2 Render one banner above the routed page with cause-specific text and the address to open; verify an App test finds a single banner element and that no banner appears on success
+- [x] 3.3 Describe the shell startup check in the `Web UI` section of `docs/ARCHITECTURE.md`; verify the section names the health endpoint and the banner states
 
 ## 4. Router startup sync
 

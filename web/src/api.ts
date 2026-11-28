@@ -6,6 +6,7 @@ import type {
   DocumentItem,
   Event,
   EventType,
+  Health,
   InterviewEntry,
   Note,
   OfferDetail,
@@ -130,6 +131,8 @@ export interface SourceInput {
 }
 
 export const api = {
+  health: () => request<Health>('/health'),
+
   // sources
   listSources: () => request<{ sources: Source[] }>('/sources'),
   createSource: (input: SourceInput) => request<{ source: Source }>('/sources', body('POST', input)),

@@ -336,3 +336,9 @@ export interface ScanResponse {
   result: ScanResult
   source: Source
 }
+
+export interface Health {
+  status: string
+  version: string
+  db: string
+}

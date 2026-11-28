@@ -485,7 +485,8 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 
 | Path | Content |
 |---|---|
-| `App.tsx` | application shell wiring, document title for list routes, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
+| `App.tsx` | application shell wiring, document title for list routes, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing, connection banner |
+| `health.ts` | `useConnectionIssue` probes `GET /api/health` on start, on `pageshow` and when the tab becomes visible; `connectionMessage` turns a refused host into the address to open plus the `--allow-host` hint, and any other failure into a "not responding" notice |
 | `components/Shell.tsx` | persistent full-width header (brand mark and right-aligned controls) plus left sidebar navigation in a full-height column with a sticky inner nav; maps the current route to the active section and renders the Incomplete pending count |
 | `brand.ts`, `components/BrandMark.tsx` | shared radar-mark geometry; the header mark follows the active palette through CSS variables |
 | `title.ts` | route labels and `useDocumentTitle`; detail pages own their entity title |
@@ -519,6 +520,15 @@ Documents. At `max-width: 900px` the sidebar
 becomes a horizontal scrollable nav row below the header while the header
 controls stay visible. `App.tsx` keeps data and scan state and passes the
 current route and incomplete count to the shell.
+
+One shell-level banner reports a shared API failure so the app does not
+look broken panel by panel: `useConnectionIssue` (`health.ts`) probes
+`GET /api/health` when the shell starts, when `pageshow` fires and when the
+document becomes visible again. A `403 forbidden_host` renders the address
+to open (`http://127.0.0.1:8080` or the one `serve` printed) and the
+`--allow-host` flag for the current host; any other failure renders a "not
+responding" notice. A later successful probe removes the banner without a
+reload. Per-page error boxes and toasts are unchanged.
 
 The header theme control (`components/ThemeControl.tsx`, state in
 `theme.ts`) is a single icon button that cycles System → Light → Dark;
