@@ -9,7 +9,7 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 |---|---|
 | `cmd/jobwatch` | Cobra root + subcommands: `serve`, `scan`, `add-source`, `add-sources`, `list`, `import`, `backup` |
 | `migrations` | Numbered `NNNN_name.sql` files embedded with `go:embed` |
-| `internal/db` | `Open` (DSN pragmas: WAL, foreign_keys, busy_timeout 5s, `_txlock=immediate`), migration runner, `Backup` (`VACUUM INTO`), queries over a `Querier` (`*sql.DB` or `*sql.Tx`) |
+| `internal/db` | `Open`/`OpenWithOptions` (DSN pragmas: WAL, foreign_keys, busy_timeout 5s, `_txlock=immediate`), migration runner and pending-migration detection, `Backup` (`VACUUM INTO`), queries over a `Querier` (`*sql.DB` or `*sql.Tx`) |
 | `internal/model` | Table structs, enum constants, `normalize.go` (company/title keyword normalization, location bucket, fingerprint, text hash), time helpers |
 | `internal/sources` | `Fetcher` interface, `RawOffer`, `Config` (config_json), `Registry`, polite HTTP `Client`, robots.txt parser, URL type detection, adapters |
 | `internal/scan` | Scan pipeline and manual import; depends on `db`, `classify` and `sources`, shared by CLI and API |
@@ -674,6 +674,24 @@ integrity_check`, `PRAGMA foreign_key_check` and a `schema_migrations`
 check. A copy that fails validation is removed and the command exits
 non-zero. Document bytes live in `attachment_blobs` inside the same
 database file, so one backup copy carries every attached PDF.
+
+### Pre-migration backup
+
+The CLI opens the database through
+`db.OpenWithOptions(ctx, path, db.Options{BackupBeforeMigrate: true})`.
+Before the first pending migration runs, `PendingMigrations` compares the
+embedded files with `schema_migrations`. When the database already has
+schema history and a migration is pending, `backupBeforeMigrate` writes a
+validated copy named `<db>.<UTC timestamp>.pre-<version>.bkp` next to the
+database, where `<version>` is the first pending migration (for example
+`jobwatch.db.20261128T101500.123456789Z.pre-0019.bkp`). A numeric suffix
+before `.bkp` is added if that exact name already exists, so a retried
+failed migration keeps the first backup. A fresh database (no
+`schema_migrations` rows), a current database, `:memory:` and DSN paths
+are never backed up. If the backup cannot be written or validated, the
+open fails before `Migrate` runs and the database is left untouched.
+Tests and embedded callers that use plain `db.Open` keep the old
+behavior.
 
 ## Server
 

@@ -50,6 +50,49 @@ func loadMigrations(fsys fs.FS) ([]migration, error) {
 	return out, nil
 }
 
+// PendingMigrations returns the versions in fsys that are not recorded in
+// schema_migrations, in ascending order. hasHistory reports whether the
+// database already contains at least one recorded migration; a fresh
+// database has none. A missing schema_migrations table means a fresh
+// database and every version is pending.
+func PendingMigrations(ctx context.Context, sqlDB *sql.DB, fsys fs.FS) (pending []int, hasHistory bool, err error) {
+	migs, err := loadMigrations(fsys)
+	if err != nil {
+		return nil, false, err
+	}
+	var exists int
+	if err := sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'`).Scan(&exists); err != nil {
+		return nil, false, fmt.Errorf("look up schema_migrations: %w", err)
+	}
+	applied := map[int]bool{}
+	if exists > 0 {
+		rows, err := sqlDB.QueryContext(ctx, `SELECT version FROM schema_migrations`)
+		if err != nil {
+			return nil, false, fmt.Errorf("read schema_migrations: %w", err)
+		}
+		for rows.Next() {
+			var v int
+			if err := rows.Scan(&v); err != nil {
+				rows.Close()
+				return nil, false, fmt.Errorf("scan schema_migrations: %w", err)
+			}
+			applied[v] = true
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, false, fmt.Errorf("read schema_migrations: %w", err)
+		}
+	}
+	hasHistory = len(applied) > 0
+	for _, m := range migs {
+		if !applied[m.version] {
+			pending = append(pending, m.version)
+		}
+	}
+	return pending, hasHistory, nil
+}
+
 // Migrate applies, in version order, every migration in fsys not yet
 // recorded in schema_migrations. Each migration runs in its own
 // transaction together with its schema_migrations row.

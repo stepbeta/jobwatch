@@ -17,6 +17,11 @@
   `--unsafe-bind` flag is passed. With the flag the server warns on stderr
   that the API has no authentication, and adds the bound address to the
   API's host allowlist.
+- Every CLI command now writes a validated
+  `<db>.<UTC timestamp>.pre-<version>.bkp` copy next to the database
+  before the first pending migration runs. Fresh and already-current
+  databases are skipped, a failed migration retried later gets a new
+  backup name, and a backup failure aborts before migrating.
 
 #### Fixed
 - A scan that returns no usable items while the source still has active

@@ -475,6 +475,15 @@ migrations); a failed copy is removed and the command exits non-zero. The
 backup is a normal SQLite file; point `--db` at it to use it. Attached PDF
 documents are stored in the same database, so one copy carries them too.
 
+Every CLI command also makes an automatic pre-migration backup. When the
+database already has applied migrations and this binary ships a newer one,
+a validated copy named `<db>.<UTC timestamp>.pre-<version>.bkp` (for
+example `jobwatch.db.20261128T101500.123456789Z.pre-0019.bkp`) is written
+next to the database before the migration runs. A retried failed migration
+gets a new name instead of overwriting the first copy. A fresh database and
+a database that is already current are not backed up, and if the backup
+cannot be written or validated the command aborts without migrating.
+
 ## Command reference
 
 | Command | Description |

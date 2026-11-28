@@ -17,10 +17,10 @@
 
 ## 3. Pre-migration backup
 
-- [ ] 3.1 Expose pending-migration detection and add `db.OpenWithOptions` with a `BackupBeforeMigrate` option; verify a database with recorded schema history and a pending migration gets a validated `<db>.<timestamp>.pre-<version>.bkp` before the migration runs
-- [ ] 3.2 Verify a fresh database is not backed up, a failed migration is retried under a second backup name without overwriting the first, and a backup failure aborts without applying the migration
-- [ ] 3.3 Wire the CLI's `opts.open` to `OpenWithOptions`; verify a CLI command on an old-schema test database leaves the backup file next to it
-- [ ] 3.4 Update `docs/ARCHITECTURE.md`, `docs/USAGE.md` and `CHANGELOG.md` with the automatic backup and its skip rules; verify the documented filenames match the code
+- [x] 3.1 Expose pending-migration detection and add `db.OpenWithOptions` with a `BackupBeforeMigrate` option; verify a database with recorded schema history and a pending migration gets a validated `<db>.<timestamp>.pre-<version>.bkp` before the migration runs
+- [x] 3.2 Verify a fresh database is not backed up, a failed migration is retried under a second backup name without overwriting the first, and a backup failure aborts without applying the migration
+- [x] 3.3 Wire the CLI's `opts.open` to `OpenWithOptions`; verify a CLI command on an old-schema test database leaves the backup file next to it
+- [x] 3.4 Update `docs/ARCHITECTURE.md`, `docs/USAGE.md` and `CHANGELOG.md` with the automatic backup and its skip rules; verify the documented filenames match the code
 
 ## 4. Date-only event times
 
