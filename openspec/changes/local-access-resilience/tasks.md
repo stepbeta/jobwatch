@@ -2,10 +2,10 @@
 
 ## 1. API allowlist input
 
-- [ ] 1.1 Replace `api.Server.BindAddr` with an explicit allowlist set and keep `localhost`, loopback IPs and `*.localhost` as built-in rules; verify `go test ./internal/api/...` passes with the updated constructor call sites (`serve.go`, API tests)
-- [ ] 1.2 Make `403 forbidden_host` name the rejected host and `--allow-host`; verify the new table test asserts the message contains both
-- [ ] 1.3 Extend `internal/api/policy_test.go` with cases for `jobwatch.localhost`, an allowed entry matching by host with any port and case-insensitively, and a foreign `Host` still rejected; verify those tests fail against the old policy and pass now
-- [ ] 1.4 Update the API docs: `docs/API.md` error table and host rules, and the `REST API` allowlist paragraph in `docs/ARCHITECTURE.md`; verify both describe the new rules and mention `--allow-host`
+- [x] 1.1 Replace `api.Server.BindAddr` with an explicit allowlist set and keep `localhost`, loopback IPs and `*.localhost` as built-in rules; verify `go test ./internal/api/...` passes with the updated constructor call sites (`serve.go`, API tests)
+- [x] 1.2 Make `403 forbidden_host` name the rejected host and `--allow-host`; verify the new table test asserts the message contains both
+- [x] 1.3 Extend `internal/api/policy_test.go` with cases for `jobwatch.localhost`, an allowed entry matching by host with any port and case-insensitively, and a foreign `Host` still rejected; verify those tests fail against the old policy and pass now
+- [x] 1.4 Update the API docs: `docs/API.md` error table and host rules, and the `REST API` allowlist paragraph in `docs/ARCHITECTURE.md`; verify both describe the new rules and mention `--allow-host`
 
 ## 2. Serve flags and address expansion
 

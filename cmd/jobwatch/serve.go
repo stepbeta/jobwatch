@@ -41,7 +41,7 @@ func newServeCmd(opts *rootOptions) *cobra.Command {
 			defer sqlDB.Close()
 
 			mux := http.NewServeMux()
-			mux.Handle("/api/", (&api.Server{DB: sqlDB, Version: version, BindAddr: addr}).Handler())
+			mux.Handle("/api/", (&api.Server{DB: sqlDB, Version: version, AllowedHosts: []string{addr}}).Handler())
 			mux.Handle("/", web.Handler())
 
 			srv := &http.Server{

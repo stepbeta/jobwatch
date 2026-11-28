@@ -324,7 +324,7 @@ network or filesystem call.
 
 ## REST API (`internal/api`)
 
-`api.Server{DB, Version, BindAddr, Fetcher, Now}` mounts Go 1.22
+`api.Server{DB, Version, AllowedHosts, Fetcher, Now}` mounts Go 1.22
 `ServeMux` patterns under `/api/`. The fallback `/api/` pattern answers
 unknown methods and paths with `404 not_found`. Bodies are decoded
 strictly (unknown fields rejected, 1 MiB cap); responses use snake_case
@@ -333,10 +333,15 @@ structs. Errors always use `{"error":{"code","message"}}`.
 
 Before routing, `requestPolicy` enforces the local-request rules:
 
-- `Host` must be `localhost`, a loopback IP (`127.0.0.0/8`, `::1`) or
-  the server's `BindAddr`; any port is accepted, so the Vite proxy's
-  `Host: localhost:5173` works. Anything else is `403 forbidden_host`
-  and no handler runs.
+- `Host` must be an allowed local host: `localhost`, any name ending in
+  `.localhost` (RFC 6761, resolved locally by browsers), a loopback IP
+  (`127.0.0.0/8`, `::1`), or an entry in `Server.AllowedHosts`. `serve`
+  fills that list from its bind address, from the machine's interface
+  addresses and hostname when the bind is a wildcard, and from
+  `--allow-host` values. Any port is accepted, and entries compare by
+  host, case-insensitively, so the Vite proxy's `Host: localhost:5173`
+  works. Anything else is `403 forbidden_host`, the message names the
+  rejected host and the `--allow-host` flag, and no handler runs.
 - A state-changing method (anything except GET, HEAD and OPTIONS) with a
   non-empty `Origin` must name an allowed host, compared without the
   port; a foreign origin is `403 forbidden_origin`. A request with no

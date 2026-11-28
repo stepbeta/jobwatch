@@ -21,10 +21,11 @@ import (
 type Server struct {
 	DB      *sql.DB
 	Version string
-	// BindAddr is the address the server was started on. Loopback hosts are
-	// always accepted; this value extends the Host/Origin allowlist when
-	// the operator binds elsewhere. Empty means loopback only.
-	BindAddr string
+	// AllowedHosts lists extra host names (optionally with a port) the
+	// request policy accepts besides localhost, *.localhost and loopback
+	// IPs. serve fills it from the bind address, the machine's own
+	// addresses and the --allow-host entries. Empty means loopback only.
+	AllowedHosts []string
 
 	// Fetcher is used by the synchronous scan endpoint. When nil, a
 	// registry with one shared polite client is created on first use.
