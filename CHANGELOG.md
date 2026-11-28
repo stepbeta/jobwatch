@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Local access resilience (OpenSpec change `local-access-resilience`)
+
+#### Added
+- `serve --allow-host <host>` (repeatable) lets a reverse proxy or tunnel
+  domain reach the API. A value must be a host name or IP address with an
+  optional numeric port; an empty value, a URL or a path aborts before the
+  database is opened, with an error that names the flag.
+- The shell checks `GET /api/health` on start, on `pageshow` and when the
+  tab becomes visible again, and shows one banner when the check fails: a
+  refused host shows the address to open and the `--allow-host` flag for
+  the current host, any other failure says the API is not responding. The
+  banner disappears after a successful check; per-page errors are
+  unchanged.
+
+#### Changed
+- The API allowlist is derived from what the server actually serves:
+  `localhost`, any name ending in `.localhost`, loopback addresses, the
+  bound address, and, for a wildcard bind (`0.0.0.0`, `::`), every local
+  interface address plus the machine hostname. `Host` and write `Origin`
+  use the same list. Entries compare by host, case-insensitively, ignoring
+  the port.
+- `403 forbidden_host` now names the rejected host and the `--allow-host`
+  value that would allow it.
+- `useRoute` re-reads the address bar when it subscribes and on
+  `pageshow`, so a route change that lands during startup or a
+  back/forward-cache restore is applied without another click. A
+  query-only rewrite still does not remount the page.
+
+#### Fixed
+- `serve --addr 0.0.0.0 --unsafe-bind` no longer breaks the UI: browsing
+  the machine's LAN address or hostname previously reached the SPA but
+  every API call returned `403 forbidden_host`, because the allowlist
+  compared `Host` with the literal `0.0.0.0`.
+- A hash change that lands between the first paint and the router's
+  listener is no longer dropped with the address bar moved and the view
+  stale.
+
 ### Scan and API hardening (OpenSpec change `scan-and-api-hardening`)
 
 #### Added

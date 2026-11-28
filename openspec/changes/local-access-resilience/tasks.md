@@ -26,9 +26,9 @@
 
 ## 5. Integration and close-out
 
-- [ ] 5.1 Run `make test` and verify `go build ./...`, `go vet ./...` and the frontend suite pass
-- [ ] 5.2 Verify end to end against a rebuilt binary: loopback still works, `--addr 0.0.0.0 --unsafe-bind` serves the UI at the machine's LAN IP and hostname, a mapped foreign host shows the banner and is accepted after `--allow-host`; record the observed results in the session summary
-- [ ] 5.3 Write the `CHANGELOG.md` Unreleased entry (fixed allowlist derivation, `--allow-host`, router sync, health banner) and update `docs/MILESTONES.md` known gaps; verify `openspec validate local-access-resilience` still passes
+- [x] 5.1 Run `make test` and verify `go build ./...`, `go vet ./...` and the frontend suite pass
+- [x] 5.2 Verify end to end against a rebuilt binary: loopback still works, `--addr 0.0.0.0 --unsafe-bind` serves the UI at the machine's LAN IP and hostname, a mapped foreign host shows the banner and is accepted after `--allow-host`; record the observed results in the session summary
+- [x] 5.3 Write the `CHANGELOG.md` Unreleased entry (fixed allowlist derivation, `--allow-host`, router sync, health banner) and update `docs/MILESTONES.md` known gaps; verify `openspec validate local-access-resilience` still passes
 
 ## Workflow follow-up
 
