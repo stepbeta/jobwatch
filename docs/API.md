@@ -952,6 +952,6 @@ Any of `question`, `answer`, `category`, `display_order`.
 | 409 | `company_has_offers` | deleting a company that still owns offers |
 | 409 | `already_attached` | the offer already references those exact document bytes |
 | 415 | `unsupported_media_type` | a JSON body does not declare `Content-Type: application/json` |
-| 403 | `forbidden_host` | `Host` is not an allowed local host (see "Local requests" above); the message names the host and `--allow-host` |
+| 403 | `forbidden_host` | `Host` is not an allowed local host (see "Conventions" above); the message names the host and `--allow-host` |
 | 403 | `forbidden_origin` | a state-changing request carries a foreign non-empty `Origin` |
 | 500 | `internal` | unexpected storage error |
