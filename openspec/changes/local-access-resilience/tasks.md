@@ -9,9 +9,9 @@
 
 ## 2. Serve flags and address expansion
 
-- [ ] 2.1 Add the repeatable `serve --allow-host` flag with validation (empty, URL or path aborts before the database opens) and verify with table tests for valid, empty, scheme and path values
-- [ ] 2.2 Expand the bind address into allowlist entries: a specific address as-is, a wildcard (`0.0.0.0`, `::`) into every unicast interface address plus `os.Hostname()`; verify unit tests with a fake interface list and hostname cover wildcard, specific and loopback binds
-- [ ] 2.3 Update `README.md` and `docs/USAGE.md` command tables and the `serve` paragraph: `--allow-host`, which address to open with `--unsafe-bind`, and the tunnel case; verify the documented commands match `serve --help`
+- [x] 2.1 Add the repeatable `serve --allow-host` flag with validation (empty, URL or path aborts before the database opens) and verify with table tests for valid, empty, scheme and path values
+- [x] 2.2 Expand the bind address into allowlist entries: a specific address as-is, a wildcard (`0.0.0.0`, `::`) into every unicast interface address plus `os.Hostname()`; verify unit tests with a fake interface list and hostname cover wildcard, specific and loopback binds
+- [x] 2.3 Update `README.md` and `docs/USAGE.md` command tables and the `serve` paragraph: `--allow-host`, which address to open with `--unsafe-bind`, and the tunnel case; verify the documented commands match `serve --help`
 
 ## 3. Shell connection banner
 

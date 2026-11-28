@@ -44,7 +44,7 @@ func isStateChanging(method string) bool {
 // allowedRequestHost reports whether a Host header value names loopback, a
 // .localhost name or one of Server.AllowedHosts. Any port is accepted.
 func (s *Server) allowedRequestHost(hostport string) bool {
-	host := normalizeHost(hostport)
+	host := NormalizeHost(hostport)
 	if host == "" {
 		return false
 	}
@@ -52,7 +52,7 @@ func (s *Server) allowedRequestHost(hostport string) bool {
 		return true
 	}
 	for _, entry := range s.AllowedHosts {
-		if allowed := normalizeHost(entry); allowed != "" && allowed == host {
+		if allowed := NormalizeHost(entry); allowed != "" && allowed == host {
 			return true
 		}
 	}
@@ -62,7 +62,7 @@ func (s *Server) allowedRequestHost(hostport string) bool {
 // rejectHost writes the 403 for a Host the policy refuses and names the
 // flag that would allow it, so the message explains its own remedy.
 func (s *Server) rejectHost(w http.ResponseWriter, hostport string) {
-	host := normalizeHost(hostport)
+	host := NormalizeHost(hostport)
 	if host == "" {
 		writeError(w, http.StatusForbidden, "forbidden_host",
 			"host is not the local JobWatch server")
@@ -106,9 +106,10 @@ func isLoopbackIP(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// normalizeHost lowercases a Host value and strips the port, IPv6 brackets
-// and a trailing dot, so comparisons ignore the port and host case.
-func normalizeHost(hostport string) string {
+// NormalizeHost lowercases a Host value and strips the port, IPv6 brackets
+// and a trailing dot, so comparisons ignore the port and host case. serve
+// uses it to normalize --allow-host entries with the same rules.
+func NormalizeHost(hostport string) string {
 	return strings.TrimSuffix(strings.ToLower(hostOnly(hostport)), ".")
 }
 

@@ -175,7 +175,7 @@ flowchart TD
 
 | Command | Description |
 |---|---|
-| `serve [--port 8080] [--addr 127.0.0.1] [--unsafe-bind]` | Start the local server: REST API under `/api` and the SPA at `/` |
+| `serve [--port 8080] [--addr 127.0.0.1] [--unsafe-bind] [--allow-host H]` | Start the local server: REST API under `/api` and the SPA at `/` |
 | `scan [all\|<source-id>]` | Scan all enabled sources (default) or one source by ID |
 | `add-source <url>` | Register a source; ATS board URLs are detected automatically |
 | `add-sources <file>` | Register every recognized URL in a file |
@@ -190,8 +190,12 @@ reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
 
 `serve` binds `127.0.0.1` by default. A non-loopback `--addr` is refused
 unless `--unsafe-bind` is passed; that flag prints a warning because the
-API has no authentication. The API also rejects a non-loopback `Host`
-and cross-origin writes (see [docs/API.md](docs/API.md#conventions)).
+API has no authentication. With a wildcard bind (`0.0.0.0` or `::`) the
+API accepts the machine's own interface addresses and hostname, so the UI
+works at, for example, `http://192.168.1.73:8080`. A reverse proxy or
+tunnel domain must be allowed explicitly with `--allow-host <name>`
+(repeatable). The API rejects any other `Host`, plus cross-origin writes
+(see [docs/API.md](docs/API.md#conventions)).
 
 ## Web UI
 

@@ -488,7 +488,7 @@ cannot be written or validated the command aborts without migrating.
 
 | Command | Description |
 |---|---|
-| `serve [--port 8080] [--addr 127.0.0.1] [--unsafe-bind]` | Start the local server: REST API under `/api` and the SPA at `/` |
+| `serve [--port 8080] [--addr 127.0.0.1] [--unsafe-bind] [--allow-host H]` | Start the local server: REST API under `/api` and the SPA at `/` |
 | `scan [all\|<source-id>]` | Scan all enabled sources (default) or one source by ID. Exits non-zero if a source failed |
 | `add-source <url> [--name N] [--type T] [--config JSON] [--disabled]` | Register a source |
 | `add-sources <file> [--disabled]` | Register every recognized URL in a file; reports added / already registered / not detected |
@@ -524,6 +524,10 @@ All commands accept the global `--db <path>` flag (default
 # Bind a non-loopback address only deliberately; the API has no auth.
 ./jobwatch serve --addr 192.168.1.20 --unsafe-bind
 
+# Wildcard bind: the UI works at the machine's own interface addresses and
+# hostname. Allow a proxy or tunnel domain explicitly (repeatable).
+./jobwatch serve --addr 0.0.0.0 --unsafe-bind --allow-host internal.example
+
 # Headless usage still works
 ./jobwatch scan
 ./jobwatch list                  # ID, company, title, location, remote, accepted, title/location affinity, states
@@ -538,7 +542,7 @@ All commands accept the global `--db <path>` flag (default
 
 | Command | Flags |
 |---|---|
-| `serve` | `--port` (default 8080), `--addr` (default `127.0.0.1`), `--unsafe-bind` |
+| `serve` | `--port` (default 8080), `--addr` (default `127.0.0.1`), `--unsafe-bind`, `--allow-host` (repeatable) |
 | `scan` | none; argument `all` or a numeric source ID |
 | `add-source` | `--name`, `--type`, `--config` (JSON object), `--disabled` |
 | `add-sources` | `--disabled` |
@@ -554,9 +558,16 @@ were not detected; file and database errors still fail.
 `serve` binds `127.0.0.1` by default. `--addr` accepts `localhost`,
 `127.0.0.0/8` and `::1`; any other address (including `0.0.0.0`) is
 refused unless `--unsafe-bind` is passed, and that flag prints a warning
-on stderr. The REST API rejects a non-loopback `Host`
-(`403 forbidden_host`), a foreign `Origin` on writes
+on stderr. The REST API accepts `Host` values of `localhost`, any name
+ending in `.localhost`, loopback addresses, the bound address and every
+`--allow-host` entry; a wildcard bind also accepts the machine's interface
+addresses and hostname. Any other `Host` is rejected
+(`403 forbidden_host`), as is a foreign `Origin` on writes
 (`403 forbidden_origin`) and a non-JSON body (`415 unsupported_media_type`).
+`--allow-host` takes a host name or IP address with an optional port, can
+be repeated, and is validated before the database is opened; use it for a
+reverse proxy or tunnel domain, for example
+`--allow-host jobwatch.devtunnels.ms`.
 
 ## Smoke test
 
