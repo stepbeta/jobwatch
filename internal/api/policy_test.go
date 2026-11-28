@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stepbeta/jobwatch/internal/model"
@@ -49,6 +50,10 @@ func TestRequestPolicyHost(t *testing.T) {
 		{"loopback IP", "127.0.0.1:8080", http.StatusOK},
 		{"loopback IPv6", "[::1]:8080", http.StatusOK},
 		{"localhost with development port", "localhost:5173", http.StatusOK},
+		{"localhost subdomain", "jobwatch.localhost:8080", http.StatusOK},
+		{"nested localhost subdomain", "a.b.localhost", http.StatusOK},
+		{"localhost suffix lookalike", "notlocalhost:8080", http.StatusForbidden},
+		{"localhost as a prefix", "localhost.attacker.example", http.StatusForbidden},
 		{"rebound host", "attacker.example", http.StatusForbidden},
 		{"public IP", "203.0.113.7:8080", http.StatusForbidden},
 	}
@@ -70,13 +75,51 @@ func TestRequestPolicyHost(t *testing.T) {
 		})
 	}
 
-	// An explicitly bound non-loopback address is added to the allowlist.
-	ts.Server.BindAddr = "192.168.1.20"
+	// An explicitly allowed non-loopback address is added to the allowlist.
+	ts.Server.AllowedHosts = []string{"192.168.1.20"}
 	if rec := doRaw(ts, http.MethodGet, "/api/health", "192.168.1.20:8080", "", "", nil); rec.Code != http.StatusOK {
 		t.Errorf("bound address code = %d, want 200", rec.Code)
 	}
 	if rec := doRaw(ts, http.MethodGet, "/api/health", "198.51.100.5:8080", "", "", nil); rec.Code != http.StatusForbidden {
 		t.Errorf("other address code = %d, want 403", rec.Code)
+	}
+
+	// Entries match by host, ignoring the port, the case and a trailing dot.
+	ts.Server.AllowedHosts = []string{"Proxy.Example:443", "internal.example."}
+	for _, host := range []string{"proxy.example:8080", "PROXY.EXAMPLE", "internal.example:9000"} {
+		if rec := doRaw(ts, http.MethodGet, "/api/health", host, "", "", nil); rec.Code != http.StatusOK {
+			t.Errorf("allowed entry %q code = %d, want 200", host, rec.Code)
+		}
+	}
+	if rec := doRaw(ts, http.MethodGet, "/api/health", "a.proxy.example", "", "", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("allow entries must match exactly, code = %d, want 403", rec.Code)
+	}
+}
+
+func TestRequestPolicyRejectedHostMessage(t *testing.T) {
+	ts := newTestServer(t)
+
+	rec := doRaw(ts, http.MethodGet, "/api/health", "proxy.local:8080", "", "", nil)
+	wantErrorCode(t, rec, http.StatusForbidden, "forbidden_host")
+	var body errorBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"proxy.local"`, "--allow-host proxy.local"} {
+		if !strings.Contains(body.Error.Message, want) {
+			t.Errorf("message %q does not contain %q", body.Error.Message, want)
+		}
+	}
+
+	// A request with no Host at all gets the generic message, not a
+	// dangling flag hint.
+	rec = doRaw(ts, http.MethodGet, "/api/health", "", "", "", nil)
+	wantErrorCode(t, rec, http.StatusForbidden, "forbidden_host")
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(body.Error.Message, "--allow-host") {
+		t.Errorf("empty host message %q should not name the flag", body.Error.Message)
 	}
 }
 
@@ -108,8 +151,8 @@ func TestRequestPolicyOrigin(t *testing.T) {
 		t.Errorf("GET with foreign origin code = %d, want 200", rec.Code)
 	}
 
-	// An explicitly bound address is allowed as an origin too.
-	ts.Server.BindAddr = "192.168.1.20"
+	// An explicitly allowed address is allowed as an origin too.
+	ts.Server.AllowedHosts = []string{"192.168.1.20"}
 	rec = doRaw(ts, http.MethodPost, "/api/notes", "192.168.1.20:8080", "http://192.168.1.20:8080", "application/json", body)
 	wantCode(t, rec, http.StatusCreated)
 }

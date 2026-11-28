@@ -42,8 +42,12 @@ vulnerability/secret scans; `make test` mirrors the Go and frontend
 checks locally, and opt-in committed hooks provide fast pre-commit and
 full pre-push checks. A tag-triggered release workflow publishes
 embedded-UI binaries for Linux, macOS and Windows, with archives and
-`sha256sums.txt`. Open items and deliberate limitations remain in the known-gaps table
-below.
+`sha256sums.txt`. The OpenSpec change `local-access-resilience` is
+implemented: the API allowlist follows the addresses the server actually
+serves, `--allow-host` covers proxies and tunnels, a startup or
+cache-restore hash change is applied, and a refused API is reported in one
+shell banner. Open items and deliberate limitations remain in the
+known-gaps table below.
 
 ## Classification profiles — DONE
 
@@ -1118,6 +1122,57 @@ Done criteria (all met):
 | Pre-migration backup names include fractional seconds and a numeric suffix | two attempts in the same second cannot overwrite each other, and `VACUUM INTO` refuses an existing destination |
 | SSRF filtering (F-02b) and retries/failure counters (F-11b) are out of scope | both need their own design; the change closes the rebinding/write and redirect-politeness gaps first |
 
+## Local access resilience — DONE
+
+OpenSpec change `local-access-resilience`, implemented through task group 5.
+It closes the access gap the previous change left open: `--unsafe-bind`
+with a wildcard address used to accept only the literal `0.0.0.0` in
+`Host`, which no browser sends, so the UI loaded and then failed every
+API call. It also makes a dropped startup hash change impossible and
+reports a refused API once at the top of the shell.
+
+Done criteria (all met):
+- [x] The API allowlist is derived from what the server serves:
+      `localhost`, any name ending in `.localhost`, loopback addresses,
+      the bound address and, for a wildcard bind, every local interface
+      address plus the machine hostname. `--allow-host` adds exact
+      entries; `Host` and write `Origin` share the list.
+- [x] `serve --allow-host` is repeatable and validated before the
+      database opens; empty, URL, path, wildcard and non-numeric-port
+      values abort with an error naming the flag.
+- [x] `403 forbidden_host` names the rejected host and the
+      `--allow-host` value that would allow it; a request without a
+      `Host` keeps the generic message.
+- [x] The shell probes `GET /api/health` on start, `pageshow` and
+      visibility restore, and renders one banner: address plus flag for a
+      refused host, "not responding" otherwise; a later success clears it.
+- [x] `useRoute` re-reads the hash when it subscribes and on `pageshow`;
+      a query-only rewrite still keeps the page and its state.
+- [x] `make test` passes; `go build ./...`, `go vet ./...`, `go test
+      -count=1 ./...` and the frontend suite pass.
+- [x] End-to-end against a rebuilt `-tags ui` binary: loopback serves the
+      dashboard with no banner; `--addr 0.0.0.0 --unsafe-bind` answers 200
+      for the LAN address (192.168.1.73), the docker bridge address and
+      the hostname, and 403 for 203.0.113.9; a mapped `foreign.test` host
+      shows the banner and is accepted after `--allow-host foreign.test`
+      with the dashboard rendered again. The wildcard wiring is also
+      covered by `TestWildcardBindWiresAllowlistIntoAPI`, which runs the
+      expanded allowlist through the real API policy for `Host` and
+      `Origin`.
+- [x] `docs/API.md`, `docs/ARCHITECTURE.md`, `docs/USAGE.md`, `README.md`,
+      `CHANGELOG.md` and the known-gaps table are current.
+
+### Deviations and implementation choices
+
+| Choice | Reason |
+|---|---|
+| `serve` computes the allowlist; `internal/api` only enforces it | interface enumeration at startup is CLI work and stays out of every request; the API keeps the rules that need no discovery (`localhost`, `*.localhost`, loopback) |
+| Every `*.localhost` name is accepted without a flag | RFC 6761 reserves the domain for loopback and browsers resolve it locally, so it cannot be rebound; this makes `jobwatch.localhost` aliases work |
+| A wildcard bind expands into the interface addresses and `os.Hostname()` at startup, with no DNS lookup | a browser sends the address the user typed, never `0.0.0.0`; resolving an FQDN at startup would add network I/O and wrong answers behind a proxy |
+| `--allow-host` matches exactly and ignores the port | patterns silently over-permit; the port never distinguishes a legitimate local client, and the message names the exact value to pass |
+| The health probe runs only on start, `pageshow` and visibility change | one cheap request per entry, no polling, and a server restart is noticed when the user returns to the tab |
+| A refused `Host` also gets a shell banner, not only the 403 | the SPA is served outside the API policy, so a refused host used to look like a broken interface rather than a refused request |
+
 ## Known gaps (current)
 
 | Gap | SPEC ref | Status / behavior |
@@ -1132,6 +1187,7 @@ Done criteria (all met):
 | WTTJ adapter has undocumented dependencies | §7 | Open. Credentials are found by walking the bootstrap page tree for a `properties` object with the `algolia_*` keys; layout-only `jobs-search` blocks and nested `contents[]` are handled, but a CMS rename breaks discovery (permanent scan error). The query is scoped by copying the page's `filters` as `facetFilters`; on a count mismatch every `organization.slug` is canonicalized from the organization record and page 0 is retried once, while a mismatch without a rename returns the received hits. The secured key embeds `website.reference` and is referrer-restricted, and two index shapes are known. See `docs/SOURCE-DECISIONS.md` |
 | WTTJ descriptions depend on the offer page's JSON-LD | §7 | Open. When the index has neither `profile` nor `summary` and the offer has no stored text, the adapter fetches the offer page with the fixed WTTJ browser User-Agent (the WAF challenges the JobWatch UA) and stores `JobPosting.description` as plain text; stored descriptions are skipped on later scans. A missing block, a failed page or a WAF challenge leaves `raw_text` empty while the source stays `ok`, so a systemic failure is silent. Joko was moved to its Ashby board instead (46 roles, full descriptions); Partoo uses the fallback with a 90 s interval. See `docs/SOURCE-DECISIONS.md` |
 | Import metadata extraction is heuristic | §3 | Open. JSON-LD/Open Graph/meta/title only; pages without them need the manual form |
+| Host allowlist is a startup snapshot | §2 | Open by design after OpenSpec change `local-access-resilience`: a wildcard bind accepts the interface addresses and hostname present when `serve` started, so a VPN address added later or an FQDN/mDNS name needs `--allow-host` or a restart |
 | Local API SSRF filtering and source retry counters | §2, §7 | Open by design after OpenSpec change `scan-and-api-hardening`: the API rejects rebinding/foreign writes/non-JSON bodies and redirects re-apply robots and rate limits, but source/import URLs may still target private addresses and there are no retries, backoff or `consecutive_failures` (F-02b, F-11b) |
 | No "N consecutive failures" counter | §7 | Open. One failed scan marks the source `error`/`blocked`; the next success resets it. The error text is in the scan summary but not stored |
 | `notes_fts` not exposed | §4 | Open. The index is maintained but `GET /api/offers?q=` searches offers only |

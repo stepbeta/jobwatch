@@ -324,7 +324,7 @@ network or filesystem call.
 
 ## REST API (`internal/api`)
 
-`api.Server{DB, Version, BindAddr, Fetcher, Now}` mounts Go 1.22
+`api.Server{DB, Version, AllowedHosts, Fetcher, Now}` mounts Go 1.22
 `ServeMux` patterns under `/api/`. The fallback `/api/` pattern answers
 unknown methods and paths with `404 not_found`. Bodies are decoded
 strictly (unknown fields rejected, 1 MiB cap); responses use snake_case
@@ -333,10 +333,15 @@ structs. Errors always use `{"error":{"code","message"}}`.
 
 Before routing, `requestPolicy` enforces the local-request rules:
 
-- `Host` must be `localhost`, a loopback IP (`127.0.0.0/8`, `::1`) or
-  the server's `BindAddr`; any port is accepted, so the Vite proxy's
-  `Host: localhost:5173` works. Anything else is `403 forbidden_host`
-  and no handler runs.
+- `Host` must be an allowed local host: `localhost`, any name ending in
+  `.localhost` (RFC 6761, resolved locally by browsers), a loopback IP
+  (`127.0.0.0/8`, `::1`), or an entry in `Server.AllowedHosts`. `serve`
+  fills that list from its bind address, from the machine's interface
+  addresses and hostname when the bind is a wildcard, and from
+  `--allow-host` values. Any port is accepted, and entries compare by
+  host, case-insensitively, so the Vite proxy's `Host: localhost:5173`
+  works. Anything else is `403 forbidden_host`, the message names the
+  rejected host and the `--allow-host` flag, and no handler runs.
 - A state-changing method (anything except GET, HEAD and OPTIONS) with a
   non-empty `Origin` must name an allowed host, compared without the
   port; a foreign origin is `403 forbidden_origin`. A request with no
@@ -480,12 +485,13 @@ React 19 + TypeScript built by Vite. Source in `web/src`:
 
 | Path | Content |
 |---|---|
-| `App.tsx` | application shell wiring, document title for list routes, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing |
+| `App.tsx` | application shell wiring, document title for list routes, source loading, sequential scan helpers (single source and batch), auto-dismissing toast stack, routing, connection banner |
+| `health.ts` | `useConnectionIssue` probes `GET /api/health` on start, on `pageshow` and when the tab becomes visible; `connectionMessage` turns a refused host into the address to open plus the `--allow-host` hint, and any other failure into a "not responding" notice |
 | `components/Shell.tsx` | persistent full-width header (brand mark and right-aligned controls) plus left sidebar navigation in a full-height column with a sticky inner nav; maps the current route to the active section and renders the Incomplete pending count |
 | `brand.ts`, `components/BrandMark.tsx` | shared radar-mark geometry; the header mark follows the active palette through CSS variables |
 | `title.ts` | route labels and `useDocumentTitle`; detail pages own their entity title |
 | `favicon.ts` | runtime SVG favicon with the application-state badges, plus the link writer and `useOfferFavicon` |
-| `router.ts` | hash routing (`#/`, `#/offers`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/settings`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string |
+| `router.ts` | hash routing (`#/`, `#/offers`, `#/incomplete`, `#/sources`, `#/interview-prep`, `#/settings`, `#/offers/:id`, `#/companies/:id`) plus helpers to read and `replaceState` the current route's query string. `useRoute` re-reads the hash when it subscribes and on `pageshow`, so a change that lands during startup or a back/forward-cache restore is applied without another click; a query rewrite alone does not remount the page |
 | `api.ts` | typed fetch wrapper and API error mapping |
 | `pages/Dashboard.tsx` | Applications section (`has_application`, `sort=recent_event`) with one default-off `Hide closed applications` toggle (`closed=1`; sends the explicit non-negative state set when on), a Refresh button that fans out over the enabled sources behind the visible applications, and a Saved section (`application_state=saved`, `sort=saved`) with no filter |
 | `pages/OffersPage.tsx` | full offers table: URL-restored filters (including remote acceptance, minimum title/location affinity and a searchable company combobox), debounced FTS search, header-click server sorting (including `title_affinity`/`location_affinity`), column picker, per-page selector and pagination, and a header "Add offer" button that opens the manual import dialog (URL fetch-and-prefill plus manual fields) |
@@ -514,6 +520,15 @@ Documents. At `max-width: 900px` the sidebar
 becomes a horizontal scrollable nav row below the header while the header
 controls stay visible. `App.tsx` keeps data and scan state and passes the
 current route and incomplete count to the shell.
+
+One shell-level banner reports a shared API failure so the app does not
+look broken panel by panel: `useConnectionIssue` (`health.ts`) probes
+`GET /api/health` when the shell starts, when `pageshow` fires and when the
+document becomes visible again. A `403 forbidden_host` renders the address
+to open (`http://127.0.0.1:8080` or the one `serve` printed) and the
+`--allow-host` flag for the current host; any other failure renders a "not
+responding" notice. A later successful probe removes the banner without a
+reload. Per-page error boxes and toasts are unchanged.
 
 The header theme control (`components/ThemeControl.tsx`, state in
 `theme.ts`) is a single icon button that cycles System → Light → Dark;

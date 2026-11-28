@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ func newServeCmd(opts *rootOptions) *cobra.Command {
 	var port int
 	var addr string
 	var unsafeBind bool
+	var allowHosts []string
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the local web server",
@@ -33,6 +35,15 @@ func newServeCmd(opts *rootOptions) *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), warning)
 			}
 
+			// Resolve the accepted Host values before the database is
+			// opened, so a bad --allow-host cannot leave a half-started
+			// server behind.
+			hostname, _ := os.Hostname()
+			allowedHosts, err := hostAllowlist(addr, allowHosts, interfaceAddrs(), hostname)
+			if err != nil {
+				return err
+			}
+
 			ctx := cmd.Context()
 			sqlDB, err := opts.open(ctx)
 			if err != nil {
@@ -41,7 +52,7 @@ func newServeCmd(opts *rootOptions) *cobra.Command {
 			defer sqlDB.Close()
 
 			mux := http.NewServeMux()
-			mux.Handle("/api/", (&api.Server{DB: sqlDB, Version: version, BindAddr: addr}).Handler())
+			mux.Handle("/api/", (&api.Server{DB: sqlDB, Version: version, AllowedHosts: allowedHosts}).Handler())
 			mux.Handle("/", web.Handler())
 
 			srv := &http.Server{
@@ -69,6 +80,7 @@ func newServeCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 8080, "TCP port to listen on")
 	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1", "address to bind (localhost only by default)")
 	cmd.Flags().BoolVar(&unsafeBind, "unsafe-bind", false, "allow binding a non-loopback address (the API has no authentication)")
+	cmd.Flags().StringArrayVar(&allowHosts, "allow-host", nil, "extra host name the API accepts, such as a proxy or tunnel domain (repeatable)")
 	return cmd
 }
 
@@ -100,4 +112,99 @@ func isLoopbackBindAddr(addr string) bool {
 	}
 	ip := net.ParseIP(strings.Trim(addr, "[]"))
 	return ip != nil && ip.IsLoopback()
+}
+
+// isWildcardBindAddr reports whether addr asks the listener to bind every
+// interface: an unspecified address (0.0.0.0, ::) or an empty value.
+func isWildcardBindAddr(addr string) bool {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return true
+	}
+	ip := net.ParseIP(strings.Trim(addr, "[]"))
+	return ip != nil && ip.IsUnspecified()
+}
+
+// interfaceAddrs returns the machine's unicast interface addresses as text.
+// An enumeration failure yields no extra entries, so loopback and explicit
+// --allow-host values keep working.
+func interfaceAddrs() []string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		ipnet, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip := ipnet.IP
+		if ip.IsUnspecified() || ip.IsMulticast() {
+			continue
+		}
+		out = append(out, ip.String())
+	}
+	return out
+}
+
+// hostAllowlist builds the Host values the API accepts besides loopback and
+// *.localhost: the --allow-host entries, the bound address when it is
+// specific, and, for a wildcard bind, the machine's own interface addresses
+// and hostname. Entries are normalized like API hosts and deduplicated.
+func hostAllowlist(bindAddr string, explicit, ifaceAddrs []string, hostname string) ([]string, error) {
+	out := make([]string, 0, len(explicit)+len(ifaceAddrs)+2)
+	seen := make(map[string]bool, len(explicit)+len(ifaceAddrs)+2)
+	add := func(host string) {
+		if host == "" || seen[host] {
+			return
+		}
+		seen[host] = true
+		out = append(out, host)
+	}
+	for _, value := range explicit {
+		host, err := parseAllowHost(value)
+		if err != nil {
+			return nil, err
+		}
+		add(host)
+	}
+	if isWildcardBindAddr(bindAddr) {
+		for _, a := range ifaceAddrs {
+			add(api.NormalizeHost(a))
+		}
+		add(api.NormalizeHost(hostname))
+	} else {
+		add(api.NormalizeHost(bindAddr))
+	}
+	return out, nil
+}
+
+// parseAllowHost validates one --allow-host value and returns the normalized
+// host. Only a host name or IP address is accepted, with an optional port.
+func parseAllowHost(value string) (string, error) {
+	raw := strings.TrimSpace(value)
+	switch {
+	case raw == "":
+		return "", errors.New("--allow-host needs a host name")
+	case strings.Contains(raw, "://"):
+		return "", fmt.Errorf("--allow-host %q must be a host name, not a URL", value)
+	case strings.ContainsAny(raw, "/?#"):
+		return "", fmt.Errorf("--allow-host %q must not carry a path or query", value)
+	}
+	if host, port, err := net.SplitHostPort(raw); err == nil {
+		if port != "" {
+			if _, err := strconv.Atoi(port); err != nil {
+				return "", fmt.Errorf("--allow-host %q has a non-numeric port", value)
+			}
+		}
+		raw = host
+	} else if strings.Contains(raw, ":") && net.ParseIP(strings.Trim(raw, "[]")) == nil {
+		return "", fmt.Errorf("--allow-host %q is not a host name or IP address", value)
+	}
+	host := api.NormalizeHost(raw)
+	if host == "" || strings.ContainsAny(host, "* ") {
+		return "", fmt.Errorf("--allow-host %q is not a host name or IP address", value)
+	}
+	return host, nil
 }

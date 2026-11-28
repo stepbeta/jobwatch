@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, errorMessage } from './api'
 import { Shell } from './components/Shell'
+import { connectionMessage, useConnectionIssue } from './health'
 import { CompanyPage } from './pages/CompanyPage'
 import { Dashboard } from './pages/Dashboard'
 import { DocumentsPage } from './pages/DocumentsPage'
@@ -34,6 +35,7 @@ const toastTTL = 8000
 export default function App() {
   const route = useRoute()
   useDocumentTitle(routeTitle(route))
+  const connectionIssue = useConnectionIssue()
   const [sources, setSources] = useState<Source[]>([])
   const [loadError, setLoadError] = useState('')
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -119,6 +121,11 @@ export default function App() {
   return (
     <>
       <Shell route={route} incompleteCount={incompleteCount}>
+        {connectionIssue && (
+          <div className="error-box top-error" role="alert">
+            {connectionMessage(connectionIssue, window.location.hostname)}
+          </div>
+        )}
         {loadError && <div className="error-box top-error">{loadError}</div>}
 
         {route.name === 'dashboard' && (

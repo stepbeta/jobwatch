@@ -1,17 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import App from './App'
-import { api } from './api'
+import { ApiError, api } from './api'
 import type { OfferDetail } from './types'
 
-vi.mock('./api', () => ({
-  api: {
-    listSources: vi.fn(),
-    listOffers: vi.fn(),
-    getOffer: vi.fn(),
-  },
-  errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}))
+vi.mock('./api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api')>()
+  return {
+    ...actual,
+    api: {
+      listSources: vi.fn(),
+      listOffers: vi.fn(),
+      getOffer: vi.fn(),
+      health: vi.fn(),
+    },
+  }
+})
 
 const detail: OfferDetail = {
   offer: {
@@ -59,6 +63,7 @@ beforeEach(() => {
   vi.mocked(api.listSources).mockResolvedValue({ sources: [] })
   vi.mocked(api.listOffers).mockResolvedValue({ offers: [], total: 0, limit: 20, offset: 0 })
   vi.mocked(api.getOffer).mockResolvedValue(detail)
+  vi.mocked(api.health).mockResolvedValue({ status: 'ok', version: 'dev', db: 'ok' })
 })
 
 describe('App browser identity handoff', () => {
@@ -77,5 +82,46 @@ describe('App browser identity handoff', () => {
 
     await waitFor(() => expect(document.title).toBe('Dashboard — JobWatch'))
     expect(icon.getAttribute('href')).toBe('/favicon.svg')
+  })
+})
+
+describe('App connection banner', () => {
+  it('explains a refused host with the address and the flag', async () => {
+    vi.mocked(api.health).mockRejectedValue(
+      new ApiError('forbidden_host', 'host is not allowed', 403),
+    )
+    render(<App />)
+
+    const banner = await screen.findByRole('alert')
+    expect(banner.textContent).toContain('http://127.0.0.1:8080')
+    expect(banner.textContent).toContain('--allow-host')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+  })
+
+  it('reports an unreachable server', async () => {
+    vi.mocked(api.health).mockRejectedValue(new TypeError('Failed to fetch'))
+    render(<App />)
+
+    const banner = await screen.findByRole('alert')
+    expect(banner.textContent).toContain('not responding')
+  })
+
+  it('clears the banner when a later check succeeds', async () => {
+    vi.mocked(api.health)
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValue({ status: 'ok', version: 'dev', db: 'ok' })
+    render(<App />)
+    await screen.findByRole('alert')
+
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+
+  it('shows no banner when the API answers', async () => {
+    render(<App />)
+
+    await waitFor(() => expect(api.health).toHaveBeenCalled())
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })
