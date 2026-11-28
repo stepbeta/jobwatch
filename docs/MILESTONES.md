@@ -1155,7 +1155,10 @@ Done criteria (all met):
       for the LAN address (192.168.1.73), the docker bridge address and
       the hostname, and 403 for 203.0.113.9; a mapped `foreign.test` host
       shows the banner and is accepted after `--allow-host foreign.test`
-      with the dashboard rendered again.
+      with the dashboard rendered again. The wildcard wiring is also
+      covered by `TestWildcardBindWiresAllowlistIntoAPI`, which runs the
+      expanded allowlist through the real API policy for `Host` and
+      `Origin`.
 - [x] `docs/API.md`, `docs/ARCHITECTURE.md`, `docs/USAGE.md`, `README.md`,
       `CHANGELOG.md` and the known-gaps table are current.
 
