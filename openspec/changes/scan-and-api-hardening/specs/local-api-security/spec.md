@@ -57,11 +57,13 @@ and tests keep working.
 
 ### Requirement: Bodies are JSON, apart from attachment uploads
 
-A state-changing request that carries a body SHALL declare
+A state-changing request whose body is decoded as JSON SHALL declare
 `Content-Type: application/json`. The multipart attachment upload SHALL be
-the only exception. A request that violates this requirement SHALL return
-`415 unsupported_media_type`, and it MUST be rejected before the body is
-decoded.
+the only exception. A bodyless request, or a route that ignores its body
+(for example `POST /api/sources/{id}/scan`), MUST remain acceptable
+without a content type. A request that violates this requirement SHALL
+return `415 unsupported_media_type`, and it MUST be rejected before the
+body is decoded.
 
 #### Scenario: Plain-text body is rejected
 

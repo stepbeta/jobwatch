@@ -78,7 +78,8 @@ without proxy configuration changes.
 
 `decodeJSON` gains the `Content-Type: application/json` check. That is
 naturally scoped: the multipart handler never calls `decodeJSON`, bodyless
-writes never call it, and the check happens before decoding.
+writes never call it, and the check happens before decoding. A route that
+does not decode a body (the synchronous source scan) is unaffected.
 
 Alternatives considered: a third-party CSRF library (new dependency, not
 needed); checking `Content-Type` only in middleware (would need a path
