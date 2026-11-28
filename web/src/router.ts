@@ -37,9 +37,18 @@ export function parseRoute(hash: string): Route {
 export function useRoute(): Route {
   const [hash, setHash] = useState(() => window.location.hash || '#/')
   useEffect(() => {
-    const onChange = () => setHash(window.location.hash || '#/')
-    window.addEventListener('hashchange', onChange)
-    return () => window.removeEventListener('hashchange', onChange)
+    const sync = () => setHash(window.location.hash || '#/')
+    // Apply whatever the address bar says now. A change that landed between
+    // the first render and this effect would otherwise be dropped until the
+    // user clicked again, and a back/forward-cache restore would keep the
+    // stale route.
+    sync()
+    window.addEventListener('hashchange', sync)
+    window.addEventListener('pageshow', sync)
+    return () => {
+      window.removeEventListener('hashchange', sync)
+      window.removeEventListener('pageshow', sync)
+    }
   }, [])
   return parseRoute(hash)
 }

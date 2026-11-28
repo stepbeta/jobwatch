@@ -21,8 +21,8 @@
 
 ## 4. Router startup sync
 
-- [ ] 4.1 Apply the current hash when the listener is attached and on `pageshow`, keeping `replaceRouteQuery` non-navigating; verify `router.test.ts` covers a hash changed before the effect, a `pageshow` restore and an unchanged route on query rewrite
-- [ ] 4.2 Note the startup/restore behavior in the `router.ts` row of `docs/ARCHITECTURE.md`; verify the row still matches the module's exports
+- [x] 4.1 Apply the current hash when the listener is attached and on `pageshow`, keeping `replaceRouteQuery` non-navigating; verify `router.test.ts` covers a hash changed before the effect, a `pageshow` restore and an unchanged route on query rewrite
+- [x] 4.2 Note the startup/restore behavior in the `router.ts` row of `docs/ARCHITECTURE.md`; verify the row still matches the module's exports
 
 ## 5. Integration and close-out
 
