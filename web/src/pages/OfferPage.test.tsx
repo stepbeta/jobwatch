@@ -167,7 +167,7 @@ describe('OfferPage timeline events', () => {
       expect(api.updateEvent).toHaveBeenCalledWith(7, 4, {
         type: 'cv_sent',
         description: 'sent again',
-        occurred_at: '2026-11-01',
+        occurred_at: new Date('2026-11-01T00:00').toISOString(),
       }),
     )
   })

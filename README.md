@@ -175,7 +175,7 @@ flowchart TD
 
 | Command | Description |
 |---|---|
-| `serve [--port 8080] [--addr 127.0.0.1]` | Start the local server: REST API under `/api` and the SPA at `/` |
+| `serve [--port 8080] [--addr 127.0.0.1] [--unsafe-bind]` | Start the local server: REST API under `/api` and the SPA at `/` |
 | `scan [all\|<source-id>]` | Scan all enabled sources (default) or one source by ID |
 | `add-source <url>` | Register a source; ATS board URLs are detected automatically |
 | `add-sources <file>` | Register every recognized URL in a file |
@@ -187,6 +187,11 @@ flowchart TD
 All commands accept `--db <path>` (default `./jobwatch.db`). Run
 `./jobwatch <command> --help` for the exact flags; the full command
 reference is in [docs/USAGE.md](docs/USAGE.md#command-reference).
+
+`serve` binds `127.0.0.1` by default. A non-loopback `--addr` is refused
+unless `--unsafe-bind` is passed; that flag prints a warning because the
+API has no authentication. The API also rejects a non-loopback `Host`
+and cross-origin writes (see [docs/API.md](docs/API.md#conventions)).
 
 ## Web UI
 

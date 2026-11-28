@@ -421,11 +421,29 @@ func TouchOfferLastSeen(ctx context.Context, q Querier, id int64, now time.Time)
 	return nil
 }
 
+// CountActiveSourceOffers returns how many active offers have provenance
+// for the source. It is the known-offer count used by the scan guard that
+// rejects empty or suspiciously small observations.
+func CountActiveSourceOffers(ctx context.Context, q Querier, sourceID int64) (int, error) {
+	var n int
+	err := q.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT o.id)
+		FROM job_offers o
+		JOIN job_offer_provenance p ON p.offer_id = o.id
+		WHERE p.source_id = ? AND o.offer_state = 'active'`, sourceID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count active offers for source %d: %w", sourceID, err)
+	}
+	return n, nil
+}
+
 // DisappearedOffer is an offer transitioned from active to disappeared by
-// a scan, with the application state it held at that moment.
+// a scan, with the application state it held at that moment and the time
+// it was last seen (the automatic ghost event time).
 type DisappearedOffer struct {
 	ID               int64
 	ApplicationState model.ApplicationState
+	LastSeenAt       time.Time
 }
 
 // MarkDisappeared sets offer_state = disappeared for every offer that has
@@ -435,7 +453,7 @@ type DisappearedOffer struct {
 func MarkDisappeared(ctx context.Context, q Querier, sourceID int64, scanAt time.Time) ([]DisappearedOffer, error) {
 	ts := model.FormatTime(scanAt)
 	rows, err := q.QueryContext(ctx, `
-		SELECT DISTINCT o.id, o.application_state FROM job_offers o
+		SELECT DISTINCT o.id, o.application_state, o.last_seen_at FROM job_offers o
 		JOIN job_offer_provenance p ON p.offer_id = o.id
 		WHERE p.source_id = ?
 		  AND o.offer_state != 'disappeared'
@@ -456,12 +474,18 @@ func MarkDisappeared(ctx context.Context, q Querier, sourceID int64, scanAt time
 	var gone []DisappearedOffer
 	for rows.Next() {
 		var o DisappearedOffer
-		var state string
-		if err := rows.Scan(&o.ID, &state); err != nil {
+		var state, seen string
+		if err := rows.Scan(&o.ID, &state, &seen); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("find disappeared offers: %w", err)
 		}
 		o.ApplicationState = model.ApplicationState(state)
+		seenAt, perr := model.ParseTime(seen)
+		if perr != nil {
+			rows.Close()
+			return nil, fmt.Errorf("find disappeared offers: %w", perr)
+		}
+		o.LastSeenAt = seenAt
 		gone = append(gone, o)
 	}
 	rows.Close()
@@ -477,17 +501,19 @@ func MarkDisappeared(ctx context.Context, q Querier, sourceID int64, scanAt time
 	return gone, nil
 }
 
-// GhostDisappearedOffer records one ghosted event and closes the
-// application for an offer that just transitioned to disappeared. It runs
-// inside the caller's scan transaction. Only applied and interview offers
-// are ghosted; callers decide that from DisappearedOffer.ApplicationState.
-func GhostDisappearedOffer(ctx context.Context, q Querier, offerID int64, now time.Time) error {
+// GhostDisappearedOffer records one ghosted event at the offer's last-seen
+// time and closes the application for an offer that just transitioned to
+// disappeared. now is the scan instant, used only for bookkeeping columns.
+// It runs inside the caller's scan transaction. Only applied and interview
+// offers are ghosted; callers decide that from
+// DisappearedOffer.ApplicationState.
+func GhostDisappearedOffer(ctx context.Context, q Querier, offerID int64, seenAt, now time.Time) error {
 	desc := "Posting disappeared; marked ghosted automatically."
 	if _, err := InsertEvent(ctx, q, model.Event{
 		OfferID:     offerID,
 		Type:        model.EventGhosted,
 		Description: &desc,
-		OccurredAt:  now,
+		OccurredAt:  seenAt,
 	}, now); err != nil {
 		return err
 	}

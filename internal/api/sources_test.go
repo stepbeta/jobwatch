@@ -138,6 +138,7 @@ func TestSourceScanGhostedCount(t *testing.T) {
 
 	ts.fetcher.offers[src.ID] = []sources.RawOffer{
 		{Title: "Site Reliability Engineer", Location: "Paris", URL: "https://ex.com/jobs/1"},
+		{Title: "Keepalive Role", Location: "Paris", URL: "https://ex.com/jobs/keep"},
 	}
 	rec = ts.do(t, "POST", "/api/sources/"+srcID+"/scan", nil)
 	wantCode(t, rec, 200)
@@ -154,7 +155,9 @@ func TestSourceScanGhostedCount(t *testing.T) {
 	}
 
 	ts.clock.advance(time.Hour)
-	ts.fetcher.offers[src.ID] = nil
+	ts.fetcher.offers[src.ID] = []sources.RawOffer{
+		{Title: "Keepalive Role", Location: "Paris", URL: "https://ex.com/jobs/keep"},
+	}
 	rec = ts.do(t, "POST", "/api/sources/"+srcID+"/scan", nil)
 	wantCode(t, rec, 200)
 	out := decodeBody[scanResp](t, rec)

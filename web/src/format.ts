@@ -200,11 +200,12 @@ export function splitLocalInput(value: string): { date: string; time: string } {
 
 // eventTimestamp builds the API value for an event's occurred_at from a
 // required date and an optional time. A date without a time is sent as
-// YYYY-MM-DD, which the API accepts and interprets as UTC midnight.
+// local midnight (RFC3339 with the current UTC offset), so the stored
+// instant renders as the date the user typed. A bare YYYY-MM-DD would be
+// read as UTC midnight and could land on the previous day.
 export function eventTimestamp(date: string, time: string): string {
   if (!date) return ''
-  if (!time) return date
-  const d = new Date(`${date}T${time}`)
+  const d = new Date(`${date}T${time || '00:00'}`)
   if (Number.isNaN(d.getTime())) return ''
   return d.toISOString()
 }

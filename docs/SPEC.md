@@ -57,6 +57,13 @@ One binary, subcommands:
 Future-proofing: subcommand architecture (e.g. Cobra) so more commands
 can be added later without refactoring.
 
+Migration ordering and the automatic pre-migration backup are specified
+by the `database-migrations` capability
+([openspec/specs/database-migrations/spec.md](../openspec/specs/database-migrations/spec.md)).
+The `serve` loopback default and the `--unsafe-bind` gate are specified
+by `local-api-security`
+([openspec/specs/local-api-security/spec.md](../openspec/specs/local-api-security/spec.md)).
+
 ## 4. Data model (SQLite)
 
 ```sql
@@ -170,7 +177,8 @@ Offer identity and listing transitions are specified by the
 `offer-lifecycle` capability
 ([openspec/specs/offer-lifecycle/spec.md](../openspec/specs/offer-lifecycle/spec.md)):
 `(source, external_uid)` then `(source, url)`, `active | disappeared`
-only, and every distinct description kept as a snapshot.
+only, every distinct description kept as a snapshot, and empty or
+suspiciously small scan observations leaving listing states unchanged.
 
 Not yet captured as a capability: the UI must let the user manually
 merge two offers and manually split a wrongly merged one, and that merge
@@ -196,6 +204,10 @@ an adapter emits a stable uid, a canonical title, location, URL,
 description and company evidence, reports an item it cannot normalize as
 incomplete instead of failing the source, and the pipeline never
 invents a company.
+
+The shared client's redirect politeness — `robots.txt` and the per-host
+interval on every hop — is specified by the `source-fetching` capability
+([openspec/specs/source-fetching/spec.md](../openspec/specs/source-fetching/spec.md)).
 
 Priority of implementations for v1:
 
@@ -261,6 +273,11 @@ dashboard. Optionally trigger via `jobwatch scan`.
 - `POST /api/offers/import`, `POST /api/companies/:id/merge`
 - Serve SPA from embedded FS for everything else.
 
+The API's local request policy — loopback or bound `Host`, foreign write
+`Origin`, and JSON content type before decoding — is specified by
+`local-api-security`
+([openspec/specs/local-api-security/spec.md](../openspec/specs/local-api-security/spec.md)).
+
 ## 9. Web UI (SPA, React + TypeScript, English)
 
 The SPA shell, sidebar navigation, theme selection, browser titles and
@@ -269,6 +286,8 @@ favicon are specified by the `web-ui-shell` capability
 The dashboard sections and the hide-closed toggle are specified by
 `application-lifecycle`
 ([openspec/specs/application-lifecycle/spec.md](../openspec/specs/application-lifecycle/spec.md)).
+Application state transitions, automatic ghosting and date-only timeline
+event times are specified there too.
 The tabbed Settings editor is specified by `search-profiles`
 ([openspec/specs/search-profiles/spec.md](../openspec/specs/search-profiles/spec.md)).
 Page-level behavior, endpoints, components and procedures remain in
@@ -492,3 +511,16 @@ Page-level behavior, endpoints, components and procedures remain in
   deltas were synced to `openspec/specs/web-ui-shell`,
   `openspec/specs/application-lifecycle` and
   `openspec/specs/search-profiles`; section 9 is now a pointer.
+- 2026-11-28 (OpenSpec change `scan-and-api-hardening`, archived): the
+  change is archived and its deltas were synced to
+  `openspec/specs/application-lifecycle`,
+  `openspec/specs/offer-lifecycle`,
+  `openspec/specs/database-migrations`,
+  `openspec/specs/local-api-security` and
+  `openspec/specs/source-fetching`. Sections 3, 5, 7, 8 and 9 now point
+  at those capabilities for the scan trust guard, last-seen ghost event
+  time, date-only event times, pre-migration backups, local request
+  policy, bind gate and per-hop redirect politeness. The schemas,
+  endpoints and operational procedures remain in `docs/DATA-MODEL.md`,
+  `docs/API.md`, `docs/ARCHITECTURE.md`, `docs/USAGE.md` and
+  `README.md`.

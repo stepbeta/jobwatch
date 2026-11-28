@@ -66,9 +66,16 @@ func (s *Scanner) ScanAll(ctx context.Context) ([]Result, error) {
 	return out, nil
 }
 
+// ErrUntrustworthyScan reports a successful fetch whose item count is too
+// small to trust: zero items for a source with active offers, or fewer than
+// half of four or more known active offers. Such an observation is recorded
+// as an error and must not mark offers disappeared.
+var ErrUntrustworthyScan = errors.New("untrustworthy scan observation")
+
 // ScanSource fetches src and applies the result in a single transaction.
 // Fetch failures mark the source "error" (or "blocked" when access was
-// refused); offers are then left untouched.
+// refused); offers are then left untouched. An observation rejected by the
+// trust guard is likewise recorded as "error" without touching offers.
 func (s *Scanner) ScanSource(ctx context.Context, src model.Source) Result {
 	res := Result{SourceID: src.ID, SourceName: src.Name}
 	now := s.now()
@@ -91,6 +98,24 @@ func (s *Scanner) ScanSource(ctx context.Context, src model.Source) Result {
 	}
 	res.Fetched = len(raws)
 
+	known, err := db.CountActiveSourceOffers(ctx, s.DB, src.ID)
+	if err != nil {
+		res.Status = model.ScanError
+		res.Err = err
+		if uerr := db.UpdateSourceScan(ctx, s.DB, src.ID, now, model.ScanError); uerr != nil {
+			res.Err = errors.Join(err, uerr)
+		}
+		return res
+	}
+	if gerr := untrustworthyObservation(usableItems(raws), known); gerr != nil {
+		res.Status = model.ScanError
+		res.Err = gerr
+		if uerr := db.UpdateSourceScan(ctx, s.DB, src.ID, now, model.ScanError); uerr != nil {
+			res.Err = errors.Join(gerr, uerr)
+		}
+		return res
+	}
+
 	if err := s.apply(ctx, src, raws, now, &res); err != nil {
 		res = Result{SourceID: src.ID, SourceName: src.Name, Fetched: len(raws), Status: model.ScanError, Err: err}
 		if uerr := db.UpdateSourceScan(ctx, s.DB, src.ID, now, model.ScanError); uerr != nil {
@@ -100,6 +125,35 @@ func (s *Scanner) ScanSource(ctx context.Context, src model.Source) Result {
 	}
 	res.Status = model.ScanOK
 	return res
+}
+
+// usableItems counts fetched items that carry the URL needed for
+// provenance identity. Items without a URL are skipped by apply, so the
+// guard must not count them as evidence of a healthy scan.
+func usableItems(raws []sources.RawOffer) int {
+	n := 0
+	for _, raw := range raws {
+		if strings.TrimSpace(raw.URL) != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// untrustworthyObservation applies the disappearance guard. It returns nil
+// when the observation may be applied.
+func untrustworthyObservation(fetched, known int) error {
+	if known == 0 {
+		// A source with no known offers cannot be a drop.
+		return nil
+	}
+	if fetched == 0 {
+		return fmt.Errorf("%w: returned no usable items while %d active offers are known", ErrUntrustworthyScan, known)
+	}
+	if known >= 4 && fetched*2 < known {
+		return fmt.Errorf("%w: returned %d usable items for %d active offers", ErrUntrustworthyScan, fetched, known)
+	}
+	return nil
 }
 
 // fetchWithKnown loads the descriptions already stored for src's offers
@@ -177,7 +231,7 @@ func (s *Scanner) apply(ctx context.Context, src model.Source, raws []sources.Ra
 		if o.ApplicationState != model.AppApplied && o.ApplicationState != model.AppInterview {
 			continue
 		}
-		if err := db.GhostDisappearedOffer(ctx, tx, o.ID, now); err != nil {
+		if err := db.GhostDisappearedOffer(ctx, tx, o.ID, o.LastSeenAt, now); err != nil {
 			return err
 		}
 		res.Ghosted++

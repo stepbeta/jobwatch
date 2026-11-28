@@ -31,6 +31,9 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Column and page-size preferences are shared through localStorage; clear
+  // them so a test cannot inherit the previous test's hidden columns.
+  window.localStorage.clear()
   window.location.hash = '#/offers'
   vi.mocked(api.listOffers).mockResolvedValue({ offers: [], total: 0, limit: 50, offset: 0 })
   vi.mocked(api.listCompanies).mockResolvedValue({ companies: [], total: 0, limit: 500, offset: 0 })

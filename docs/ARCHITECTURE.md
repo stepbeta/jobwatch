@@ -9,7 +9,7 @@ Single Go binary (`cmd/jobwatch`), SQLite via `modernc.org/sqlite`
 |---|---|
 | `cmd/jobwatch` | Cobra root + subcommands: `serve`, `scan`, `add-source`, `add-sources`, `list`, `import`, `backup` |
 | `migrations` | Numbered `NNNN_name.sql` files embedded with `go:embed` |
-| `internal/db` | `Open` (DSN pragmas: WAL, foreign_keys, busy_timeout 5s, `_txlock=immediate`), migration runner, `Backup` (`VACUUM INTO`), queries over a `Querier` (`*sql.DB` or `*sql.Tx`) |
+| `internal/db` | `Open`/`OpenWithOptions` (DSN pragmas: WAL, foreign_keys, busy_timeout 5s, `_txlock=immediate`), migration runner and pending-migration detection, `Backup` (`VACUUM INTO`), queries over a `Querier` (`*sql.DB` or `*sql.Tx`) |
 | `internal/model` | Table structs, enum constants, `normalize.go` (company/title keyword normalization, location bucket, fingerprint, text hash), time helpers |
 | `internal/sources` | `Fetcher` interface, `RawOffer`, `Config` (config_json), `Registry`, polite HTTP `Client`, robots.txt parser, URL type detection, adapters |
 | `internal/scan` | Scan pipeline and manual import; depends on `db`, `classify` and `sources`, shared by CLI and API |
@@ -58,8 +58,19 @@ Adapters (`sources.NewRegistry`):
 | html | `GET <source url>`, plus one `GET` per eligible offer when `detail_description_selector` is set | last resort: CSS selectors for the listing page (`item_selector`, `title_selector`, …); cascadia supports `:has()` and `:haschild()` for row containers; one listing request per scan; minimum interval 5 s (also for detail pages); optional `employer` rule (`separator` and/or `selector`) rewrites company and title; the optional detail selector fetches an offer page only when the offer has no stored description or its stored text still equals the listing summary (so a first scan or upgrade makes one request per item, later scans none), falls back to the listing text on a per-item miss, and stops the detail phase after a blocked response while the source stays `ok` |
 
 `manual` has no fetcher; manual offers come from the import path.
-Disabled seeded rows are `html`/`wttj` sources with a `note` in
-`config_json`: the known-hard Workday/SuccessFactors and WTTJ
+Redirects are followed by `fetch`, not by Go's client
+(`CheckRedirect` returns `ErrUseLastResponse`). A `GET` may follow at most
+five `Location` hops; each hop resolves relative URLs, must stay on
+`http`/`https`, and re-runs `robots.txt` and the per-host interval before
+the request. A repeated URL or a sixth redirect fails with an error naming
+the original URL, and a redirect on any non-GET method becomes an
+`HTTPError` instead of replaying the request. `robots.txt` itself is
+fetched by a separate bounded loop with the same scheme, loop and hop
+checks and the per-host interval on every hop, so a canonical-host or
+HTTP→HTTPS redirect still yields usable rules. This applies to every
+adapter and to URL metadata during manual import, because they share the
+client.
+Disabled seeded rows are `html`/`wttj` sources with a `note` in`config_json`: the known-hard Workday/SuccessFactors and WTTJ
 marketplace rows from migration 0002 and the 28 not-trackable decisions
 from 5b. Migration 0003 seeds the 65 sources
 registered in 5a/5b with their decided config. Migration 0004 is an
@@ -122,7 +133,16 @@ never stops on a failing one:
 
 1. `now` = scan start (UTC, seconds); fetch outside any transaction.
 2. Fetch error → `last_scan_status = blocked|error`, `last_scan_at = now`, stop.
-3. One transaction:
+3. Trust guard, still outside any transaction. `CountActiveSourceOffers`
+   counts the source's known active offers (provenance joined to
+   `offer_state = 'active'`), and the items carrying a URL are counted
+   after the empty-URL filter. If the source has known active offers and
+   the observation is empty, or has at least four known offers and the
+   observation is smaller than half, the scan is rejected: nothing is
+   written except `last_scan_status = error` and `last_scan_at = now`, and
+   the result error wraps `scan.ErrUntrustworthyScan`. A source with no
+   known offers (first scan) is never rejected by the ratio rule.
+4. One transaction:
    - for each `RawOffer`: resolve the offer through provenance,
      `(source, external_uid)` first and `(source, url)` second. An item
      without a URL has no provenance identity and is skipped. The
@@ -153,14 +173,15 @@ never stops on a failing one:
      after `incomplete_reason` was cleared: scans then keep the user's
      company, title and location instead of the sighting's values.
    - `MarkDisappeared(source, now)` returns the offers it transitioned
-     with their application state. For each `applied` or `interview`
-     offer, insert one `ghosted` event and set `negative` in the same
+     with their application state and `last_seen_at`. For each `applied`
+     or `interview` offer, insert one `ghosted` event dated at the offer's
+     last-seen time (not the scan time) and set `negative` in the same
      transaction; other states are left untouched. The
      `offer_state != 'disappeared'` predicate makes this idempotent, and
      no backfill runs for offers that disappeared before this behavior
      existed.
    - `last_scan_status = ok`, `last_scan_at = now`; commit.
-4. A failure inside the transaction rolls back and marks the source `error`.
+5. A failure inside the transaction rolls back and marks the source `error`.
 
 Incomplete offers are stored, not displayed: the offers list, dashboard
 and search exclude `incomplete_reason IS NOT NULL` by default
@@ -303,12 +324,29 @@ network or filesystem call.
 
 ## REST API (`internal/api`)
 
-`api.Server{DB, Version, Fetcher, Now}` mounts Go 1.22 `ServeMux`
-patterns under `/api/`. The fallback `/api/` pattern answers unknown
-methods and paths with `404 not_found`. Bodies are decoded strictly
-(unknown fields rejected, 1 MiB cap); responses use snake_case DTOs
-defined in `internal/api/dto.go`, independent of the `model` structs.
-Errors always use `{"error":{"code","message"}}`.
+`api.Server{DB, Version, BindAddr, Fetcher, Now}` mounts Go 1.22
+`ServeMux` patterns under `/api/`. The fallback `/api/` pattern answers
+unknown methods and paths with `404 not_found`. Bodies are decoded
+strictly (unknown fields rejected, 1 MiB cap); responses use snake_case
+DTOs defined in `internal/api/dto.go`, independent of the `model`
+structs. Errors always use `{"error":{"code","message"}}`.
+
+Before routing, `requestPolicy` enforces the local-request rules:
+
+- `Host` must be `localhost`, a loopback IP (`127.0.0.0/8`, `::1`) or
+  the server's `BindAddr`; any port is accepted, so the Vite proxy's
+  `Host: localhost:5173` works. Anything else is `403 forbidden_host`
+  and no handler runs.
+- A state-changing method (anything except GET, HEAD and OPTIONS) with a
+  non-empty `Origin` must name an allowed host, compared without the
+  port; a foreign origin is `403 forbidden_origin`. A request with no
+  `Origin` (curl, CLI, tests) is accepted.
+- `decodeJSON` requires `Content-Type: application/json` (parameters
+  such as `charset` allowed) and answers `415 unsupported_media_type`
+  before reading the body. The multipart attachment upload does not call
+  `decodeJSON`, and handlers that take no JSON body
+  (`POST /api/sources/{id}/scan`, all DELETE routes) never need a content
+  type.
 
 | Group | Routes |
 |---|---|
@@ -648,8 +686,34 @@ check. A copy that fails validation is removed and the command exits
 non-zero. Document bytes live in `attachment_blobs` inside the same
 database file, so one backup copy carries every attached PDF.
 
+### Pre-migration backup
+
+The CLI opens the database through
+`db.OpenWithOptions(ctx, path, db.Options{BackupBeforeMigrate: true})`.
+Before the first pending migration runs, `PendingMigrations` compares the
+embedded files with `schema_migrations`. When the database already has
+schema history and a migration is pending, `backupBeforeMigrate` writes a
+validated copy named `<db>.<UTC timestamp>.pre-<version>.bkp` next to the
+database, where `<version>` is the first pending migration (for example
+`jobwatch.db.20261128T101500.123456789Z.pre-0019.bkp`). A numeric suffix
+before `.bkp` is added if that exact name already exists, so a retried
+failed migration keeps the first backup. A fresh database (no
+`schema_migrations` rows), a current database, `:memory:` and DSN paths
+are never backed up. If the backup cannot be written or validated, the
+open fails before `Migrate` runs and the database is left untouched.
+Tests and embedded callers that use plain `db.Open` keep the old
+behavior.
+
 ## Server
 
 `jobwatch serve` binds `127.0.0.1:8080` by default. `/api/` is the REST
 API; everything else is the SPA (embedded when built with `-tags ui`,
 placeholder otherwise).
+
+`--addr` is validated before the database is opened: `localhost`,
+`127.0.0.0/8` and `::1` are accepted, any other address (including the
+wildcards `0.0.0.0` and `::`) is refused unless `--unsafe-bind` is
+passed. With the flag the server prints a warning on stderr and the bound
+address is added to the API's `Host`/`Origin` allowlist; the API still
+has no authentication, so exposing it is the operator's explicit choice.
+The web page itself is served without the API's host policy.

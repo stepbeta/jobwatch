@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+### Scan and API hardening (OpenSpec change `scan-and-api-hardening`)
+
+#### Added
+- The local REST API now rejects requests aimed at another host:
+  only `localhost`, a loopback IP or the server's `--addr` is accepted
+  (`403 forbidden_host`), which blocks DNS-rebinding reads. Writes with a
+  foreign non-empty `Origin` are rejected (`403 forbidden_origin`);
+  requests without an `Origin` keep working.
+- JSON bodies must declare `Content-Type: application/json` or the API
+  answers `415 unsupported_media_type` before decoding. The multipart
+  attachment upload and bodyless writes are unaffected.
+- `serve --addr` refuses a non-loopback address unless the new
+  `--unsafe-bind` flag is passed. With the flag the server warns on stderr
+  that the API has no authentication, and adds the bound address to the
+  API's host allowlist.
+- Every CLI command now writes a validated
+  `<db>.<UTC timestamp>.pre-<version>.bkp` copy next to the database
+  before the first pending migration runs. Fresh and already-current
+  databases are skipped, a failed migration retried later gets a new
+  backup name, and a backup failure aborts before migrating.
+
+#### Fixed
+- HTTP redirects are now followed manually by the shared client: at most
+  five GET hops, each re-checked against `robots.txt` and the per-host
+  interval. A non-HTTP scheme, a repeated URL or a sixth hop fails with an
+  error naming the original URL, and a redirect on POST fails as an HTTP
+  error instead of being replayed. Redirected `robots.txt` files are
+  followed too, with the same hop limit and interval, so HTTP→HTTPS and
+  canonical-host redirects keep working.
+- A timeline event entered with a date and no time is now sent as local
+  midnight, so it renders as the date the user typed instead of possibly
+  the previous day in negative-offset zones. Events with a time keep the
+  entered local instant. The API still accepts bare dates as UTC.
+- A scan that returns no usable items while the source still has active
+  offers is now rejected: the source is marked `error`, every listing and
+  application state is left unchanged, and nothing is ghosted. A scan of a
+  source with four or more known offers is also rejected when it returns
+  fewer than half of them. Tiny sources and first scans are unaffected.
+- The automatic `ghosted` timeline event is dated at the offer's last-seen
+  time instead of the scan instant, so a closed application records when
+  the posting was last seen. The offer's `updated_at` still records the
+  scan that closed it.
+
 ### CI and hooks (OpenSpec change `ci-and-hooks`)
 
 #### Added

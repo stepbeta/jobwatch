@@ -54,5 +54,5 @@ func newRootCmd() *cobra.Command {
 }
 
 func (o *rootOptions) open(ctx context.Context) (*sql.DB, error) {
-	return db.Open(ctx, o.dbPath)
+	return db.OpenWithOptions(ctx, o.dbPath, db.Options{BackupBeforeMigrate: true})
 }
