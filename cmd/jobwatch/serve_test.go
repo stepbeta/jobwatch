@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+func TestListenAddr(t *testing.T) {
+	tests := []struct {
+		addr string
+		want string
+	}{
+		{"127.0.0.1", "127.0.0.1:8080"},
+		{"localhost", "localhost:8080"},
+		{"::1", "[::1]:8080"},
+		{"[::1]", "[::1]:8080"},
+		{"0.0.0.0", "0.0.0.0:8080"},
+	}
+	for _, tt := range tests {
+		if got := listenAddr(tt.addr, 8080); got != tt.want {
+			t.Errorf("listenAddr(%q) = %q, want %q", tt.addr, got, tt.want)
+		}
+	}
+}
+
 func TestBindPolicy(t *testing.T) {
 	tests := []struct {
 		addr        string

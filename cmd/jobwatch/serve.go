@@ -45,7 +45,7 @@ func newServeCmd(opts *rootOptions) *cobra.Command {
 			mux.Handle("/", web.Handler())
 
 			srv := &http.Server{
-				Addr:              net.JoinHostPort(addr, strconv.Itoa(port)),
+				Addr:              listenAddr(addr, port),
 				Handler:           mux,
 				ReadHeaderTimeout: 10 * time.Second,
 			}
@@ -70,6 +70,13 @@ func newServeCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1", "address to bind (localhost only by default)")
 	cmd.Flags().BoolVar(&unsafeBind, "unsafe-bind", false, "allow binding a non-loopback address (the API has no authentication)")
 	return cmd
+}
+
+// listenAddr joins a bind address with the port. Bracketed IPv6 input
+// such as [::1] is accepted on the command line and normalized so that
+// net.JoinHostPort does not produce [[::1]]:port.
+func listenAddr(addr string, port int) string {
+	return net.JoinHostPort(strings.Trim(strings.TrimSpace(addr), "[]"), strconv.Itoa(port))
 }
 
 // bindPolicy validates --addr before the database is opened. It returns a
